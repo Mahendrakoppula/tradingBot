@@ -1,7 +1,7 @@
 # Deploying to AWS
 
-**Status: live.** Architecture: one EC2 instance, started at 6am IST and
-stopped at 8pm IST on weekdays by EventBridge Scheduler, running the bot as
+**Status: live.** Architecture: one EC2 instance, started at 8am IST and
+stopped at 6pm IST on weekdays by EventBridge Scheduler, running the bot as
 a systemd service. No SSH, no open inbound ports - everything's managed
 through AWS Systems Manager (SSM).
 
@@ -64,7 +64,7 @@ DEPLOY_BUCKET=<same-bucket-name> ./deploy/setup_aws.sh
 This creates: a private encrypted S3 bucket, the EC2 instance's IAM role (S3
 read + SSM Parameter Store read, nothing else), a security group with **no
 inbound rules at all**, the EC2 instance itself, and the two EventBridge
-schedules (start 6am IST / stop 8pm IST, Mon-Fri).
+schedules (start 8am IST / stop 6pm IST, Mon-Fri).
 
 Then push your real secrets to Parameter Store (never touches S3 or git):
 
@@ -95,7 +95,7 @@ morning briefing. If nothing shows up:
 
 **Workflow:** make changes on a branch, merge to `main` - GitHub Actions
 then tests, packages, uploads to S3, and redeploys onto the live instance
-automatically (starting it first if it's outside the 6am-8pm window, and
+automatically (starting it first if it's outside the 8am-6pm window, and
 stopping it again afterward so you're not paying for idle time).
 
 One-time setup, already done for this repo but documented here in case it
@@ -132,7 +132,7 @@ DEPLOY_BUCKET=<bucket> INSTANCE_ID=<id> ./deploy/redeploy.sh
 ```
 
 `redeploy.sh` needs the instance to be running (it uses SSM Run Command) -
-either do it during the 6am-8pm window, or `aws ec2 start-instances
+either do it during the 8am-6pm window, or `aws ec2 start-instances
 --instance-ids <id>` first and stop it again after.
 
 ## 7. Tearing it down

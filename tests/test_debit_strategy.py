@@ -78,6 +78,23 @@ def test_long_option_strategy_enter_buys_and_exit_sells():
     assert rest.placed[0]["quantity"] == "130"
 
 
+def test_long_option_strategy_uses_limit_order_when_quote_given():
+    rest = FakeRest(ltp=20.0)
+    strat = LongOptionStrategy(rest, limit_buffer_pct=0.5)
+    contract = _contract("NIFTY08SEP2624000CE", "CE")
+    quote = {"ltp": 20.0, "depth": {"buy": [{"price": 19.5, "quantity": 100}], "sell": [{"price": 20.5, "quantity": 100}]}}
+
+    leg = strat.enter(contract, qty_lots=1, quote=quote)
+    assert rest.placed[0]["ordertype"] == "LIMIT"
+    assert rest.placed[0]["price"] == "20.6"  # 20.5 * 1.005 rounded
+    assert leg.entry_price == 20.6
+
+    rest.placed.clear()
+    strat.exit(leg, quote=quote)
+    assert rest.placed[0]["ordertype"] == "LIMIT"
+    assert rest.placed[0]["price"] == "19.4"  # 19.5 * 0.995 rounded
+
+
 def test_long_option_state_round_trip(tmp_path, monkeypatch):
     monkeypatch.setattr(state_mod, "LONG_STATE_PATH", tmp_path / "long_positions.json")
     rest = FakeRest(ltp=20.0)

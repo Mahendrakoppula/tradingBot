@@ -1,8 +1,8 @@
 #!/bin/bash
 # One-time AWS provisioning for the trading bot: S3 bucket, IAM role
 # (S3 read + SSM, no SSH/inbound needed), a no-inbound security group, the
-# EC2 instance itself, and EventBridge Scheduler rules to start it at 6am
-# and stop it at 8pm IST on weekdays. Safe to re-run - skips anything that
+# EC2 instance itself, and EventBridge Scheduler rules to start it at 8am
+# and stop it at 6pm IST on weekdays. Safe to re-run - skips anything that
 # already exists by name/tag.
 set -euo pipefail
 
@@ -98,7 +98,7 @@ else
   echo "Instance $INSTANCE_ID already exists - reusing (won't re-run user-data; use deploy/redeploy.sh for code updates)"
 fi
 
-# --- EventBridge Scheduler: start 6am IST, stop 8pm IST, weekdays only ---
+# --- EventBridge Scheduler: start 8am IST, stop 6pm IST, weekdays only ---
 SCHEDULER_ROLE_NAME="trading-bot-scheduler-role"
 if ! aws iam get-role --role-name "$SCHEDULER_ROLE_NAME" >/dev/null 2>&1; then
   cat > $TMPDIR/scheduler-trust-policy.json <<'EOF'
@@ -115,12 +115,12 @@ EOF
 fi
 SCHEDULER_ROLE_ARN=$(aws iam get-role --role-name "$SCHEDULER_ROLE_NAME" --query "Role.Arn" --output text)
 
-aws scheduler create-schedule --region "$REGION" --name trading-bot-start --schedule-expression "cron(0 6 ? * MON-FRI *)" \
+aws scheduler create-schedule --region "$REGION" --name trading-bot-start --schedule-expression "cron(0 8 ? * MON-FRI *)" \
   --schedule-expression-timezone "Asia/Kolkata" --flexible-time-window '{"Mode":"OFF"}' \
   --target "{\"Arn\":\"arn:aws:scheduler:::aws-sdk:ec2:startInstances\",\"RoleArn\":\"$SCHEDULER_ROLE_ARN\",\"Input\":\"{\\\"InstanceIds\\\":[\\\"$INSTANCE_ID\\\"]}\"}" \
   2>/dev/null || echo "Schedule trading-bot-start already exists - skipping"
 
-aws scheduler create-schedule --region "$REGION" --name trading-bot-stop --schedule-expression "cron(0 20 ? * MON-FRI *)" \
+aws scheduler create-schedule --region "$REGION" --name trading-bot-stop --schedule-expression "cron(0 18 ? * MON-FRI *)" \
   --schedule-expression-timezone "Asia/Kolkata" --flexible-time-window '{"Mode":"OFF"}' \
   --target "{\"Arn\":\"arn:aws:scheduler:::aws-sdk:ec2:stopInstances\",\"RoleArn\":\"$SCHEDULER_ROLE_ARN\",\"Input\":\"{\\\"InstanceIds\\\":[\\\"$INSTANCE_ID\\\"]}\"}" \
   2>/dev/null || echo "Schedule trading-bot-stop already exists - skipping"
@@ -128,4 +128,4 @@ aws scheduler create-schedule --region "$REGION" --name trading-bot-stop --sched
 echo
 echo "== Done =="
 echo "Instance: $INSTANCE_ID"
-echo "Runs 6am-8pm IST, Mon-Fri. Logs: aws ssm start-session --target $INSTANCE_ID, then: journalctl -u trading-bot -f"
+echo "Runs 8am-6pm IST, Mon-Fri. Logs: aws ssm start-session --target $INSTANCE_ID, then: journalctl -u trading-bot -f"

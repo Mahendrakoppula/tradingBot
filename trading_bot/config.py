@@ -91,6 +91,35 @@ class Config:
     # today's open; unvalidated starting threshold.
     momentum_min_move_pct: float = 0.15
 
+    # --- pre-market bias (premarket_bias.py) ---
+    # Genuinely LEADING signal (computed once, before the entry window,
+    # from overnight US close + VIX + today's economic calendar) - unlike
+    # the OI-buildup/momentum signal above, which is inherently lagging.
+    # Gates entries by default per an explicit user choice ("take both" -
+    # informational AND gating) - set to false to make it informational only.
+    premarket_bias_gate_enabled: bool = True
+    us_move_threshold_pct: float = 0.5
+    vix_caution_level: float = 20.0
+
+    # --- losing-streak circuit breaker ---
+    # Bounded, safe automatic risk reduction after a run of losing days -
+    # deliberately NOT auto-tuning entry signals/thresholds from this data
+    # (real overfitting risk on a handful of days); just reduces size until
+    # a human reviews the journal and decides on a real change. Tracked via
+    # ledger["losing_streak_days"], persisted across restarts.
+    losing_streak_cooldown_days: int = 3
+    losing_streak_risk_multiplier: float = 0.5
+
+    # --- liquidity check + depth-aware pricing (liquidity.py) ---
+    # Before entering, check the SPECIFIC contract's own open interest and
+    # bid-ask depth (not just the underlying's) - a thin contract can have a
+    # wide spread even when the underlying itself is liquid. If it passes,
+    # use a LIMIT order priced off the book instead of an unbounded MARKET
+    # order. First-cut thresholds, not backtested.
+    max_spread_pct: float = 8.0
+    min_open_interest: int = 100
+    limit_order_buffer_pct: float = 0.5
+
     @classmethod
     def from_env(cls) -> "Config":
         missing = [
@@ -132,4 +161,12 @@ class Config:
             pcr_min=float(os.environ.get("PCR_MIN", "0.7")),
             pcr_max=float(os.environ.get("PCR_MAX", "1.3")),
             momentum_min_move_pct=float(os.environ.get("MOMENTUM_MIN_MOVE_PCT", "0.15")),
+            premarket_bias_gate_enabled=os.environ.get("PREMARKET_BIAS_GATE_ENABLED", "true").lower() == "true",
+            us_move_threshold_pct=float(os.environ.get("US_MOVE_THRESHOLD_PCT", "0.5")),
+            vix_caution_level=float(os.environ.get("VIX_CAUTION_LEVEL", "20")),
+            losing_streak_cooldown_days=int(os.environ.get("LOSING_STREAK_COOLDOWN_DAYS", "3")),
+            losing_streak_risk_multiplier=float(os.environ.get("LOSING_STREAK_RISK_MULTIPLIER", "0.5")),
+            max_spread_pct=float(os.environ.get("MAX_SPREAD_PCT", "8.0")),
+            min_open_interest=int(os.environ.get("MIN_OPEN_INTEREST", "100")),
+            limit_order_buffer_pct=float(os.environ.get("LIMIT_ORDER_BUFFER_PCT", "0.5")),
         )

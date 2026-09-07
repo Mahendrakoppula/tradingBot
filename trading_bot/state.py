@@ -9,6 +9,7 @@ STATE_PATH = Path(__file__).resolve().parent.parent / ".state" / "positions.json
 LONG_STATE_PATH = Path(__file__).resolve().parent.parent / ".state" / "long_positions.json"
 CAPITAL_PATH = Path(__file__).resolve().parent.parent / ".state" / "capital.json"
 TRADE_LOG_PATH = Path(__file__).resolve().parent.parent / ".state" / "trade_log.jsonl"
+JOURNAL_PATH = Path(__file__).resolve().parent.parent / ".state" / "journal.jsonl"
 
 
 @dataclass
@@ -107,4 +108,13 @@ def log_trade(record: dict) -> None:
     """Appends one closed trade's outcome for later strategy review."""
     TRADE_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
     with TRADE_LOG_PATH.open("a", encoding="utf-8") as f:
+        f.write(json.dumps(record) + "\n")
+
+
+def log_journal_day(record: dict) -> None:
+    """Appends one day's structured market-conditions/decisions/outcomes
+    summary - the raw material for periodic human review of whether the
+    strategy needs adjusting. See README 'Daily journal' section."""
+    JOURNAL_PATH.parent.mkdir(parents=True, exist_ok=True)
+    with JOURNAL_PATH.open("a", encoding="utf-8") as f:
         f.write(json.dumps(record) + "\n")
