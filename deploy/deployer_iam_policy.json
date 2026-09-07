@@ -66,6 +66,7 @@
       "Effect": "Allow",
       "Action": [
         "scheduler:CreateSchedule",
+        "scheduler:UpdateSchedule",
         "scheduler:DeleteSchedule",
         "scheduler:GetSchedule"
       ],

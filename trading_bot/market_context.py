@@ -78,7 +78,7 @@ YAHOO_SYMBOLS = {
 }
 
 
-def get_global_quote(yahoo_symbol: str) -> float | None:
+def _fetch_yahoo_meta(yahoo_symbol: str) -> dict | None:
     try:
         resp = requests.get(
             f"https://query1.finance.yahoo.com/v8/finance/chart/{yahoo_symbol}",
@@ -87,11 +87,25 @@ def get_global_quote(yahoo_symbol: str) -> float | None:
             timeout=10,
         )
         resp.raise_for_status()
-        data = resp.json()
-        return float(data["chart"]["result"][0]["meta"]["regularMarketPrice"])
+        return resp.json()["chart"]["result"][0]["meta"]
     except Exception:
         log.exception("Could not fetch Yahoo quote for %s", yahoo_symbol)
         return None
+
+
+def get_global_quote(yahoo_symbol: str) -> float | None:
+    meta = _fetch_yahoo_meta(yahoo_symbol)
+    return float(meta["regularMarketPrice"]) if meta else None
+
+
+def get_global_change_pct(yahoo_symbol: str) -> float | None:
+    """The session's own % change (regularMarketChangePercent) - used as an
+    overnight leading cue for how Indian markets tend to open, since this
+    reflects a full session that already closed before India's opens."""
+    meta = _fetch_yahoo_meta(yahoo_symbol)
+    if meta is None or "regularMarketChangePercent" not in meta:
+        return None
+    return float(meta["regularMarketChangePercent"])
 
 
 def get_global_cues() -> dict[str, float]:

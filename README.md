@@ -64,10 +64,18 @@ capital.
   resetting.
 - Daily loss cap: blocks new entries for the rest of the day once breached,
   as a percentage of the current capital ledger.
-- Every closed trade is appended to `.state/trade_log.jsonl` for reviewing
-  how the strategy actually performed once you've let it paper-trade a while.
-- Orders are placed as MARKET orders - slippage on thin far-OTM contracts is
-  a real, currently-unmitigated risk.
+- Every closed trade is appended to `.state/trade_log.jsonl`, and every
+  day gets a structured record in `.state/journal.jsonl` (conditions,
+  decisions, outcomes) - meant for periodic human review, not automatic
+  strategy rewriting (see "Pre-market bias & the learning approach" below).
+- **Liquidity-checked, depth-aware pricing** (`liquidity.py`): before
+  entering, checks the SPECIFIC contract's own open interest and bid-ask
+  spread (not just the underlying's - a thin far-OTM strike can be illiquid
+  even when the underlying trades fine), skipping the trade if it fails.
+  Orders are then priced as LIMIT off the live book (best ask + a small
+  buffer to buy, best bid - a buffer to sell) instead of an unbounded
+  MARKET order, capping worst-case slippage. Verified live against a real
+  NIFTY contract's depth.
 - Position state survives a restart via `.state/long_positions.json`.
 
 **Verified against a live account (2026-09-07, read-only - no orders
@@ -79,6 +87,37 @@ HTTP 403 on most calls; fixed by pacing and fetching once per cycle instead
 of once per underlying. (2) OIBuildup never includes indices - the momentum
 fallback above is what fixes that. Nothing has been run with real order
 placement yet (`DRY_RUN` stays `true`).
+
+## Pre-market bias & the learning approach
+
+`premarket_bias.py` is a genuinely **leading** signal, unlike everything
+above (OI-buildup and momentum both need today's price to have *already*
+moved before they fire). Computed once, before the entry window: the prior
+US session's own close (S&P 500 - it closed hours before India opens, so
+its move is fully known ahead of time), India VIX, and whether a major
+economic event is scheduled today. Posted to Telegram alongside the morning
+briefing, and by default (`PREMARKET_BIAS_GATE_ENABLED=true`) also gates
+entries: a BULLISH/BEARISH day requires the intraday signal to agree
+(reject a PUT signal on a BULLISH day), and a CAUTIOUS day (VIX elevated or
+an event scheduled) blocks all new entries outright. First-cut thresholds,
+not backtested - set the flag to `false` to make it informational only.
+
+On "learning from the market every day": deliberately did **not** build
+auto-tuning of entry thresholds from daily results - a handful of trading
+days is enough to fit noise, not find a real edge, and doing that on a live
+(even paper) financial system is a real risk, not a convenience. Instead:
+
+- Every trading day writes a structured record to `.state/journal.jsonl` -
+  the day's pre-market bias, every entry/skip decision and why, and every
+  trade's outcome. This is the raw material for **periodic human review**
+  (weekly, say) to decide together whether something should actually
+  change - not for the bot to decide on its own.
+- The one exception, a bounded and safe automatic behavior: a
+  **losing-streak circuit breaker**. After `LOSING_STREAK_COOLDOWN_DAYS`
+  (default 3) consecutive losing days, position size shrinks to
+  `LOSING_STREAK_RISK_MULTIPLIER` (default 50%) until a human looks at the
+  journal and decides on a real change. This only ever makes the bot more
+  conservative, never changes what signals it acts on.
 
 ## Morning briefing
 
@@ -106,8 +145,8 @@ unconfigured.
 ## Deploying to AWS
 
 **Live as of 2026-09-07** - see `deploy/DEPLOY.md` for the full guide.
-Architecture: one EC2 `t3.micro` in `ap-south-1`, started 6am IST / stopped
-8pm IST on weekdays by EventBridge Scheduler, running the bot as a systemd
+Architecture: one EC2 `t3.micro` in `ap-south-1`, started 8am IST / stopped
+6pm IST on weekdays by EventBridge Scheduler, running the bot as a systemd
 service. No SSH/inbound ports - managed entirely through AWS Systems
 Manager. Real credentials live in **AWS SSM Parameter Store** (free tier),
 fetched fresh onto the instance on every boot - never bundled into the
@@ -118,7 +157,7 @@ deploy package. Estimated cost: ~$4-5/month.
 **CI/CD**: push/merge to `main` on GitHub triggers `.github/workflows/deploy.yml`
 - runs `pytest tests/`, and only if that passes, packages, uploads to S3,
 and redeploys onto the live instance (auto start/stop if it's outside the
-6am-8pm window). Auth via GitHub OIDC federation to a scoped IAM role - no
+8am-6pm window). Auth via GitHub OIDC federation to a scoped IAM role - no
 static AWS keys stored in GitHub. Workflow: make changes on a branch, merge
 to main, CI ships it.
 
@@ -190,13 +229,17 @@ Fully built and unit-tested, just not capital-appropriate right now.
   LTP lookup) plus `IronCondorStrategy` (dormant, see above)
 - `debit_strategy.py` — `LongOptionStrategy` (active) plus the OI-buildup/
   momentum direction signal
+- `premarket_bias.py` — the leading (not lagging) daily bias signal, see
+  "Pre-market bias & the learning approach" above
+- `liquidity.py` — per-contract open-interest/depth check and depth-aware
+  LIMIT pricing for entries and exits
 - `sizing.py` — `size_long_option` (premium-based, active) and
   `size_condor` (margin-based, dormant)
 - `risk.py` — per-trade stop and daily loss-cap gate, both a percentage of
   the running capital ledger
 - `state.py` — persists open positions (condor and long-option, separately),
-  the capital ledger, and a trade log to disk so a restart doesn't lose
-  track of any of it
+  the capital ledger, a trade log, and the daily journal to disk so a
+  restart doesn't lose track of any of it
 - `run_daily.py` — **the active strategy loop**
 - `run_condor.py` — the dormant condor strategy loop
 - `market_filter.py` — VIX+PCR+OI go/no-go check used by `run_condor.py`
@@ -231,9 +274,11 @@ Fully built and unit-tested, just not capital-appropriate right now.
 
 ## Not built yet
 
-- Backtesting the direction signal / thresholds against historical data
-  (they're unvalidated starting guesses right now)
-- Limit-order execution with depth-aware pricing (currently MARKET orders)
-- Trade/fill persistence beyond the current day's open positions
+- Backtesting the direction signal / momentum / pre-market bias thresholds
+  against historical data (they're unvalidated starting guesses right now)
+- Periodic/continuous refresh of breadth or pre-market bias through the
+  day (both are currently once-per-day, at startup)
+- Any actual human review process against `.state/journal.jsonl` yet - it's
+  brand new, hasn't accumulated enough days to review
 - Any LIVE order placement at all - login/data/sizing verified live, but
   `DRY_RUN` has stayed `true` throughout

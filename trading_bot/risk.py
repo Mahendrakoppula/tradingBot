@@ -34,6 +34,9 @@ class DailyRiskTracker:
         self._daily_pnl += pnl
         log.info("Realized P&L %.2f, running daily P&L %.2f", pnl, self._daily_pnl)
 
+    def daily_pnl(self) -> float:
+        return self._daily_pnl
+
     def can_enter_new_trade(self) -> bool:
         cap = self.daily_loss_cap()
         if self._daily_pnl <= -abs(cap):

@@ -1,5 +1,6 @@
 import logging
 
+from trading_bot.liquidity import entry_limit_price, exit_limit_price
 from trading_bot.options import OptionChain, OptionContract
 from trading_bot.rest_client import RestClient
 from trading_bot.state import LegFill
@@ -93,13 +94,23 @@ class LongOptionStrategy:
     hitting the stop-loss, never carried overnight.
     """
 
-    def __init__(self, rest: RestClient):
+    def __init__(self, rest: RestClient, limit_buffer_pct: float = 0.5):
         self.rest = rest
+        self.limit_buffer_pct = limit_buffer_pct
 
-    def enter(self, contract: OptionContract, qty_lots: int) -> LegFill:
+    def enter(self, contract: OptionContract, qty_lots: int, quote: dict | None = None) -> LegFill:
         total_qty = contract.lotsize * qty_lots
-        place_split_order(self.rest, contract.tradingsymbol, contract.token, contract.exchange, "BUY", total_qty, contract.freeze_qty)
-        entry_price = current_ltp(self.rest, contract.exchange, contract.tradingsymbol, contract.token)
+        if quote is not None:
+            # Depth-aware LIMIT order - caps worst-case slippage on thin
+            # contracts, unlike an unbounded MARKET order. quote should
+            # already have passed liquidity.check_liquidity() by this point.
+            price = entry_limit_price(quote, self.limit_buffer_pct)
+            place_split_order(self.rest, contract.tradingsymbol, contract.token, contract.exchange, "BUY",
+                               total_qty, contract.freeze_qty, ordertype="LIMIT", price=price)
+            entry_price = price
+        else:
+            place_split_order(self.rest, contract.tradingsymbol, contract.token, contract.exchange, "BUY", total_qty, contract.freeze_qty)
+            entry_price = current_ltp(self.rest, contract.exchange, contract.tradingsymbol, contract.token)
         return LegFill(
             tradingsymbol=contract.tradingsymbol,
             symboltoken=contract.token,
@@ -111,5 +122,10 @@ class LongOptionStrategy:
             entry_price=entry_price,
         )
 
-    def exit(self, leg: LegFill) -> None:
-        place_split_order(self.rest, leg.tradingsymbol, leg.symboltoken, leg.exchange, "SELL", leg.quantity, leg.freeze_qty)
+    def exit(self, leg: LegFill, quote: dict | None = None) -> None:
+        if quote is not None:
+            price = exit_limit_price(quote, self.limit_buffer_pct)
+            place_split_order(self.rest, leg.tradingsymbol, leg.symboltoken, leg.exchange, "SELL",
+                               leg.quantity, leg.freeze_qty, ordertype="LIMIT", price=price)
+        else:
+            place_split_order(self.rest, leg.tradingsymbol, leg.symboltoken, leg.exchange, "SELL", leg.quantity, leg.freeze_qty)

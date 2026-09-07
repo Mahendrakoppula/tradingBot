@@ -10,11 +10,15 @@ log = logging.getLogger(__name__)
 
 def place_split_order(
     rest: RestClient, tradingsymbol: str, token: str, exchange: str, transaction_type: str,
-    total_qty: int, freeze_qty: int,
+    total_qty: int, freeze_qty: int, ordertype: str = "MARKET", price: float | None = None,
 ) -> None:
     """NSE rejects any single F&O order above the contract's freeze quantity -
     split into multiple orders when a trade's total size exceeds it. Shared
-    by every strategy that places orders."""
+    by every strategy that places orders.
+
+    Defaults to MARKET with no price field (unchanged from before depth-aware
+    pricing existed). Pass ordertype="LIMIT" + price to cap worst-case
+    slippage on thin contracts instead - see liquidity.py."""
     freeze_qty = freeze_qty or total_qty
     remaining = total_qty
     while remaining > 0:
@@ -25,11 +29,13 @@ def place_split_order(
             "symboltoken": token,
             "transactiontype": transaction_type,
             "exchange": exchange,
-            "ordertype": "MARKET",
+            "ordertype": ordertype,
             "producttype": "INTRADAY",
             "duration": "DAY",
             "quantity": str(chunk),
         }
+        if price is not None:
+            order["price"] = str(price)
         log.info("Placing order: %s", order)
         rest.place_order(order)
         remaining -= chunk

@@ -11,9 +11,11 @@ from trading_bot.config import Config
 from trading_bot.debit_strategy import LongOptionStrategy, build_long_leg, pick_direction, pick_momentum_direction
 from trading_bot.error_notifier import notify_error
 from trading_bot.instruments import InstrumentLookup
+from trading_bot.liquidity import check_liquidity, get_quote_for_contract
 from trading_bot.market_context import get_oi_buildup
 from trading_bot.notifier import notify
 from trading_bot.options import OptionChain, find_spot_instrument
+from trading_bot.premarket_bias import allows_direction, compute_premarket_bias, format_bias_line
 from trading_bot.rest_client import RestClient
 from trading_bot.risk import DailyRiskTracker
 from trading_bot.sizing import size_long_option
@@ -36,9 +38,15 @@ def _unrealized_pnl(rest: RestClient, position: state_mod.OpenLongOption) -> flo
 
 
 def _settle_close(rest: RestClient, strategy: LongOptionStrategy, risk: DailyRiskTracker,
-                   ledger: dict, position: state_mod.OpenLongOption, reason: str) -> None:
+                   ledger: dict, position: state_mod.OpenLongOption, reason: str, journal: dict) -> None:
     pnl = _unrealized_pnl(rest, position)
-    strategy.exit(position.option)
+    leg = position.option
+    try:
+        exit_quote = get_quote_for_contract(rest, leg.exchange, leg.symboltoken)
+    except Exception:
+        log.exception("Could not fetch exit quote for %s - falling back to MARKET order", leg.tradingsymbol)
+        exit_quote = None
+    strategy.exit(leg, quote=exit_quote)
     risk.record_realized(pnl)
     ledger["current_capital"] += pnl
     ledger["updated_at"] = now_ist().isoformat()
@@ -54,13 +62,15 @@ def _settle_close(rest: RestClient, strategy: LongOptionStrategy, risk: DailyRis
         "realized_pnl": pnl,
         "capital_after": ledger["current_capital"],
     })
+    journal["trades"].append({"underlying": position.underlying, "pnl": pnl, "reason": reason})
     log.info("%s closed (%s): P&L %.2f, capital now Rs.%.2f", position.underlying, reason, pnl, ledger["current_capital"])
     notify(f"{'[DRY RUN] ' if rest.session.cfg.dry_run else ''}{position.underlying} {position.option.tradingsymbol} "
            f"closed ({reason}): P&L Rs.{pnl:.2f}, capital now Rs.{ledger['current_capital']:.2f}")
 
 
 def _maybe_enter(cfg: Config, rest: RestClient, instruments: InstrumentLookup, strategy: LongOptionStrategy,
-                  risk: DailyRiskTracker, oi_buildup: dict, positions: dict, underlying: str, today: dt.date) -> None:
+                  risk: DailyRiskTracker, oi_buildup: dict, bias: dict, positions: dict, underlying: str,
+                  today: dt.date, journal: dict) -> None:
     chain = OptionChain(instruments.instruments, underlying, exchange="NFO")
     expiry = chain.nearest_expiry_within(today, cfg.dte_min, cfg.dte_max)
     if expiry is None:
@@ -78,11 +88,35 @@ def _maybe_enter(cfg: Config, rest: RestClient, instruments: InstrumentLookup, s
         option_type, reason = pick_momentum_direction(spot_data, cfg.momentum_min_move_pct)
     if option_type is None:
         log.info("%s: skipping entry - %s", underlying, reason)
+        journal["decisions"].append({"time": now_ist().isoformat(), "underlying": underlying, "action": "skipped", "reason": reason})
         return
+
+    if cfg.premarket_bias_gate_enabled and not allows_direction(bias, option_type):
+        skip_reason = f"{option_type} signal ({reason}) conflicts with pre-market bias {bias['bias']}"
+        log.info("%s: skipping entry - %s", underlying, skip_reason)
+        journal["decisions"].append({"time": now_ist().isoformat(), "underlying": underlying, "action": "skipped", "reason": skip_reason})
+        return
+
     log.info("%s: %s", underlying, reason)
 
     contract = build_long_leg(chain, expiry, spot, option_type, cfg.otm_distance_pct)
     log.info("%s expiry=%s spot=%.2f contract=%s", underlying, expiry, spot, contract.tradingsymbol)
+
+    # Check the CONTRACT's own liquidity (not just the underlying's) before
+    # doing anything else - a thin far-OTM strike can have a wide spread
+    # even when the underlying itself trades fine.
+    quote = get_quote_for_contract(rest, contract.exchange, contract.token)
+    if quote is None:
+        skip_reason = "could not fetch a quote for this contract"
+        log.info("%s: skipping entry - %s", underlying, skip_reason)
+        journal["decisions"].append({"time": now_ist().isoformat(), "underlying": underlying, "action": "skipped", "reason": skip_reason})
+        return
+    liquid, liquidity_reason = check_liquidity(quote, cfg.max_spread_pct, cfg.min_open_interest)
+    if not liquid:
+        skip_reason = f"{contract.tradingsymbol} illiquid - {liquidity_reason}"
+        log.info("%s: skipping entry - %s", underlying, skip_reason)
+        journal["decisions"].append({"time": now_ist().isoformat(), "underlying": underlying, "action": "skipped", "reason": skip_reason})
+        return
 
     # Budget = the smaller of "max acceptable loss on one trade" and "max
     # capital fraction per trade" - for a long option these are the same
@@ -90,16 +124,22 @@ def _maybe_enter(cfg: Config, rest: RestClient, instruments: InstrumentLookup, s
     budget = min(risk.max_loss_per_trade(), risk.ledger["current_capital"] * cfg.max_capital_pct_per_trade)
     lots, premium_per_lot = size_long_option(rest, contract, budget, cfg.max_lots_per_trade)
     if lots < 1:
-        log.info("%s: budget Rs.%.2f can't cover 1 lot (premium Rs.%.2f) - skipping", underlying, budget, premium_per_lot)
+        skip_reason = f"budget Rs.{budget:.2f} can't cover 1 lot (premium Rs.{premium_per_lot:.2f})"
+        log.info("%s: skipping entry - %s", underlying, skip_reason)
+        journal["decisions"].append({"time": now_ist().isoformat(), "underlying": underlying, "action": "skipped", "reason": skip_reason})
         return
 
-    leg = strategy.enter(contract, qty_lots=lots)
+    leg = strategy.enter(contract, qty_lots=lots, quote=quote)
     positions[underlying] = state_mod.OpenLongOption(
         underlying=underlying,
         expiry=expiry.strftime("%d%b%Y").upper(),
         entered_at=now_ist().isoformat(),
         option=leg,
     )
+    journal["decisions"].append({
+        "time": now_ist().isoformat(), "underlying": underlying, "action": "entered",
+        "reason": reason, "option_type": option_type, "lots": lots,
+    })
     notify(
         f"{'[DRY RUN] ' if cfg.dry_run else ''}Bought {underlying} {contract.tradingsymbol}: {lots} lot(s) "
         f"@ ~Rs.{leg.entry_price:.2f}, premium Rs.{premium_per_lot * lots:.2f} ({reason})"
@@ -132,8 +172,21 @@ def main() -> None:
         notify_error(f"Login failed - {status_line} - {e}")
         raise
     rest = RestClient(session)
-    strategy = LongOptionStrategy(rest)
-    risk = DailyRiskTracker(risk_per_trade_pct=cfg.risk_per_trade_pct, daily_loss_cap_pct=cfg.daily_loss_cap_pct, ledger=ledger)
+    strategy = LongOptionStrategy(rest, limit_buffer_pct=cfg.limit_order_buffer_pct)
+
+    # Losing-streak circuit breaker: bounded, safe automatic risk reduction -
+    # NOT auto-tuning entry signals (overfitting risk on sparse data), just
+    # shrinks size until a human reviews the journal and decides on a real
+    # change. See config.py docstring.
+    streak = ledger.get("losing_streak_days", 0)
+    risk_pct, cap_pct = cfg.risk_per_trade_pct, cfg.daily_loss_cap_pct
+    if streak >= cfg.losing_streak_cooldown_days:
+        risk_pct *= cfg.losing_streak_risk_multiplier
+        cap_pct *= cfg.losing_streak_risk_multiplier
+        msg = f"Losing streak: {streak} consecutive losing days - risk reduced to {cfg.losing_streak_risk_multiplier:.0%} today"
+        log.warning(msg)
+        notify(msg)
+    risk = DailyRiskTracker(risk_per_trade_pct=risk_pct, daily_loss_cap_pct=cap_pct, ledger=ledger)
 
     instruments = InstrumentLookup(cfg.scrip_master_url)
     instruments.load()
@@ -148,6 +201,28 @@ def main() -> None:
     except Exception as e:
         log.exception("Could not build morning briefing - continuing without it")
         notify_error(f"Morning briefing failed to build - {e}")
+
+    # Pre-market bias: genuinely LEADING (computed once, before the entry
+    # window, from overnight US close + VIX + today's economic calendar) -
+    # unlike the OI-buildup/momentum signal, which is inherently lagging.
+    try:
+        bias = compute_premarket_bias(rest, cfg.us_move_threshold_pct, cfg.vix_caution_level)
+        notify(format_bias_line(bias))
+    except Exception as e:
+        log.exception("Could not compute pre-market bias - defaulting to NEUTRAL (no gating)")
+        notify_error(f"Pre-market bias computation failed, defaulting to NEUTRAL - {e}")
+        bias = {"bias": "NEUTRAL", "reasons": ["computation failed"], "us_overnight_pct": None, "vix": None, "economic_events_today": None}
+
+    journal = {
+        "date": today.isoformat(),
+        "started_at": now_ist().isoformat(),
+        "premarket_bias": bias,
+        "watchlist": list(cfg.watchlist),
+        "starting_capital": ledger["current_capital"],
+        "losing_streak_days_at_start": streak,
+        "decisions": [],
+        "trades": [],
+    }
 
     stop = False
 
@@ -170,7 +245,7 @@ def main() -> None:
             for underlying, position in list(positions.items()):
                 log.info("Exit time reached - closing %s %s", underlying, position.option.tradingsymbol)
                 try:
-                    _settle_close(rest, strategy, risk, ledger, position, reason="exit_time")
+                    _settle_close(rest, strategy, risk, ledger, position, reason="exit_time", journal=journal)
                     del positions[underlying]
                 except Exception as e:
                     log.exception("Failed to close %s at exit time - MANUAL INTERVENTION MAY BE NEEDED", underlying)
@@ -188,7 +263,7 @@ def main() -> None:
                 if risk.should_exit_for_stop(pnl):
                     log.warning("%s hit per-trade stop (unrealized %.2f) - closing early", underlying, pnl)
                     try:
-                        _settle_close(rest, strategy, risk, ledger, position, reason="stop_loss")
+                        _settle_close(rest, strategy, risk, ledger, position, reason="stop_loss", journal=journal)
                         del positions[underlying]
                     except Exception as e:
                         log.exception("Failed to close %s on stop - MANUAL INTERVENTION MAY BE NEEDED", underlying)
@@ -206,7 +281,7 @@ def main() -> None:
                     oi_buildup = get_oi_buildup(rest)
                     for underlying in candidates:
                         try:
-                            _maybe_enter(cfg, rest, instruments, strategy, risk, oi_buildup, positions, underlying, today)
+                            _maybe_enter(cfg, rest, instruments, strategy, risk, oi_buildup, bias, positions, underlying, today, journal)
                         except Exception as e:
                             log.exception("Entry failed for %s", underlying)
                             notify(f"Entry failed for {underlying}: check logs")
@@ -219,6 +294,19 @@ def main() -> None:
         time.sleep(POLL_SECONDS)
 
     log.info("Shutting down. Open positions (if any) remain tracked in %s - rerun to keep managing them.", state_mod.LONG_STATE_PATH)
+
+    # Update the losing-streak counter and write today's journal entry -
+    # this is the raw material for periodic human review, not automatic
+    # strategy rewriting.
+    day_pnl = risk.daily_pnl()
+    ledger["losing_streak_days"] = (streak + 1) if day_pnl < 0 else 0
+    state_mod.save_capital(ledger)
+    journal["ended_at"] = now_ist().isoformat()
+    journal["ending_capital"] = ledger["current_capital"]
+    journal["total_pnl"] = day_pnl
+    journal["losing_streak_days_at_end"] = ledger["losing_streak_days"]
+    state_mod.log_journal_day(journal)
+
     notify(f"Daily runner shutting down. Capital Rs.{ledger['current_capital']:.2f}, {len(positions)} position(s) still tracked.")
     session.logout()
 
