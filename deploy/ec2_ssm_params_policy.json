@@ -1,0 +1,17 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "ReadTradingBotSecrets",
+      "Effect": "Allow",
+      "Action": ["ssm:GetParameter", "ssm:GetParameters", "ssm:GetParametersByPath"],
+      "Resource": "arn:aws:ssm:__REGION__:__AWS_ACCOUNT_ID__:parameter/trading-bot/*"
+    },
+    {
+      "Sid": "DecryptSecureStringParams",
+      "Effect": "Allow",
+      "Action": "kms:Decrypt",
+      "Resource": "arn:aws:kms:__REGION__:__AWS_ACCOUNT_ID__:alias/aws/ssm"
+    }
+  ]
+}

@@ -109,21 +109,33 @@ unconfigured.
 Architecture: one EC2 `t3.micro` in `ap-south-1`, started 6am IST / stopped
 8pm IST on weekdays by EventBridge Scheduler, running the bot as a systemd
 service. No SSH/inbound ports - managed entirely through AWS Systems
-Manager. Credentials ride along in a `.env` file inside a private S3 bucket
-(not Secrets Manager, to save the flat monthly fee - your call, made
-explicitly). Estimated cost: ~$4-5/month.
+Manager. Real credentials live in **AWS SSM Parameter Store** (free tier),
+fetched fresh onto the instance on every boot - never bundled into the
+deploy package, never touch S3 as plaintext, never touch git. Non-secret
+strategy config (`deploy/config.env`) IS committed and IS part of the
+deploy package. Estimated cost: ~$4-5/month.
 
-Two real bugs were found and fixed post-deploy by actually checking the
-running instance, not just trusting the scripts: (1) the systemd service was
-still pointed at the old `run_condor` module from before the buying pivot -
-the deploy artifact never got updated when the strategy changed. (2)
+**CI/CD**: push/merge to `main` on GitHub triggers `.github/workflows/deploy.yml`
+- runs `pytest tests/`, and only if that passes, packages, uploads to S3,
+and redeploys onto the live instance (auto start/stop if it's outside the
+6am-8pm window). Auth via GitHub OIDC federation to a scoped IAM role - no
+static AWS keys stored in GitHub. Workflow: make changes on a branch, merge
+to main, CI ships it.
+
+Real bugs found and fixed post-deploy by actually checking the running
+instance, not just trusting the scripts: (1) the systemd service was still
+pointed at the old `run_condor` module from before the buying pivot - the
+deploy artifact never got updated when the strategy changed. (2)
 **Critical:** the instance's system clock is UTC, not IST - naive
 `datetime.now()` calls would have silently made `ENTRY_TIME=12:30` mean
 6:00pm IST, hours after market close, with no error. Fixed by adding
 `trading_bot/timeutil.py` (`now_ist()`, a fixed UTC+5:30 offset - not
 `zoneinfo`, to avoid depending on the host having IANA tzdata installed) and
 using it everywhere both runners compare against `ENTRY_TIME`/`EXIT_TIME` or
-check for a new trading day.
+check for a new trading day. (3) A Git-Bash-vs-native-Windows-AWS-CLI path
+translation bug (`/tmp/...` resolves differently to each) silently broke a
+mid-script `aws iam put-role-policy` call - fixed by using a repo-local temp
+dir instead of `/tmp`.
 
 ## Market context (`market_context.py`)
 
@@ -203,9 +215,19 @@ Fully built and unit-tested, just not capital-appropriate right now.
   UTC+5:30 offset) - use these, never naive `datetime.now()`, for anything
   compared against `ENTRY_TIME`/`EXIT_TIME` or day-rollover checks
 - `notifier.py` — Telegram push notifications, see "Alerts" above
-- `deploy/` — AWS deployment artifacts (systemd unit, EC2 provisioning
-  script, EventBridge start/stop schedules, redeploy/teardown scripts) - see
+- `error_notifier.py` — a SEPARATE Telegram bot/chat dedicated to error
+  alerts (date-tagged), so real problems don't get lost in routine activity
+  notifications
+- `deploy/` — AWS deployment artifacts: systemd units, EC2 provisioning
+  script, EventBridge start/stop schedules, redeploy/teardown scripts,
+  SSM-Parameter-Store secret bootstrap (`fetch_secrets.sh`), non-secret
+  strategy config (`config.env`), GitHub OIDC/IAM policies for CI - see
   `deploy/DEPLOY.md`
+- `.github/workflows/deploy.yml` — CI: tests, then auto-deploys on push to
+  `main`
+- `tests/` — pytest suite covering strategy logic, sizing, risk caps, state
+  persistence, the market filter, and the direction signal - runs in CI
+  before every deploy
 
 ## Not built yet
 

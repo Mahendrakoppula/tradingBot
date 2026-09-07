@@ -1,0 +1,14 @@
+[Unit]
+Description=Assemble trading-bot .env from config.env + SSM Parameter Store secrets
+Before=trading-bot.service
+# Runs on EVERY boot (systemd re-runs enabled oneshot services each start,
+# unlike EC2 user-data which by default only runs once) so secrets are
+# always current even if rotated in Parameter Store between runs.
+
+[Service]
+Type=oneshot
+RemainAfterExit=no
+ExecStart=/opt/trading-bot/deploy/fetch_secrets.sh
+
+[Install]
+WantedBy=multi-user.target

@@ -9,6 +9,7 @@ from trading_bot.auth import Session
 from trading_bot.briefing import build_morning_briefing
 from trading_bot.config import Config
 from trading_bot.debit_strategy import LongOptionStrategy, build_long_leg, pick_direction, pick_momentum_direction
+from trading_bot.error_notifier import notify_error
 from trading_bot.instruments import InstrumentLookup
 from trading_bot.market_context import get_oi_buildup
 from trading_bot.notifier import notify
@@ -125,9 +126,10 @@ def main() -> None:
     try:
         session = Session(cfg)
         session.login()
-    except Exception:
+    except Exception as e:
         log.exception("Login failed")
         notify(f"Daily runner FAILED TO START (login error) - {status_line}")
+        notify_error(f"Login failed - {status_line} - {e}")
         raise
     rest = RestClient(session)
     strategy = LongOptionStrategy(rest)
@@ -143,8 +145,9 @@ def main() -> None:
     notify(f"Daily long-option runner started - {status_line}")
     try:
         notify(build_morning_briefing(rest, instruments.instruments))
-    except Exception:
+    except Exception as e:
         log.exception("Could not build morning briefing - continuing without it")
+        notify_error(f"Morning briefing failed to build - {e}")
 
     stop = False
 
@@ -169,25 +172,28 @@ def main() -> None:
                 try:
                     _settle_close(rest, strategy, risk, ledger, position, reason="exit_time")
                     del positions[underlying]
-                except Exception:
+                except Exception as e:
                     log.exception("Failed to close %s at exit time - MANUAL INTERVENTION MAY BE NEEDED", underlying)
                     notify(f"URGENT: failed to close {underlying} at exit time - MANUAL INTERVENTION NEEDED")
+                    notify_error(f"Failed to close {underlying} at exit time - MANUAL INTERVENTION NEEDED - {e}")
             state_mod.save_long(positions)
         elif positions:
             for underlying, position in list(positions.items()):
                 try:
                     pnl = _unrealized_pnl(rest, position)
-                except Exception:
+                except Exception as e:
                     log.exception("Could not price %s for stop check", underlying)
+                    notify_error(f"Could not price {underlying} for stop check - {e}")
                     continue
                 if risk.should_exit_for_stop(pnl):
                     log.warning("%s hit per-trade stop (unrealized %.2f) - closing early", underlying, pnl)
                     try:
                         _settle_close(rest, strategy, risk, ledger, position, reason="stop_loss")
                         del positions[underlying]
-                    except Exception:
+                    except Exception as e:
                         log.exception("Failed to close %s on stop - MANUAL INTERVENTION MAY BE NEEDED", underlying)
                         notify(f"URGENT: failed to close {underlying} on stop-loss - MANUAL INTERVENTION NEEDED")
+                        notify_error(f"Failed to close {underlying} on stop-loss - MANUAL INTERVENTION NEEDED - {e}")
             state_mod.save_long(positions)
 
         if cfg.enable_trading and entry_time <= now_t < exit_time:
@@ -201,9 +207,10 @@ def main() -> None:
                     for underlying in candidates:
                         try:
                             _maybe_enter(cfg, rest, instruments, strategy, risk, oi_buildup, positions, underlying, today)
-                        except Exception:
+                        except Exception as e:
                             log.exception("Entry failed for %s", underlying)
                             notify(f"Entry failed for {underlying}: check logs")
+                            notify_error(f"Entry failed for {underlying} - {e}")
                     state_mod.save_long(positions)
             elif not risk.cap_notified_today:
                 notify(f"Daily loss cap reached - no new entries today. Capital Rs.{ledger['current_capital']:.2f}")

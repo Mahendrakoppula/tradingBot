@@ -1,7 +1,11 @@
 #!/bin/bash
-# Run this LOCALLY (not on the EC2 instance) whenever code or .env changes,
-# to push a fresh deployable package to S3. Creates the bucket if it doesn't
-# exist yet, so this can safely run before OR after setup_aws.sh.
+# Run this LOCALLY (not on the EC2 instance) whenever code or deploy/config.env
+# changes, to push a fresh deployable package to S3. Creates the bucket if it
+# doesn't exist yet, so this can safely run before OR after setup_aws.sh.
+#
+# Does NOT bundle real credentials - only deploy/config.env (non-secret
+# strategy config) goes in as config.env. Real secrets live in SSM Parameter
+# Store and are fetched fresh on every instance boot - see fetch_secrets.sh.
 set -euo pipefail
 
 REGION="${REGION:-ap-south-1}"
@@ -23,11 +27,6 @@ fi
 
 cd "$(dirname "$0")/.."   # repo root
 
-if [ ! -f .env ]; then
-  echo ".env not found - copy .env.example to .env and fill in real credentials first."
-  exit 1
-fi
-
 python -c "
 import zipfile, pathlib
 root = pathlib.Path('.')
@@ -38,8 +37,10 @@ with zipfile.ZipFile(out, 'w', zipfile.ZIP_DEFLATED) as z:
     for f in root.glob('trading_bot/*.py'):
         z.write(f, f)
     z.write('requirements.txt', 'requirements.txt')
-    z.write('.env', '.env')
+    z.write('deploy/config.env', 'config.env')
+    z.write('deploy/fetch_secrets.sh', 'deploy/fetch_secrets.sh')
     z.write('deploy/trading-bot.service', 'deploy/trading-bot.service')
+    z.write('deploy/trading-bot-bootstrap.service', 'deploy/trading-bot-bootstrap.service')
 print('built', out, out.stat().st_size, 'bytes')
 "
 
