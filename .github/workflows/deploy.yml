@@ -31,6 +31,26 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Verify required repo Variables are set
+        run: |
+          missing=0
+          for name in AWS_ACCOUNT_ID DEPLOY_BUCKET INSTANCE_ID; do
+            value="${!name}"
+            if [ -z "$value" ]; then
+              echo "::error::$name is empty. It must be added under Settings -> Secrets and variables -> Actions -> the VARIABLES tab (not Secrets) as a repository variable named exactly '$name'."
+              missing=1
+            fi
+          done
+          if [ "$missing" = "1" ]; then
+            echo "One or more required repository Variables are missing or empty - see errors above." >&2
+            exit 1
+          fi
+          echo "All required Variables are present (AWS_ACCOUNT_ID length: ${#AWS_ACCOUNT_ID}, DEPLOY_BUCKET: $DEPLOY_BUCKET, INSTANCE_ID: $INSTANCE_ID)"
+        env:
+          AWS_ACCOUNT_ID: ${{ vars.AWS_ACCOUNT_ID }}
+          DEPLOY_BUCKET: ${{ vars.DEPLOY_BUCKET }}
+          INSTANCE_ID: ${{ vars.INSTANCE_ID }}
+
       - name: Configure AWS credentials via OIDC
         uses: aws-actions/configure-aws-credentials@v4
         with:
