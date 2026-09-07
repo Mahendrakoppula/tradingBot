@@ -1,7 +1,8 @@
 [Unit]
 Description=SmartAPI daily long-option trading bot
-After=network-online.target
+After=network-online.target trading-bot-bootstrap.service
 Wants=network-online.target
+Requires=trading-bot-bootstrap.service
 
 [Service]
 Type=simple
