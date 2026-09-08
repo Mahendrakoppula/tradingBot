@@ -31,9 +31,9 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from trading_bot.chart_patterns import detect_ma_crossover, detect_trend_structure
+from trading_bot.chart_patterns import detect_breakout, detect_ma_crossover, detect_trend_structure
 from trading_bot.indicators import ema, macd, rolling_avg_volume, rsi, sma, vwap
-from trading_bot.support_resistance import classic_pivot_points, find_swing_points
+from trading_bot.support_resistance import classic_pivot_points, cluster_levels, find_swing_points
 from trading_bot.volume_analysis import volume_confirms_move
 
 DATA_DIR = Path(__file__).resolve().parent / "data"
@@ -70,8 +70,19 @@ INTRADAY_TAKE_PROFIT_PCT = 1.7  # ~1.7:1 reward:risk - v1 had NO take-profit, on
 SWING_SMA_FAST, SWING_SMA_SLOW = 50, 200
 SWING_RSI_PERIOD = 14
 SWING_SWING_LEFT_RIGHT = 5  # fractal window on daily bars
-SWING_STOP_PCT = 8.0  # risk backstop, on top of the trend-reversal exit
+SWING_STOP_PCT = 8.0  # risk backstop, on top of the level-reclaimed exit
 SWING_MAX_HOLD_DAYS = 90  # sanity ceiling so a trade can't run "forever" in the backtest
+# Support/resistance level detection (cluster_levels). v1 of this backtest
+# never used real S/R at ALL - it traded an SMA50/200 regime + MACD-histogram
+# trigger and called the swing-point data "structure" only. These two control
+# the actual level detection now driving entries/exits.
+SWING_SR_TOLERANCE_PCT = 1.0  # swing points within 1% of each other are the same level
+SWING_SR_MIN_TOUCHES = 2  # a single swing high is noise; 2+ at one price is a level the market respected
+SWING_LEVEL_RECLAIM_BUFFER_PCT = 2.0  # how far back through the broken level price must close before
+                                       # the breakout counts as failed. Without a buffer (v2) 475 of
+                                       # 548 exits fired on "level_reclaimed" - price dipping back a
+                                       # tick under the level on a normal post-breakout retest was
+                                       # enough to bail out of every trade almost immediately.
 
 
 # --- shared CSV loading (candle dicts include volume, unlike backtest_orb.py's) ---
@@ -376,26 +387,27 @@ def backtest_swing(daily_candles: list[dict]) -> list[dict]:
             regime = "downtrend"
 
         known_points = [p for p in all_points if p.index + SWING_SWING_LEFT_RIGHT <= i]
-        structure = detect_trend_structure(known_points)
 
         if position is not None:
             days_held = i - position["entry_idx"]
-            hist_prev, hist_now = hist[i - 1], hist[i]
-            structure_flipped = (
-                (position["direction"] == "long" and structure == "downtrend")
-                or (position["direction"] == "short" and structure == "uptrend")
-            )
-            regime_flipped = (
-                (position["direction"] == "long" and cross == "death_cross")
-                or (position["direction"] == "short" and cross == "golden_cross")
+            # The plan's actual exit rule: "price closes back through the
+            # level it broke out from". A resistance level, once broken to
+            # the upside, is expected to act as support - closing back
+            # under it says the breakout failed, which is a much more
+            # direct invalidation than waiting for a lagging structure flip.
+            reclaim_long = position["level"] * (1 - SWING_LEVEL_RECLAIM_BUFFER_PCT / 100)
+            reclaim_short = position["level"] * (1 + SWING_LEVEL_RECLAIM_BUFFER_PCT / 100)
+            level_reclaimed = (
+                (position["direction"] == "long" and closes[i] < reclaim_long)
+                or (position["direction"] == "short" and closes[i] > reclaim_short)
             )
             stop_hit = (
                 (position["direction"] == "long" and closes[i] <= position["stop_price"])
                 or (position["direction"] == "short" and closes[i] >= position["stop_price"])
             )
-            if structure_flipped or regime_flipped or stop_hit or days_held >= SWING_MAX_HOLD_DAYS:
+            if level_reclaimed or stop_hit or days_held >= SWING_MAX_HOLD_DAYS:
                 exit_price = closes[i]
-                exit_reason = "stop" if stop_hit else ("trend_reversal" if (structure_flipped or regime_flipped) else "max_hold")
+                exit_reason = "stop" if stop_hit else ("level_reclaimed" if level_reclaimed else "max_hold")
                 ret = (
                     (exit_price - position["entry_price"]) / position["entry_price"]
                     if position["direction"] == "long"
@@ -407,23 +419,41 @@ def backtest_swing(daily_candles: list[dict]) -> list[dict]:
                 position = None
             continue  # one position at a time - no new entry the same day a position is open
 
-        if i + 1 >= n or hist[i - 1] is None or hist[i] is None or rsi_series[i] is None:
+        if i + 1 >= n or rsi_series[i] is None:
             continue
-        hist_prev, hist_now = hist[i - 1], hist[i]
-        bullish_trigger = hist_prev <= 0 < hist_now
-        bearish_trigger = hist_prev >= 0 > hist_now
+
+        # PRIMARY SIGNAL: a close-based breakout of a real multi-touch
+        # support/resistance level (cluster_levels), not an MA crossover.
+        # A level only counts if it was clustered from >= SWING_SR_MIN_TOUCHES
+        # confirmed swing points - one lone swing high is noise, several at
+        # the same price is a level the market has actually respected.
+        levels = cluster_levels(known_points, SWING_SR_TOLERANCE_PCT)
+        prev_close = closes[i - 1]
+        resistances = [lv for lv in levels
+                        if lv.kind == "high" and lv.touches >= SWING_SR_MIN_TOUCHES and lv.price > prev_close]
+        supports = [lv for lv in levels
+                     if lv.kind == "low" and lv.touches >= SWING_SR_MIN_TOUCHES and lv.price < prev_close]
 
         direction = None
-        if regime == "uptrend" and structure == "uptrend" and bullish_trigger and rsi_series[i] < 70:
-            direction = "long"
-        elif regime == "downtrend" and structure == "downtrend" and bearish_trigger and rsi_series[i] > 30:
-            direction = "short"
+        broken_level = None
+        # Nearest level above/below only - breaking the closest one is the
+        # meaningful event; a gap through several at once is rare and would
+        # be caught by the nearest one anyway.
+        if resistances:
+            nearest_resistance = min(resistances, key=lambda lv: lv.price)
+            if detect_breakout(daily_candles, nearest_resistance.price, "up", index=i) and rsi_series[i] < 70 and regime != "downtrend":
+                direction, broken_level = "long", nearest_resistance.price
+        if direction is None and supports:
+            nearest_support = max(supports, key=lambda lv: lv.price)
+            if detect_breakout(daily_candles, nearest_support.price, "down", index=i) and rsi_series[i] > 30 and regime != "uptrend":
+                direction, broken_level = "short", nearest_support.price
         if direction is None:
             continue
 
         entry_price = daily_candles[i + 1]["open"]  # next day's open, avoid lookahead
         stop_price = entry_price * (1 - SWING_STOP_PCT / 100) if direction == "long" else entry_price * (1 + SWING_STOP_PCT / 100)
-        position = {"direction": direction, "entry_price": entry_price, "entry_idx": i + 1, "stop_price": stop_price}
+        position = {"direction": direction, "entry_price": entry_price, "entry_idx": i + 1,
+                     "stop_price": stop_price, "level": broken_level}
 
     return trades
 
