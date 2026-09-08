@@ -1,6 +1,7 @@
 import logging
 
 from trading_bot.market_context import get_economic_calendar, get_global_change_pct, get_india_vix
+from trading_bot.news_sentiment import compute_news_sentiment, format_news_sentiment_line
 from trading_bot.rest_client import RestClient
 
 log = logging.getLogger(__name__)
@@ -17,11 +18,22 @@ log = logging.getLogger(__name__)
 def compute_premarket_bias(rest: RestClient, us_move_threshold_pct: float, vix_caution_level: float) -> dict:
     """Returns {"bias": "BULLISH"|"BEARISH"|"NEUTRAL"|"CAUTIOUS", "reasons":
     [str], "us_overnight_pct": float|None, "vix": float|None,
-    "economic_events_today": int|None}. Computed ONCE per day, before the
-    entry window - not refreshed intraday."""
+    "economic_events_today": int|None, "news_sentiment": dict}. Computed
+    ONCE per day, before the entry window - not refreshed intraday.
+
+    news_sentiment (news_sentiment.py: keyword-scored India-market +
+    global-geopolitical RSS headlines) is INFORMATIONAL ONLY here -
+    deliberately does not feed into `bias` below, same "collect and log
+    first, gate later once proven" pattern as the IV/PCR data collection.
+    """
     us_change = get_global_change_pct("^GSPC")
     vix = get_india_vix(rest)
     calendar = get_economic_calendar()
+    try:
+        news_sentiment = compute_news_sentiment()
+    except Exception:
+        log.exception("News sentiment scan failed - continuing without it")
+        news_sentiment = {"label": "UNKNOWN", "total_score": 0, "caution_count": 0, "feeds_scanned": 0, "matched_headlines": []}
 
     reasons = []
     bias = "NEUTRAL"
@@ -54,6 +66,7 @@ def compute_premarket_bias(rest: RestClient, us_move_threshold_pct: float, vix_c
         "us_overnight_pct": us_change,
         "vix": vix,
         "economic_events_today": len(calendar) if calendar is not None else None,
+        "news_sentiment": news_sentiment,
     }
 
 
@@ -76,4 +89,6 @@ def format_bias_line(bias: dict) -> str:
     parts = [f"Pre-market bias: {bias['bias']}"]
     if bias["reasons"]:
         parts.append(" - " + "; ".join(bias["reasons"]))
+    if bias.get("news_sentiment"):
+        parts.append("\n" + format_news_sentiment_line(bias["news_sentiment"]))
     return "".join(parts)

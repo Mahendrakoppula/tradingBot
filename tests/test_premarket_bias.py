@@ -11,10 +11,14 @@ class FakeRest:
         return {"ltp": str(self.vix)}
 
 
-def _compute(vix, us_change, calendar):
+_FAKE_NEWS_SENTIMENT = {"label": "NEUTRAL", "total_score": 0, "caution_count": 0, "feeds_scanned": 0, "matched_headlines": []}
+
+
+def _compute(vix, us_change, calendar, news_sentiment=None):
     rest = FakeRest(vix)
     with patch("trading_bot.premarket_bias.get_global_change_pct", return_value=us_change), \
-         patch("trading_bot.premarket_bias.get_economic_calendar", return_value=calendar):
+         patch("trading_bot.premarket_bias.get_economic_calendar", return_value=calendar), \
+         patch("trading_bot.premarket_bias.compute_news_sentiment", return_value=news_sentiment or _FAKE_NEWS_SENTIMENT):
         return compute_premarket_bias(rest, us_move_threshold_pct=0.5, vix_caution_level=20.0)
 
 
@@ -72,3 +76,22 @@ def test_format_bias_line_includes_reasons():
     line = format_bias_line(bias)
     assert "BULLISH" in line
     assert "S&P 500" in line
+
+
+def test_news_sentiment_is_informational_only_does_not_change_bias():
+    # Even a CAUTIOUS-labeled news scan must not flip the bullish overnight
+    # call bias below - explicit user request: collect and log news
+    # sentiment now, don't let it gate trades until it's proven.
+    scary_news = {"label": "CAUTIOUS", "total_score": -5, "caution_count": 2, "feeds_scanned": 6, "matched_headlines": []}
+    bias = _compute(vix=15.0, us_change=1.2, calendar=None, news_sentiment=scary_news)
+    assert bias["bias"] == "BULLISH"  # unaffected by news_sentiment
+    assert bias["news_sentiment"]["label"] == "CAUTIOUS"  # but still carried through for visibility
+
+
+def test_format_bias_line_includes_news_sentiment():
+    bias = {
+        "bias": "NEUTRAL", "reasons": [],
+        "news_sentiment": {"label": "NEGATIVE", "total_score": -3, "caution_count": 0, "matched_headlines": []},
+    }
+    line = format_bias_line(bias)
+    assert "News sentiment: NEGATIVE" in line
