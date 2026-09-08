@@ -322,10 +322,12 @@ def main() -> None:
     try:
         bias = compute_premarket_bias(rest, cfg.us_move_threshold_pct, cfg.vix_caution_level)
         notify(format_bias_line(bias))
+        if bias.get("news_sentiment"):
+            state_mod.log_news_sentiment(bias["news_sentiment"])
     except Exception as e:
         log.exception("Could not compute pre-market bias - defaulting to NEUTRAL (no gating)")
         notify_error(f"Pre-market bias computation failed, defaulting to NEUTRAL - {e}")
-        bias = {"bias": "NEUTRAL", "reasons": ["computation failed"], "us_overnight_pct": None, "vix": None, "economic_events_today": None}
+        bias = {"bias": "NEUTRAL", "reasons": ["computation failed"], "us_overnight_pct": None, "vix": None, "economic_events_today": None, "news_sentiment": None}
 
     journal = {
         "date": today.isoformat(),

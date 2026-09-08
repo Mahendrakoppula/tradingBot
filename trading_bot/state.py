@@ -11,6 +11,7 @@ SCALP_STATE_PATH = Path(__file__).resolve().parent.parent / ".state" / "scalp_po
 CAPITAL_PATH = Path(__file__).resolve().parent.parent / ".state" / "capital.json"
 TRADE_LOG_PATH = Path(__file__).resolve().parent.parent / ".state" / "trade_log.jsonl"
 JOURNAL_PATH = Path(__file__).resolve().parent.parent / ".state" / "journal.jsonl"
+NEWS_SENTIMENT_LOG_PATH = Path(__file__).resolve().parent.parent / ".state" / "news_sentiment_log.jsonl"
 
 
 @dataclass
@@ -158,6 +159,15 @@ def log_trade(record: dict) -> None:
     """Appends one closed trade's outcome for later strategy review."""
     TRADE_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
     with TRADE_LOG_PATH.open("a", encoding="utf-8") as f:
+        f.write(json.dumps(record) + "\n")
+
+
+def log_news_sentiment(record: dict) -> None:
+    """Appends one day's news-sentiment scan (news_sentiment.py) for future
+    threshold-tuning once enough history exists - see premarket_bias.py's
+    docstring: informational only right now, not wired into any gate."""
+    NEWS_SENTIMENT_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
+    with NEWS_SENTIMENT_LOG_PATH.open("a", encoding="utf-8") as f:
         f.write(json.dumps(record) + "\n")
 
 
