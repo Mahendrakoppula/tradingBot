@@ -22,6 +22,8 @@ from trading_bot.premarket_bias import allows_direction, compute_premarket_bias,
 from trading_bot.rest_client import RestClient
 from trading_bot.risk import DailyRiskTracker
 from trading_bot.scalp_strategy import MomentumSpikeDetector, OpeningRangeTracker, build_scalp_leg, pick_scalp_signal
+from trading_bot.sector_tracker import allows_direction as sector_allows_direction
+from trading_bot.sector_tracker import format_sector_snapshot, get_sector_snapshot, resolve_sector_rows
 from trading_bot.sizing import size_long_option
 from trading_bot.timeutil import now_ist, today_ist
 
@@ -122,8 +124,8 @@ def _settle_close(rest: RestClient, strategy: LongOptionStrategy, risk: DailyRis
 
 
 def _maybe_enter(cfg: Config, rest: RestClient, instruments: InstrumentLookup, strategy: LongOptionStrategy,
-                  risk: DailyRiskTracker, oi_buildup: dict, bias: dict, positions: dict, underlying: str,
-                  today: dt.date, journal: dict) -> None:
+                  risk: DailyRiskTracker, oi_buildup: dict, bias: dict, sector_snapshot: dict | None, positions: dict,
+                  underlying: str, today: dt.date, journal: dict) -> None:
     chain = OptionChain(instruments.instruments, underlying, exchange="NFO")
     expiry = chain.nearest_expiry_within(today, cfg.dte_min, cfg.dte_max)
     if expiry is None:
@@ -146,6 +148,13 @@ def _maybe_enter(cfg: Config, rest: RestClient, instruments: InstrumentLookup, s
 
     if cfg.premarket_bias_gate_enabled and not allows_direction(bias, option_type):
         skip_reason = f"{option_type} signal ({reason}) conflicts with pre-market bias {bias['bias']}"
+        log.info("%s: skipping entry - %s", underlying, skip_reason)
+        journal["decisions"].append({"time": now_ist().isoformat(), "underlying": underlying, "action": "skipped", "reason": skip_reason})
+        return
+
+    if cfg.sector_gate_enabled and sector_snapshot is not None and not sector_allows_direction(underlying, option_type, sector_snapshot):
+        verdict = sector_snapshot["underlying_verdict"].get(underlying, "NEUTRAL")
+        skip_reason = f"{option_type} signal ({reason}) conflicts with sector verdict {verdict}"
         log.info("%s: skipping entry - %s", underlying, skip_reason)
         journal["decisions"].append({"time": now_ist().isoformat(), "underlying": underlying, "action": "skipped", "reason": skip_reason})
         return
@@ -357,6 +366,14 @@ def main() -> None:
     instruments = InstrumentLookup(cfg.scrip_master_url)
     instruments.load()
 
+    # Sector tracking (sector_tracker.py): resolved once here (rows don't
+    # change intraday), re-fetched/re-notified on their own cadences inside
+    # the loop below - see config.py's sector_* comment.
+    sector_rows = resolve_sector_rows(instruments.instruments) if cfg.sector_tracking_enabled else {}
+    sector_snapshot: dict | None = None
+    sector_last_refresh_at: float | None = None  # time.monotonic(), None = never yet (always due)
+    sector_last_notify_at: float | None = None
+
     positions = state_mod.load_long()
     today = today_ist()
     entry_time, exit_time = _parse_hhmm(cfg.entry_time), _parse_hhmm(cfg.exit_time)
@@ -419,6 +436,9 @@ def main() -> None:
             spike_detectors = {u: MomentumSpikeDetector(cfg.scalp_momentum_window_minutes, cfg.scalp_momentum_min_move_pct) for u in cfg.watchlist}
             candle_tracked_contracts_cache = {}
             candle_last_pull_at = {}
+            sector_snapshot = None
+            sector_last_refresh_at = None
+            sector_last_notify_at = None
         now_t = now.time()
 
         # Option-chain snapshot logging: pure data collection for a future
@@ -443,6 +463,26 @@ def main() -> None:
         if cfg.candle_log_enabled and dt.time(9, 15) <= now_t <= dt.time(15, 30):
             maybe_log_candles(rest, instruments, cfg.watchlist, cfg.dte_min, cfg.dte_max, today,
                                cfg.candle_log_strikes_each_side, candle_tracked_contracts_cache, candle_last_pull_at)
+
+        # Sector tracking (sector_tracker.py): live NSE sector-index snapshot,
+        # used both for a periodic Telegram broadcast and (if enabled) to
+        # confirm/veto the OI-buildup/momentum direction signal below -
+        # explicit user choice ("add both") on 2026-09-09. Refresh and notify
+        # cadences are independent (config.py's sector_refresh_seconds vs.
+        # sector_notify_interval_seconds) - the gate always uses the latest
+        # refreshed snapshot even between Telegram broadcasts.
+        if cfg.sector_tracking_enabled and sector_rows and dt.time(9, 15) <= now_t <= dt.time(15, 30):
+            if sector_last_refresh_at is None or time.monotonic() - sector_last_refresh_at >= cfg.sector_refresh_seconds:
+                try:
+                    sector_snapshot = get_sector_snapshot(rest, sector_rows, cfg.sector_move_threshold_pct)
+                    sector_last_refresh_at = time.monotonic()
+                except Exception:
+                    log.exception("Could not refresh sector snapshot - keeping last known snapshot")
+            if sector_snapshot is not None and (
+                sector_last_notify_at is None or time.monotonic() - sector_last_notify_at >= cfg.sector_notify_interval_seconds
+            ):
+                notify(format_sector_snapshot(sector_snapshot), html=True)
+                sector_last_notify_at = time.monotonic()
 
         if now_t >= exit_time:
             for underlying, position in list(positions.items()):
@@ -484,7 +524,8 @@ def main() -> None:
                     oi_buildup = get_oi_buildup(rest)
                     for underlying in candidates:
                         try:
-                            _maybe_enter(cfg, rest, instruments, strategy, risk, oi_buildup, bias, positions, underlying, today, journal)
+                            _maybe_enter(cfg, rest, instruments, strategy, risk, oi_buildup, bias, sector_snapshot,
+                                         positions, underlying, today, journal)
                         except Exception as e:
                             log.exception("Entry failed for %s", underlying)
                             notify(f"Entry failed for {underlying}: check logs")

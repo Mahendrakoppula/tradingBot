@@ -101,6 +101,18 @@ class Config:
     us_move_threshold_pct: float = 0.5
     vix_caution_level: float = 20.0
 
+    # --- sector tracking (sector_tracker.py) ---
+    # 11 NSE sector indices (IT/Auto/FMCG/Pharma/Metal/Energy/Realty/PSU
+    # Bank/Pvt Bank/Media/Fin Service), tracked both for visibility
+    # (periodic Telegram snapshot) and as a trade-direction confirmation
+    # gate - explicit user choice ("add both") on 2026-09-09. First-cut,
+    # unbacktested thresholds, same caveat as premarket_bias/market_filter.
+    sector_tracking_enabled: bool = True
+    sector_gate_enabled: bool = True
+    sector_move_threshold_pct: float = 0.3
+    sector_refresh_seconds: int = 300  # how often the snapshot is re-fetched from the API (also used for the entry gate)
+    sector_notify_interval_seconds: int = 1800  # how often a snapshot is pushed to Telegram (30 min, user's choice)
+
     # --- losing-streak circuit breaker ---
     # Bounded, safe automatic risk reduction after a run of losing days -
     # deliberately NOT auto-tuning entry signals/thresholds from this data
@@ -209,6 +221,11 @@ class Config:
             premarket_bias_gate_enabled=os.environ.get("PREMARKET_BIAS_GATE_ENABLED", "true").lower() == "true",
             us_move_threshold_pct=float(os.environ.get("US_MOVE_THRESHOLD_PCT", "0.5")),
             vix_caution_level=float(os.environ.get("VIX_CAUTION_LEVEL", "20")),
+            sector_tracking_enabled=os.environ.get("SECTOR_TRACKING_ENABLED", "true").lower() != "false",
+            sector_gate_enabled=os.environ.get("SECTOR_GATE_ENABLED", "true").lower() != "false",
+            sector_move_threshold_pct=float(os.environ.get("SECTOR_MOVE_THRESHOLD_PCT", "0.3")),
+            sector_refresh_seconds=int(os.environ.get("SECTOR_REFRESH_SECONDS", "300")),
+            sector_notify_interval_seconds=int(os.environ.get("SECTOR_NOTIFY_INTERVAL_SECONDS", "1800")),
             losing_streak_cooldown_days=int(os.environ.get("LOSING_STREAK_COOLDOWN_DAYS", "3")),
             losing_streak_risk_multiplier=float(os.environ.get("LOSING_STREAK_RISK_MULTIPLIER", "0.5")),
             max_spread_pct=float(os.environ.get("MAX_SPREAD_PCT", "8.0")),
