@@ -3,6 +3,7 @@ import datetime as dt
 import logging
 import signal
 import time
+from html import escape as esc
 
 from trading_bot import state as state_mod
 from trading_bot.auth import Session
@@ -44,6 +45,32 @@ def _describe_exit(reason_code: str, pnl: float, risk: DailyRiskTracker) -> str:
     if reason_code in ("stop_loss", "scalp_stop_loss"):
         return f"{text} (unrealized P&L Rs.{pnl:.2f} breached the Rs.{risk.max_loss_per_trade():.2f} limit)"
     return text
+
+
+def _dry_run_badge(dry_run: bool) -> str:
+    return "\U0001F9EA <i>DRY RUN</i>\n" if dry_run else ""
+
+
+def _entry_message(dry_run: bool, underlying: str, tradingsymbol: str, lots: int, entry_price: float,
+                    premium: float, reason: str, *, scalp: bool = False) -> str:
+    header = "SCALP BOUGHT" if scalp else "BOUGHT"
+    return (
+        f"{_dry_run_badge(dry_run)}\U0001F7E2 <b>{header}</b> {esc(underlying)} {esc(tradingsymbol)}\n"
+        f"{lots} lot(s) @ ~Rs.{entry_price:.2f}, premium Rs.{premium:.2f}\n"
+        f"<i>Entered because:</i> {esc(reason)}"
+    )
+
+
+def _exit_message(dry_run: bool, underlying: str, tradingsymbol: str, pnl: float, capital: float,
+                   entry_reason: str, exit_detail: str, *, scalp: bool = False) -> str:
+    header = "SCALP SOLD" if scalp else "SOLD"
+    dot = "\U0001F7E2" if pnl >= 0 else "\U0001F534"
+    return (
+        f"{_dry_run_badge(dry_run)}{dot} <b>{header}</b> {esc(underlying)} {esc(tradingsymbol)}\n"
+        f"P&amp;L: Rs.{pnl:.2f} | Capital: Rs.{capital:.2f}\n"
+        f"<i>Entered because:</i> {esc(entry_reason) or 'unknown'}\n"
+        f"<i>Exited because:</i> {esc(exit_detail)}"
+    )
 
 
 def _parse_hhmm(hhmm: str) -> dt.time:
@@ -90,10 +117,8 @@ def _settle_close(rest: RestClient, strategy: LongOptionStrategy, risk: DailyRis
         "entry_reason": position.entry_reason, "reason": reason, "exit_reason": exit_detail,
     })
     log.info("%s closed (%s): P&L %.2f, capital now Rs.%.2f", position.underlying, exit_detail, pnl, ledger["current_capital"])
-    notify(f"{'[DRY RUN] ' if rest.session.cfg.dry_run else ''}{position.underlying} {position.option.tradingsymbol} closed: "
-           f"P&L Rs.{pnl:.2f}, capital now Rs.{ledger['current_capital']:.2f}\n"
-           f"Entered because: {position.entry_reason or 'unknown'}\n"
-           f"Exited because: {exit_detail}")
+    notify(_exit_message(rest.session.cfg.dry_run, position.underlying, position.option.tradingsymbol,
+                          pnl, ledger["current_capital"], position.entry_reason, exit_detail), html=True)
 
 
 def _maybe_enter(cfg: Config, rest: RestClient, instruments: InstrumentLookup, strategy: LongOptionStrategy,
@@ -169,11 +194,8 @@ def _maybe_enter(cfg: Config, rest: RestClient, instruments: InstrumentLookup, s
         "time": now_ist().isoformat(), "underlying": underlying, "action": "entered",
         "reason": reason, "option_type": option_type, "lots": lots,
     })
-    notify(
-        f"{'[DRY RUN] ' if cfg.dry_run else ''}Bought {underlying} {contract.tradingsymbol}: {lots} lot(s) "
-        f"@ ~Rs.{leg.entry_price:.2f}, premium Rs.{premium_per_lot * lots:.2f}\n"
-        f"Entered because: {reason}"
-    )
+    notify(_entry_message(cfg.dry_run, underlying, contract.tradingsymbol, lots, leg.entry_price,
+                           premium_per_lot * lots, reason), html=True)
 
 
 def _settle_scalp_close(rest: RestClient, strategy: LongOptionStrategy, scalp_risk: DailyRiskTracker,
@@ -215,10 +237,8 @@ def _settle_scalp_close(rest: RestClient, strategy: LongOptionStrategy, scalp_ri
         "signal_reason": position.signal_reason, "reason": reason, "exit_reason": exit_detail,
     })
     log.info("SCALP %s closed (%s): P&L %.2f, capital now Rs.%.2f", position.underlying, exit_detail, pnl, ledger["current_capital"])
-    notify(f"{'[DRY RUN] ' if rest.session.cfg.dry_run else ''}[SCALP] {position.underlying} {position.option.tradingsymbol} closed: "
-           f"P&L Rs.{pnl:.2f}, capital now Rs.{ledger['current_capital']:.2f}\n"
-           f"Entered because: {position.signal_reason or 'unknown'}\n"
-           f"Exited because: {exit_detail}")
+    notify(_exit_message(rest.session.cfg.dry_run, position.underlying, position.option.tradingsymbol,
+                          pnl, ledger["current_capital"], position.signal_reason, exit_detail, scalp=True), html=True)
 
 
 def _maybe_scalp_enter(cfg: Config, rest: RestClient, instruments: InstrumentLookup, strategy: LongOptionStrategy,
@@ -279,11 +299,8 @@ def _maybe_scalp_enter(cfg: Config, rest: RestClient, instruments: InstrumentLoo
         "time": now.isoformat(), "underlying": underlying, "action": "entered",
         "reason": reason, "option_type": option_type, "lots": lots,
     })
-    notify(
-        f"{'[DRY RUN] ' if cfg.dry_run else ''}[SCALP] Bought {underlying} {contract.tradingsymbol}: {lots} lot(s) "
-        f"@ ~Rs.{leg.entry_price:.2f}, premium Rs.{premium_per_lot * lots:.2f}\n"
-        f"Entered because: {reason}"
-    )
+    notify(_entry_message(cfg.dry_run, underlying, contract.tradingsymbol, lots, leg.entry_price,
+                           premium_per_lot * lots, reason, scalp=True), html=True)
 
 
 def main() -> None:
@@ -344,7 +361,7 @@ def main() -> None:
     today = today_ist()
     entry_time, exit_time = _parse_hhmm(cfg.entry_time), _parse_hhmm(cfg.exit_time)
 
-    notify(f"Daily long-option runner started - {status_line}")
+    notify(f"\U0001F7E2 <b>DAILY RUNNER STARTED</b>\n{esc(status_line)}", html=True)
     try:
         notify(build_morning_briefing(rest, instruments.instruments))
     except Exception as e:
@@ -561,8 +578,10 @@ def main() -> None:
     state_mod.log_journal_day(journal)
 
     notify(
-        f"Daily runner shutting down. Capital Rs.{ledger['current_capital']:.2f}, {len(positions)} position(s) still tracked"
-        f"{f', {len(scalp_positions)} scalp position(s) still tracked' if cfg.scalp_enabled else ''}."
+        f"\U0001F534 <b>DAILY RUNNER STOPPED</b>\n"
+        f"Capital Rs.{ledger['current_capital']:.2f}, {len(positions)} position(s) still tracked"
+        f"{f', {len(scalp_positions)} scalp position(s) still tracked' if cfg.scalp_enabled else ''}.",
+        html=True,
     )
     session.logout()
 
