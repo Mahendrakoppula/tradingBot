@@ -44,8 +44,15 @@ EXIT_TIME = dt.time(15, 15)  # matches the live bot's own EXIT_TIME
 SCALP_EMA_FAST, SCALP_EMA_SLOW = 9, 21
 SCALP_AVG_VOLUME_PERIOD = 20
 SCALP_MIN_RELATIVE_VOLUME = 1.5
-SCALP_MAX_HOLD_BARS = 5  # 1-min bars - matches config.py's SCALP_MAX_HOLD_MINUTES=5 default
-SCALP_STOP_PCT = 0.3  # % adverse move
+SCALP_MAX_HOLD_BARS = 15  # 1-min bars - widened from 5 (config.py's SCALP_MAX_HOLD_MINUTES
+                           # default): backtest showed the stop/target almost NEVER fired within
+                           # 5 minutes (e.g. NIFTY: 182 "time" exits, 1 "stop", 0 "take_profit" -
+                           # nearly every trade just drifted to the timer), meaning 5 min doesn't
+                           # give the EMA9/21 signal enough room to actually develop before being
+                           # judged. Live SCALP_MAX_HOLD_MINUTES stays 5 until this is validated -
+                           # this is backtest-only tuning, not yet a recommendation for live config.
+SCALP_STOP_PCT = 0.5  # % adverse move - widened from 0.3 (~1.7x, matching sqrt(15/5) volatility scaling)
+SCALP_TAKE_PROFIT_PCT = 0.85  # ~1.7:1 reward:risk vs the stop, same ratio as before
 
 # --- Intraday tier config (first-cut) ---
 INTRADAY_BAR_MINUTES = 5
@@ -54,6 +61,10 @@ INTRADAY_RSI_PERIOD = 14
 INTRADAY_AVG_VOLUME_PERIOD = 20
 INTRADAY_MIN_RELATIVE_VOLUME = 1.5
 INTRADAY_STOP_PCT = 1.0
+INTRADAY_TAKE_PROFIT_PCT = 1.7  # ~1.7:1 reward:risk - v1 had NO take-profit, only a stop and the
+                                 # same-day EXIT_TIME close, so a profitable move could round-trip
+                                 # back down by 15:15 before being captured (confirmed: negative
+                                 # avg expectancy across most symbols in the first backtest run)
 
 # --- Swing tier config (first-cut) ---
 SWING_SMA_FAST, SWING_SMA_SLOW = 50, 200
@@ -217,16 +228,25 @@ def backtest_scalp_day(candles: list[dict]) -> dict | None:
 
     entry_price = candles[signal_idx + 1]["open"]  # fill on the NEXT bar's open, avoid lookahead
     stop_price = entry_price * (1 - SCALP_STOP_PCT / 100) if direction == "long" else entry_price * (1 + SCALP_STOP_PCT / 100)
+    take_profit_price = entry_price * (1 + SCALP_TAKE_PROFIT_PCT / 100) if direction == "long" else entry_price * (1 - SCALP_TAKE_PROFIT_PCT / 100)
     hold_end = min(signal_idx + 1 + SCALP_MAX_HOLD_BARS, n - 1)
 
     exit_price, exit_reason = None, "time"
     for c in candles[signal_idx + 2 : hold_end + 1]:
-        if direction == "long" and c["low"] <= stop_price:
-            exit_price, exit_reason = stop_price, "stop"
-            break
-        if direction == "short" and c["high"] >= stop_price:
-            exit_price, exit_reason = stop_price, "stop"
-            break
+        if direction == "long":
+            if c["low"] <= stop_price:
+                exit_price, exit_reason = stop_price, "stop"
+                break
+            if c["high"] >= take_profit_price:
+                exit_price, exit_reason = take_profit_price, "take_profit"
+                break
+        else:
+            if c["high"] >= stop_price:
+                exit_price, exit_reason = stop_price, "stop"
+                break
+            if c["low"] <= take_profit_price:
+                exit_price, exit_reason = take_profit_price, "take_profit"
+                break
     if exit_price is None:
         exit_price, exit_reason = candles[hold_end]["close"], "time"
 
@@ -288,16 +308,25 @@ def backtest_intraday(minute_candles: list[dict], daily_candles: list[dict]) -> 
 
         entry_price = bars[i + 1]["open"]
         stop_price = entry_price * (1 - INTRADAY_STOP_PCT / 100) if direction == "long" else entry_price * (1 + INTRADAY_STOP_PCT / 100)
+        take_profit_price = entry_price * (1 + INTRADAY_TAKE_PROFIT_PCT / 100) if direction == "long" else entry_price * (1 - INTRADAY_TAKE_PROFIT_PCT / 100)
         exit_price, exit_reason = None, "time"
         j = i + 2
         while j < n and bars[j]["date"] == bar["date"]:
             c = bars[j]
-            if direction == "long" and c["low"] <= stop_price:
-                exit_price, exit_reason = stop_price, "stop"
-                break
-            if direction == "short" and c["high"] >= stop_price:
-                exit_price, exit_reason = stop_price, "stop"
-                break
+            if direction == "long":
+                if c["low"] <= stop_price:
+                    exit_price, exit_reason = stop_price, "stop"
+                    break
+                if c["high"] >= take_profit_price:
+                    exit_price, exit_reason = take_profit_price, "take_profit"
+                    break
+            else:
+                if c["high"] >= stop_price:
+                    exit_price, exit_reason = stop_price, "stop"
+                    break
+                if c["low"] <= take_profit_price:
+                    exit_price, exit_reason = take_profit_price, "take_profit"
+                    break
             if c["time"] >= EXIT_TIME:
                 exit_price, exit_reason = c["close"], "exit_time"
                 break
