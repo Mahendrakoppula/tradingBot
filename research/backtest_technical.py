@@ -167,6 +167,13 @@ def backtest_scalp_day(candles: list[dict]) -> dict | None:
     warmup = max(SCALP_EMA_SLOW, SCALP_AVG_VOLUME_PERIOD) + 1
     if n < warmup + SCALP_MAX_HOLD_BARS + 2:
         return None
+    # Index candles (NIFTY/BANKNIFTY) always report volume=0 - confirmed
+    # live, there's no "shares traded" for an index value itself, only for
+    # its constituents/derivatives. Requiring volume confirmation would
+    # silently block every signal for indices, so skip that gate entirely
+    # when the data has no volume information at all (not when a bar's
+    # volume is legitimately low - that's still a real no-confirmation).
+    has_volume_data = any((c.get("volume") or 0) > 0 for c in candles)
     closes = [c["close"] for c in candles]
     ema_fast = ema(closes, SCALP_EMA_FAST)
     ema_slow = ema(closes, SCALP_EMA_SLOW)
@@ -179,7 +186,25 @@ def backtest_scalp_day(candles: list[dict]) -> dict | None:
         cross = detect_ma_crossover(ema_fast, ema_slow, index=i)
         if cross is None or avg_vol[i] is None:
             continue
-        if not volume_confirms_move(candles[i], avg_vol[i], SCALP_MIN_RELATIVE_VOLUME):
+        if has_volume_data and not volume_confirms_move(candles[i], avg_vol[i], SCALP_MIN_RELATIVE_VOLUME):
+            continue
+        # vwap() falls back to close when cumulative volume is 0 (confirmed
+        # live: NIFTY/BANKNIFTY candles always report volume=0, there's no
+        # real traded volume for an index value itself) - so vwap[i] ==
+        # close[i] on EVERY bar for these, and the "close vs vwap" side
+        # filter below can never pass (it's a strict inequality against
+        # itself). Skip that side of the filter when there's no real volume
+        # to compute a real VWAP from - this tests the EMA-cross signal
+        # alone for indices, not EMA-cross + VWAP-confirmed, a real
+        # difference in what's being validated worth revisiting before
+        # live wiring (e.g. substitute a session SMA as the reference line).
+        if not has_volume_data:
+            if cross == "golden_cross":
+                direction, signal_idx = "long", i
+                break
+            if cross == "death_cross":
+                direction, signal_idx = "short", i
+                break
             continue
         if cross == "golden_cross" and closes[i] > vwap_series[i]:
             direction, signal_idx = "long", i
@@ -219,6 +244,7 @@ def backtest_intraday(minute_candles: list[dict], daily_candles: list[dict]) -> 
     n = len(bars)
     if n < INTRADAY_EMA_SLOW + 5:
         return []
+    has_volume_data = any((b.get("volume") or 0) > 0 for b in bars)  # see backtest_scalp_day's comment - indices report 0
     closes = [b["close"] for b in bars]
     ema_fast = ema(closes, INTRADAY_EMA_FAST)
     ema_slow = ema(closes, INTRADAY_EMA_SLOW)
@@ -256,7 +282,7 @@ def backtest_intraday(minute_candles: list[dict], daily_candles: list[dict]) -> 
             direction = "long"
         elif (cross == "death_cross" or breakout_down) and rsi_series[i] > 30:
             direction = "short"
-        if direction is None or not volume_confirms_move(bar, avg_vol[i], INTRADAY_MIN_RELATIVE_VOLUME):
+        if direction is None or (has_volume_data and not volume_confirms_move(bar, avg_vol[i], INTRADAY_MIN_RELATIVE_VOLUME)):
             i += 1
             continue
 
