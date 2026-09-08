@@ -111,6 +111,15 @@ class RestClient:
             json={"expirytype": expirytype, "datatype": datatype},
         )
 
+    def get_option_greeks(self, name: str, expirydate: str) -> list:
+        """Per-strike delta/gamma/theta/vega/impliedVolatility for one
+        underlying+expiry, NSE only (docs). expirydate format: "DDMMMYYYY"."""
+        return self._call(
+            "POST",
+            "/rest/secure/angelbroking/marketData/v1/optionGreek",
+            json={"name": name, "expirydate": expirydate},
+        )
+
     def get_gainers_losers(self, datatype: str, expirytype: str) -> list:
         return self._call(
             "POST",
