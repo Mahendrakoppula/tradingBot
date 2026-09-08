@@ -1,0 +1,31 @@
+[Unit]
+Description=Nightly post-market review and tuning agent (Claude Code)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=tradingbot
+WorkingDirectory=/opt/trading-bot/trading-bot-agent
+EnvironmentFile=/opt/trading-bot/.agent-env
+
+# The bot process on this box matters more than the agent does. t3.micro has
+# 1GB total and trading-bot.service is already running in it, so cap the
+# agent rather than letting Node grow until the OOM killer picks a victim -
+# if anything dies here it should be the review, not the trading bot.
+MemoryMax=400M
+
+# Bounded run. If it hasn't finished in 20 minutes something is wrong, and
+# the instance stops at 18:00 IST regardless.
+TimeoutStartSec=1200
+
+# --dangerously-skip-permissions is required for unattended operation (there
+# is no human to approve tool calls at 16:00). The blast radius is bounded
+# elsewhere, deliberately: DRY_RUN is pinned and every tunable parameter is
+# range-checked by tests/test_config_bounds.py, which CI runs BEFORE the
+# deploy job (`deploy: needs: test`) - so anything unsafe fails the build
+# and never reaches the live bot.
+ExecStart=/bin/bash -lc 'claude -p "$(cat /opt/trading-bot/deploy/daily_review_prompt.md)" --dangerously-skip-permissions >> /opt/trading-bot/.state/reviews/agent-run.log 2>&1'
+
+[Install]
+WantedBy=multi-user.target

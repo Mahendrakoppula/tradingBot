@@ -1,0 +1,24 @@
+[Unit]
+Description=Run the post-market review agent each weekday
+
+[Timer]
+# ******* THE INSTANCE CLOCK IS UTC, NOT IST *******
+# This project has already been bitten once by assuming otherwise (see
+# trading_bot/timeutil.py, added after ENTRY_TIME=12:30 silently meant
+# 18:00 IST). Verify with `timedatectl` before changing this line.
+#
+#   10:30 UTC = 16:00 IST
+#
+# Market closes 15:30 IST and the bot's EXIT_TIME is 15:15 IST, so by 16:00
+# IST the day's journal has been written and positions are settled. The
+# EventBridge schedule stops this instance at 18:00 IST (12:30 UTC), which
+# leaves the agent a ~2 hour window - matching the service's 20-minute
+# timeout with plenty of room.
+OnCalendar=Mon-Fri *-*-* 10:30:00 UTC
+
+# If the instance was down at 10:30 (a holiday start, a failed boot), run
+# once on the next start rather than silently skipping the day entirely.
+Persistent=true
+
+[Install]
+WantedBy=timers.target
