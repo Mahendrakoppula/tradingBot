@@ -1,0 +1,7 @@
+# These files are executed directly on Linux (systemd ExecStart uses the
+# shebang, or they're read by systemd itself) - a CRLF line ending here
+# corrupts the shebang (e.g. "#!/bin/bash\r" resolves to a nonexistent
+# interpreter) even though the file looks fine on Windows and even runs fine
+# locally via explicit `bash script.sh` (which bypasses the shebang).
+*.sh text eol=lf
+*.service text eol=lf
