@@ -74,6 +74,22 @@ class RestClient:
             },
         )
 
+    def get_oi_data(self, exchange: str, symboltoken: str, interval: str, fromdate: str, todate: str) -> list:
+        """Historical OI time series for a LIVE F&O contract (docs: "for live
+        F&O contracts only") - separate from get_candle_data, which returns
+        OHLCV but no OI. Returns data[] = [{"time": ..., "oi": ...}, ...]."""
+        return self._call(
+            "POST",
+            "/rest/secure/angelbroking/historical/v1/getOIData",
+            json={
+                "exchange": exchange,
+                "symboltoken": symboltoken,
+                "interval": interval,
+                "fromdate": fromdate,
+                "todate": todate,
+            },
+        )
+
     def get_quote(self, mode: str, exchange_tokens: dict[str, list[str]]) -> dict:
         """Batch quote (up to 50 symbols per exchange per request per docs).
         mode: LTP, OHLC, or FULL."""

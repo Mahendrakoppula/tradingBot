@@ -7,6 +7,7 @@ import time
 from trading_bot import state as state_mod
 from trading_bot.auth import Session
 from trading_bot.briefing import build_morning_briefing
+from trading_bot.candle_history_logger import maybe_log_candles
 from trading_bot.config import Config
 from trading_bot.debit_strategy import LongOptionStrategy, build_long_leg, pick_direction, pick_momentum_direction
 from trading_bot.error_notifier import notify_error
@@ -342,6 +343,8 @@ def main() -> None:
 
     stop = False
     last_snapshot_at = 0.0  # time.monotonic() of last option-chain log, 0 = never yet
+    candle_tracked_contracts_cache: dict = {}  # underlying -> fixed contract list, reset daily
+    candle_last_pull_at: dict = {}  # interval name -> time.monotonic() of last pull
 
     def handle_stop(signum, frame):
         nonlocal stop
@@ -360,6 +363,8 @@ def main() -> None:
             scalp_trade_counts.clear()
             orb_trackers = {u: OpeningRangeTracker(_parse_hhmm(cfg.scalp_orb_ref_start), _parse_hhmm(cfg.scalp_orb_ref_end)) for u in cfg.watchlist}
             spike_detectors = {u: MomentumSpikeDetector(cfg.scalp_momentum_window_minutes, cfg.scalp_momentum_min_move_pct) for u in cfg.watchlist}
+            candle_tracked_contracts_cache = {}
+            candle_last_pull_at = {}
         now_t = now.time()
 
         # Option-chain snapshot logging: pure data collection for a future
@@ -375,6 +380,15 @@ def main() -> None:
         ):
             log_snapshot(rest, instruments, cfg.watchlist, cfg.dte_min, cfg.dte_max, today, cfg.option_chain_log_strike_band_pct)
             last_snapshot_at = time.monotonic()
+
+        # Real OHLCV+OI candle history (1/5/10/30-min + daily) for a fixed
+        # near-ATM band - separate from the point-sample snapshot above, its
+        # own staggered per-interval cadence (see candle_history_logger's
+        # INTERVAL_CONFIG), also market-hours gated, also pure data
+        # collection that never affects trading decisions.
+        if cfg.candle_log_enabled and dt.time(9, 15) <= now_t <= dt.time(15, 30):
+            maybe_log_candles(rest, instruments, cfg.watchlist, cfg.dte_min, cfg.dte_max, today,
+                               cfg.candle_log_strikes_each_side, candle_tracked_contracts_cache, candle_last_pull_at)
 
         if now_t >= exit_time:
             for underlying, position in list(positions.items()):
