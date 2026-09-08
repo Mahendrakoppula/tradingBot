@@ -129,6 +129,19 @@ class Config:
     option_chain_log_interval_seconds: int = 300
     option_chain_log_strike_band_pct: float = 0.15  # +-15% of spot around ATM
 
+    # --- candle history logging (candle_history_logger.py) ---
+    # Real OHLCV+OI candles (via getCandleData/getOIData, not point-sample
+    # quotes like option_chain_logger above) for a FIXED, small band of
+    # near-ATM strikes, at 1/5/10/30-minute and daily granularity - explicit
+    # user request ("in future research and making strategies we can have
+    # better things to do if we have more data"). Each interval pulls on
+    # its own staggered cadence (candle_history_logger.INTERVAL_CONFIG) to
+    # stay well within getCandleData's 3 req/sec, 5000/day limit - see that
+    # module's docstring for the budget math. Pure data collection, same as
+    # option_chain_log above: never affects trading decisions.
+    candle_log_enabled: bool = True
+    candle_log_strikes_each_side: int = 2  # 2 -> 5 strikes (ATM +-2) x CE/PE = 10 contracts/underlying
+
     # --- scalp add-on (scalp_strategy.py) ---
     # Explicit user request: an ADD-ON alongside the existing daily strategy,
     # not a replacement - "keep the existing behaviour as it is, and add
@@ -204,6 +217,8 @@ class Config:
             option_chain_log_enabled=os.environ.get("OPTION_CHAIN_LOG_ENABLED", "true").lower() != "false",
             option_chain_log_interval_seconds=int(os.environ.get("OPTION_CHAIN_LOG_INTERVAL_SECONDS", "300")),
             option_chain_log_strike_band_pct=float(os.environ.get("OPTION_CHAIN_LOG_STRIKE_BAND_PCT", "0.15")),
+            candle_log_enabled=os.environ.get("CANDLE_LOG_ENABLED", "true").lower() != "false",
+            candle_log_strikes_each_side=int(os.environ.get("CANDLE_LOG_STRIKES_EACH_SIDE", "2")),
             scalp_enabled=os.environ.get("SCALP_ENABLED", "false").lower() == "true",
             scalp_risk_per_trade_pct=float(os.environ.get("SCALP_RISK_PER_TRADE_PCT", "0.01")),
             scalp_daily_loss_cap_pct=float(os.environ.get("SCALP_DAILY_LOSS_CAP_PCT", "0.03")),
