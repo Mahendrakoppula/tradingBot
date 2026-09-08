@@ -120,6 +120,15 @@ class Config:
     min_open_interest: int = 100
     limit_order_buffer_pct: float = 0.5
 
+    # --- option-chain snapshot logging (option_chain_logger.py) ---
+    # SmartAPI has no historical data for expired option contracts (see
+    # research/README.md) - this is the only way to accumulate real premium
+    # history going forward, for a future premium-based backtest. Pure data
+    # collection: never affects trading decisions, never disabled by DRY_RUN.
+    option_chain_log_enabled: bool = True
+    option_chain_log_interval_seconds: int = 300
+    option_chain_log_strike_band_pct: float = 0.15  # +-15% of spot around ATM
+
     @classmethod
     def from_env(cls) -> "Config":
         missing = [
@@ -169,4 +178,7 @@ class Config:
             max_spread_pct=float(os.environ.get("MAX_SPREAD_PCT", "8.0")),
             min_open_interest=int(os.environ.get("MIN_OPEN_INTEREST", "100")),
             limit_order_buffer_pct=float(os.environ.get("LIMIT_ORDER_BUFFER_PCT", "0.5")),
+            option_chain_log_enabled=os.environ.get("OPTION_CHAIN_LOG_ENABLED", "true").lower() != "false",
+            option_chain_log_interval_seconds=int(os.environ.get("OPTION_CHAIN_LOG_INTERVAL_SECONDS", "300")),
+            option_chain_log_strike_band_pct=float(os.environ.get("OPTION_CHAIN_LOG_STRIKE_BAND_PCT", "0.15")),
         )
