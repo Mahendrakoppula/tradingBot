@@ -29,13 +29,25 @@ def test_score_headline_neutral_no_keywords():
     assert matched == []
 
 
+def test_score_headline_finance_lexicon_scores_jargon_plain_vader_misses():
+    # Regression: found live 2026-09-08 that plain (un-extended) VADER
+    # scores this headline as perfectly neutral (compound 0.0) because
+    # "hikes", "basis points", "selloff" aren't in its everyday-language
+    # lexicon - the whole point of FINANCE_LEXICON is to fix exactly this.
+    score, matched, caution = _score_headline("RBI hikes rates by 50 basis points, markets selloff")
+    assert score <= -0.3
+    assert any("vader=" in m for m in matched)
+
+
 def test_score_headline_word_boundary_avoids_substring_false_positives():
     # Regression: found live 2026-09-08 that plain substring matching
     # flagged this as a "war" caution headline purely because "software"
-    # contains "war" - word-boundary matching must not repeat that.
+    # contains "war" - word-boundary matching must not repeat that. The
+    # headline is legitimately positive ("skyrocket") so score/matched
+    # aren't expected to be empty - only `caution` must be False.
     score, matched, caution = _score_headline("ESDS Software shares skyrocket 195% from IPO price")
     assert caution is False
-    assert matched == []
+    assert "!caution" not in matched
     # A few more common false-positive traps for the same reason.
     for headline in ["Company signs new warranty agreement", "Investors reward strong earnings", "Firm moves toward profitability"]:
         _, _, c = _score_headline(headline)
@@ -70,7 +82,7 @@ def test_compute_news_sentiment_positive_label(monkeypatch):
 
     result = compute_news_sentiment()
     assert result["label"] == "POSITIVE"
-    assert result["total_score"] >= 2
+    assert result["total_score"] >= 0.15  # POSITIVE threshold, see compute_news_sentiment
     assert result["caution_count"] == 0
 
 
@@ -105,6 +117,27 @@ def test_compute_news_sentiment_filters_stale_headlines(monkeypatch):
     result = compute_news_sentiment()
     assert result["label"] == "NEUTRAL"  # the stale caution headline must not count
     assert result["caution_count"] == 0
+
+
+def test_compute_news_sentiment_score_is_mean_not_sum(monkeypatch):
+    # Regression: found live 2026-09-08 that summing (rather than
+    # averaging) notable headlines' scores inflates purely with headline
+    # VOLUME - a busy news day scored +19 even though individual headlines
+    # were only moderately scored, making the number incomparable across
+    # days. The mean of many moderately-positive headlines must stay in a
+    # similar range to one moderately-positive headline, not grow with count.
+    now_rfc822 = dt.datetime.now(dt.timezone.utc).strftime("%a, %d %b %Y %H:%M:%S GMT")
+    monkeypatch.setattr(ns, "FEEDS", [("TestFeed", "http://example.com/rss", "global")])
+    monkeypatch.setattr(ns.time, "sleep", lambda s: None)
+    monkeypatch.setattr(
+        ns.requests, "get",
+        lambda url, headers, timeout: FakeResponse(_rss_xml([
+            ("Markets rally on stimulus hopes", now_rfc822) for _ in range(10)
+        ])),
+    )
+
+    result = compute_news_sentiment()
+    assert -1.0 <= result["total_score"] <= 1.0  # bounded like a single VADER score, not growing with volume
 
 
 def test_compute_news_sentiment_never_raises_on_feed_failure(monkeypatch):
