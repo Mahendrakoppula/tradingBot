@@ -33,12 +33,15 @@ python3.12 -m venv /opt/trading-bot/.venv
 /opt/trading-bot/.venv/bin/pip install --quiet --upgrade pip
 /opt/trading-bot/.venv/bin/pip install --quiet -r /opt/trading-bot/requirements.txt
 
-chmod +x /opt/trading-bot/deploy/fetch_secrets.sh
+chmod +x /opt/trading-bot/deploy/fetch_secrets.sh /opt/trading-bot/deploy/sync_state_to_s3.sh
 chown -R tradingbot:tradingbot /opt/trading-bot
 
 cp /opt/trading-bot/deploy/trading-bot-bootstrap.service /etc/systemd/system/trading-bot-bootstrap.service
 cp /opt/trading-bot/deploy/trading-bot.service /etc/systemd/system/trading-bot.service
+cp /opt/trading-bot/deploy/trading-bot-s3-sync.service /etc/systemd/system/trading-bot-s3-sync.service
+cp /opt/trading-bot/deploy/trading-bot-s3-sync.timer /etc/systemd/system/trading-bot-s3-sync.timer
 systemctl daemon-reload
 # Requires=/Before= on trading-bot.service pulls the bootstrap service in
 # automatically on every start - no need to separately enable it.
 systemctl enable --now trading-bot.service
+systemctl enable --now trading-bot-s3-sync.timer

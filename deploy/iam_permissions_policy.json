@@ -6,6 +6,23 @@
       "Effect": "Allow",
       "Action": "s3:GetObject",
       "Resource": "arn:aws:s3:::__DEPLOY_BUCKET__/trading-bot/*"
+    },
+    {
+      "Sid": "WriteHistoricalDataBackup",
+      "Effect": "Allow",
+      "Action": "s3:PutObject",
+      "Resource": "arn:aws:s3:::__DEPLOY_BUCKET__/trading-bot/historical/*"
+    },
+    {
+      "Sid": "ListForS3Sync",
+      "Effect": "Allow",
+      "Action": "s3:ListBucket",
+      "Resource": "arn:aws:s3:::__DEPLOY_BUCKET__",
+      "Condition": {
+        "StringLike": {
+          "s3:prefix": "trading-bot/historical/*"
+        }
+      }
     }
   ]
 }

@@ -1,0 +1,11 @@
+[Unit]
+Description=Sync trading-bot historical data (.state/*.jsonl) to S3
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=tradingbot
+Group=tradingbot
+WorkingDirectory=/opt/trading-bot
+ExecStart=/opt/trading-bot/deploy/sync_state_to_s3.sh
