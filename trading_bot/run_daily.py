@@ -28,6 +28,23 @@ log = logging.getLogger("trading_bot.daily")
 
 POLL_SECONDS = 30
 
+# Short internal codes (used in trade_log.jsonl / journal.jsonl, kept stable
+# for any future analysis) mapped to a human-readable explanation for
+# Telegram notifications and logs.
+EXIT_REASON_TEXT = {
+    "exit_time": "reached the scheduled exit time",
+    "stop_loss": "hit its per-trade stop-loss",
+    "scalp_time_exit": "reached its scalp max-hold time",
+    "scalp_stop_loss": "hit its scalp stop-loss",
+}
+
+
+def _describe_exit(reason_code: str, pnl: float, risk: DailyRiskTracker) -> str:
+    text = EXIT_REASON_TEXT.get(reason_code, reason_code)
+    if reason_code in ("stop_loss", "scalp_stop_loss"):
+        return f"{text} (unrealized P&L Rs.{pnl:.2f} breached the Rs.{risk.max_loss_per_trade():.2f} limit)"
+    return text
+
 
 def _parse_hhmm(hhmm: str) -> dt.time:
     return dt.datetime.strptime(hhmm, "%H:%M").time()
@@ -50,6 +67,7 @@ def _settle_close(rest: RestClient, strategy: LongOptionStrategy, risk: DailyRis
         log.exception("Could not fetch exit quote for %s - falling back to MARKET order", leg.tradingsymbol)
         exit_quote = None
     strategy.exit(leg, quote=exit_quote)
+    exit_detail = _describe_exit(reason, pnl, risk)
     risk.record_realized(pnl)
     ledger["current_capital"] += pnl
     ledger["updated_at"] = now_ist().isoformat()
@@ -60,15 +78,22 @@ def _settle_close(rest: RestClient, strategy: LongOptionStrategy, risk: DailyRis
         "option_type": position.option.tradingsymbol[-2:],
         "entered_at": position.entered_at,
         "closed_at": ledger["updated_at"],
+        "entry_reason": position.entry_reason,
         "reason": reason,
+        "exit_reason": exit_detail,
         "qty_lots": position.option.quantity // position.option.lotsize,
         "realized_pnl": pnl,
         "capital_after": ledger["current_capital"],
     })
-    journal["trades"].append({"underlying": position.underlying, "pnl": pnl, "reason": reason})
-    log.info("%s closed (%s): P&L %.2f, capital now Rs.%.2f", position.underlying, reason, pnl, ledger["current_capital"])
-    notify(f"{'[DRY RUN] ' if rest.session.cfg.dry_run else ''}{position.underlying} {position.option.tradingsymbol} "
-           f"closed ({reason}): P&L Rs.{pnl:.2f}, capital now Rs.{ledger['current_capital']:.2f}")
+    journal["trades"].append({
+        "underlying": position.underlying, "pnl": pnl,
+        "entry_reason": position.entry_reason, "reason": reason, "exit_reason": exit_detail,
+    })
+    log.info("%s closed (%s): P&L %.2f, capital now Rs.%.2f", position.underlying, exit_detail, pnl, ledger["current_capital"])
+    notify(f"{'[DRY RUN] ' if rest.session.cfg.dry_run else ''}{position.underlying} {position.option.tradingsymbol} closed: "
+           f"P&L Rs.{pnl:.2f}, capital now Rs.{ledger['current_capital']:.2f}\n"
+           f"Entered because: {position.entry_reason or 'unknown'}\n"
+           f"Exited because: {exit_detail}")
 
 
 def _maybe_enter(cfg: Config, rest: RestClient, instruments: InstrumentLookup, strategy: LongOptionStrategy,
@@ -138,6 +163,7 @@ def _maybe_enter(cfg: Config, rest: RestClient, instruments: InstrumentLookup, s
         expiry=expiry.strftime("%d%b%Y").upper(),
         entered_at=now_ist().isoformat(),
         option=leg,
+        entry_reason=reason,
     )
     journal["decisions"].append({
         "time": now_ist().isoformat(), "underlying": underlying, "action": "entered",
@@ -145,7 +171,8 @@ def _maybe_enter(cfg: Config, rest: RestClient, instruments: InstrumentLookup, s
     })
     notify(
         f"{'[DRY RUN] ' if cfg.dry_run else ''}Bought {underlying} {contract.tradingsymbol}: {lots} lot(s) "
-        f"@ ~Rs.{leg.entry_price:.2f}, premium Rs.{premium_per_lot * lots:.2f} ({reason})"
+        f"@ ~Rs.{leg.entry_price:.2f}, premium Rs.{premium_per_lot * lots:.2f}\n"
+        f"Entered because: {reason}"
     )
 
 
@@ -164,6 +191,7 @@ def _settle_scalp_close(rest: RestClient, strategy: LongOptionStrategy, scalp_ri
         log.exception("Could not fetch exit quote for scalp %s - falling back to MARKET order", leg.tradingsymbol)
         exit_quote = None
     strategy.exit(leg, quote=exit_quote)
+    exit_detail = _describe_exit(reason, pnl, scalp_risk)
     scalp_risk.record_realized(pnl)
     ledger["current_capital"] += pnl
     ledger["updated_at"] = now_ist().isoformat()
@@ -177,14 +205,20 @@ def _settle_scalp_close(rest: RestClient, strategy: LongOptionStrategy, scalp_ri
         "closed_at": ledger["updated_at"],
         "reason": reason,
         "signal_reason": position.signal_reason,
+        "exit_reason": exit_detail,
         "qty_lots": position.option.quantity // position.option.lotsize,
         "realized_pnl": pnl,
         "capital_after": ledger["current_capital"],
     })
-    journal["scalp_trades"].append({"underlying": position.underlying, "pnl": pnl, "reason": reason})
-    log.info("SCALP %s closed (%s): P&L %.2f, capital now Rs.%.2f", position.underlying, reason, pnl, ledger["current_capital"])
-    notify(f"{'[DRY RUN] ' if rest.session.cfg.dry_run else ''}[SCALP] {position.underlying} {position.option.tradingsymbol} "
-           f"closed ({reason}): P&L Rs.{pnl:.2f}, capital now Rs.{ledger['current_capital']:.2f}")
+    journal["scalp_trades"].append({
+        "underlying": position.underlying, "pnl": pnl,
+        "signal_reason": position.signal_reason, "reason": reason, "exit_reason": exit_detail,
+    })
+    log.info("SCALP %s closed (%s): P&L %.2f, capital now Rs.%.2f", position.underlying, exit_detail, pnl, ledger["current_capital"])
+    notify(f"{'[DRY RUN] ' if rest.session.cfg.dry_run else ''}[SCALP] {position.underlying} {position.option.tradingsymbol} closed: "
+           f"P&L Rs.{pnl:.2f}, capital now Rs.{ledger['current_capital']:.2f}\n"
+           f"Entered because: {position.signal_reason or 'unknown'}\n"
+           f"Exited because: {exit_detail}")
 
 
 def _maybe_scalp_enter(cfg: Config, rest: RestClient, instruments: InstrumentLookup, strategy: LongOptionStrategy,
@@ -247,7 +281,8 @@ def _maybe_scalp_enter(cfg: Config, rest: RestClient, instruments: InstrumentLoo
     })
     notify(
         f"{'[DRY RUN] ' if cfg.dry_run else ''}[SCALP] Bought {underlying} {contract.tradingsymbol}: {lots} lot(s) "
-        f"@ ~Rs.{leg.entry_price:.2f}, premium Rs.{premium_per_lot * lots:.2f} ({reason})"
+        f"@ ~Rs.{leg.entry_price:.2f}, premium Rs.{premium_per_lot * lots:.2f}\n"
+        f"Entered because: {reason}"
     )
 
 

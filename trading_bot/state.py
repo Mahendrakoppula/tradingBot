@@ -64,6 +64,8 @@ class OpenLongOption:
     expiry: str  # "DDMMMYYYY", as in the scrip master
     entered_at: str  # ISO timestamp
     option: LegFill
+    entry_reason: str = ""  # why this trade was taken (OI-buildup/momentum signal) - default "" so a
+                             # position saved by an older build (before this field existed) still loads
 
 
 def load_long() -> dict[str, OpenLongOption]:
