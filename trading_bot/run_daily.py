@@ -19,6 +19,7 @@ from trading_bot.options import OptionChain, find_spot_instrument
 from trading_bot.premarket_bias import allows_direction, compute_premarket_bias, format_bias_line
 from trading_bot.rest_client import RestClient
 from trading_bot.risk import DailyRiskTracker
+from trading_bot.scalp_strategy import MomentumSpikeDetector, OpeningRangeTracker, build_scalp_leg, pick_scalp_signal
 from trading_bot.sizing import size_long_option
 from trading_bot.timeutil import now_ist, today_ist
 
@@ -147,6 +148,108 @@ def _maybe_enter(cfg: Config, rest: RestClient, instruments: InstrumentLookup, s
     )
 
 
+def _settle_scalp_close(rest: RestClient, strategy: LongOptionStrategy, scalp_risk: DailyRiskTracker,
+                         ledger: dict, position: state_mod.OpenScalpOption, reason: str, journal: dict) -> None:
+    """Scalp equivalent of _settle_close - same order-placement/state-saving
+    mechanics, but records against scalp_risk (its own daily-loss tracking,
+    kept separate from the main strategy's `risk`) and tags trade_log
+    entries with strategy="scalp" so count_scalp_trades_today can find them
+    and the daily strategy's own trade log stays exactly as it was."""
+    pnl = _unrealized_pnl(rest, position)
+    leg = position.option
+    try:
+        exit_quote = get_quote_for_contract(rest, leg.exchange, leg.symboltoken)
+    except Exception:
+        log.exception("Could not fetch exit quote for scalp %s - falling back to MARKET order", leg.tradingsymbol)
+        exit_quote = None
+    strategy.exit(leg, quote=exit_quote)
+    scalp_risk.record_realized(pnl)
+    ledger["current_capital"] += pnl
+    ledger["updated_at"] = now_ist().isoformat()
+    state_mod.save_capital(ledger)
+    state_mod.log_trade({
+        "strategy": "scalp",
+        "underlying": position.underlying,
+        "expiry": position.expiry,
+        "option_type": position.option.tradingsymbol[-2:],
+        "entered_at": position.entered_at,
+        "closed_at": ledger["updated_at"],
+        "reason": reason,
+        "signal_reason": position.signal_reason,
+        "qty_lots": position.option.quantity // position.option.lotsize,
+        "realized_pnl": pnl,
+        "capital_after": ledger["current_capital"],
+    })
+    journal["scalp_trades"].append({"underlying": position.underlying, "pnl": pnl, "reason": reason})
+    log.info("SCALP %s closed (%s): P&L %.2f, capital now Rs.%.2f", position.underlying, reason, pnl, ledger["current_capital"])
+    notify(f"{'[DRY RUN] ' if rest.session.cfg.dry_run else ''}[SCALP] {position.underlying} {position.option.tradingsymbol} "
+           f"closed ({reason}): P&L Rs.{pnl:.2f}, capital now Rs.{ledger['current_capital']:.2f}")
+
+
+def _maybe_scalp_enter(cfg: Config, rest: RestClient, instruments: InstrumentLookup, strategy: LongOptionStrategy,
+                        scalp_risk: DailyRiskTracker, scalp_positions: dict, orb_trackers: dict, spike_detectors: dict,
+                        scalp_trade_counts: dict, underlying: str, today: dt.date, journal: dict) -> None:
+    spot_row = find_spot_instrument(instruments.instruments, underlying)
+    spot_data = rest.get_ltp(spot_row["exch_seg"], spot_row["symbol"], spot_row["token"])
+    spot = float(spot_data["ltp"])
+    now = now_ist()
+
+    # Always feed the trackers, even if we're not going to act on a signal
+    # below - the ORB range must keep building through its whole reference
+    # window regardless of position/trade-count state, and the momentum
+    # window needs continuous samples to stay accurate.
+    orb_signal = orb_trackers[underlying].update(now.time(), spot)
+    spike_signal = spike_detectors[underlying].update(now, spot)
+
+    if underlying in scalp_positions:
+        return  # one open scalp trade per underlying at a time
+    if scalp_trade_counts.get(underlying, 0) >= cfg.scalp_max_trades_per_day:
+        return
+
+    option_type, reason = pick_scalp_signal(orb_signal, spike_signal)
+    if option_type is None:
+        return
+
+    chain = OptionChain(instruments.instruments, underlying, exchange="NFO")
+    expiry = chain.nearest_expiry_within(today, cfg.dte_min, cfg.dte_max)
+    if expiry is None:
+        return
+    contract = build_scalp_leg(chain, expiry, spot, option_type)
+
+    quote = get_quote_for_contract(rest, contract.exchange, contract.token)
+    if quote is None:
+        log.info("SCALP %s: skipping entry - could not fetch a quote for %s", underlying, contract.tradingsymbol)
+        return
+    liquid, liquidity_reason = check_liquidity(quote, cfg.max_spread_pct, cfg.min_open_interest)
+    if not liquid:
+        log.info("SCALP %s: skipping entry - %s illiquid (%s)", underlying, contract.tradingsymbol, liquidity_reason)
+        return
+
+    budget = min(scalp_risk.max_loss_per_trade(), scalp_risk.ledger["current_capital"] * cfg.max_capital_pct_per_trade)
+    lots, premium_per_lot = size_long_option(rest, contract, budget, cfg.max_lots_per_trade)
+    if lots < 1:
+        log.info("SCALP %s: skipping entry - budget Rs.%.2f can't cover 1 lot (premium Rs.%.2f)", underlying, budget, premium_per_lot)
+        return
+
+    leg = strategy.enter(contract, qty_lots=lots, quote=quote)
+    scalp_positions[underlying] = state_mod.OpenScalpOption(
+        underlying=underlying,
+        expiry=expiry.strftime("%d%b%Y").upper(),
+        entered_at=now.isoformat(),
+        signal_reason=reason,
+        option=leg,
+    )
+    scalp_trade_counts[underlying] = scalp_trade_counts.get(underlying, 0) + 1
+    journal["scalp_decisions"].append({
+        "time": now.isoformat(), "underlying": underlying, "action": "entered",
+        "reason": reason, "option_type": option_type, "lots": lots,
+    })
+    notify(
+        f"{'[DRY RUN] ' if cfg.dry_run else ''}[SCALP] Bought {underlying} {contract.tradingsymbol}: {lots} lot(s) "
+        f"@ ~Rs.{leg.entry_price:.2f}, premium Rs.{premium_per_lot * lots:.2f} ({reason})"
+    )
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="Daily intraday long-option runner: buys NIFTY/BANKNIFTY/stock options based on an "
@@ -189,6 +292,15 @@ def main() -> None:
         notify(msg)
     risk = DailyRiskTracker(risk_per_trade_pct=risk_pct, daily_loss_cap_pct=cap_pct, ledger=ledger)
 
+    # Scalp add-on: OFF unless SCALP_ENABLED=true, entirely independent risk
+    # tracking (own DailyRiskTracker instance, same capital ledger) and
+    # state file from the strategy above - see config.py's scalp_* comment.
+    scalp_risk = DailyRiskTracker(risk_per_trade_pct=cfg.scalp_risk_per_trade_pct, daily_loss_cap_pct=cfg.scalp_daily_loss_cap_pct, ledger=ledger)
+    scalp_positions = state_mod.load_scalp()
+    scalp_trade_counts = state_mod.count_scalp_trades_today(today_ist().date().isoformat())
+    orb_trackers = {u: OpeningRangeTracker(_parse_hhmm(cfg.scalp_orb_ref_start), _parse_hhmm(cfg.scalp_orb_ref_end)) for u in cfg.watchlist}
+    spike_detectors = {u: MomentumSpikeDetector(cfg.scalp_momentum_window_minutes, cfg.scalp_momentum_min_move_pct) for u in cfg.watchlist}
+
     instruments = InstrumentLookup(cfg.scrip_master_url)
     instruments.load()
 
@@ -223,6 +335,9 @@ def main() -> None:
         "losing_streak_days_at_start": streak,
         "decisions": [],
         "trades": [],
+        "scalp_enabled": cfg.scalp_enabled,
+        "scalp_decisions": [],
+        "scalp_trades": [],
     }
 
     stop = False
@@ -241,6 +356,10 @@ def main() -> None:
         if now.date() != today:
             today = now.date()
             risk.reset_day()
+            scalp_risk.reset_day()
+            scalp_trade_counts.clear()
+            orb_trackers = {u: OpeningRangeTracker(_parse_hhmm(cfg.scalp_orb_ref_start), _parse_hhmm(cfg.scalp_orb_ref_end)) for u in cfg.watchlist}
+            spike_detectors = {u: MomentumSpikeDetector(cfg.scalp_momentum_window_minutes, cfg.scalp_momentum_min_move_pct) for u in cfg.watchlist}
         now_t = now.time()
 
         # Option-chain snapshot logging: pure data collection for a future
@@ -307,6 +426,69 @@ def main() -> None:
                 notify(f"Daily loss cap reached - no new entries today. Capital Rs.{ledger['current_capital']:.2f}")
                 risk.cap_notified_today = True
 
+        # --- SCALP ADD-ON (scalp_strategy.py) ---
+        # Explicit user request: "keep the existing behaviour as it is, and
+        # add scalping as an add-on". Everything above this point is the
+        # daily strategy, completely unchanged. This block is fully
+        # independent: own risk tracker (scalp_risk - separate daily-loss
+        # cap, same capital ledger), own state file (scalp_positions, saved
+        # separately from positions), own trade log tag ("strategy":
+        # "scalp"). Entirely OFF unless SCALP_ENABLED=true.
+        if cfg.scalp_enabled:
+            if now_t >= exit_time:
+                for underlying, position in list(scalp_positions.items()):
+                    log.info("Exit time reached - closing scalp %s %s", underlying, position.option.tradingsymbol)
+                    try:
+                        _settle_scalp_close(rest, strategy, scalp_risk, ledger, position, reason="exit_time", journal=journal)
+                        del scalp_positions[underlying]
+                    except Exception as e:
+                        log.exception("Failed to close scalp %s at exit time - MANUAL INTERVENTION MAY BE NEEDED", underlying)
+                        notify(f"URGENT: failed to close scalp {underlying} at exit time - MANUAL INTERVENTION NEEDED")
+                        notify_error(f"Failed to close scalp {underlying} at exit time - MANUAL INTERVENTION NEEDED - {e}")
+                state_mod.save_scalp(scalp_positions)
+            elif scalp_positions:
+                for underlying, position in list(scalp_positions.items()):
+                    try:
+                        pnl = _unrealized_pnl(rest, position)
+                    except Exception as e:
+                        log.exception("Could not price scalp %s for exit check", underlying)
+                        notify_error(f"Could not price scalp {underlying} for exit check - {e}")
+                        continue
+                    entered_at = dt.datetime.fromisoformat(position.entered_at)
+                    if now - entered_at >= dt.timedelta(minutes=cfg.scalp_max_hold_minutes):
+                        exit_reason = "scalp_time_exit"  # true scalp: unconditional exit after N minutes, win or lose
+                    elif scalp_risk.should_exit_for_stop(pnl):
+                        exit_reason = "scalp_stop_loss"  # safety backstop if it moves against it hard before the timer
+                    else:
+                        continue
+                    log.info("Closing scalp %s %s (%s)", underlying, position.option.tradingsymbol, exit_reason)
+                    try:
+                        _settle_scalp_close(rest, strategy, scalp_risk, ledger, position, reason=exit_reason, journal=journal)
+                        del scalp_positions[underlying]
+                    except Exception as e:
+                        log.exception("Failed to close scalp %s - MANUAL INTERVENTION MAY BE NEEDED", underlying)
+                        notify(f"URGENT: failed to close scalp {underlying} - MANUAL INTERVENTION NEEDED")
+                        notify_error(f"Failed to close scalp {underlying} - MANUAL INTERVENTION NEEDED - {e}")
+                state_mod.save_scalp(scalp_positions)
+
+            # Same ENABLE_TRADING kill switch as the daily strategy above -
+            # deliberately, not a separate/weaker gate. Runs up to exit_time
+            # only (no new scalp entries after that, mirroring the daily
+            # strategy's own entry_time <= now_t < exit_time window).
+            if cfg.enable_trading and now_t < exit_time:
+                if scalp_risk.can_enter_new_trade():
+                    for underlying in cfg.watchlist:
+                        try:
+                            _maybe_scalp_enter(cfg, rest, instruments, strategy, scalp_risk, scalp_positions,
+                                                orb_trackers, spike_detectors, scalp_trade_counts, underlying, today, journal)
+                        except Exception as e:
+                            log.exception("Scalp entry check failed for %s", underlying)
+                            notify_error(f"Scalp entry check failed for {underlying} - {e}")
+                    state_mod.save_scalp(scalp_positions)
+                elif not scalp_risk.cap_notified_today:
+                    notify(f"Scalp daily loss cap reached - no new scalp entries today. Capital Rs.{ledger['current_capital']:.2f}")
+                    scalp_risk.cap_notified_today = True
+
         time.sleep(POLL_SECONDS)
 
     log.info("Shutting down. Open positions (if any) remain tracked in %s - rerun to keep managing them.", state_mod.LONG_STATE_PATH)
@@ -321,9 +503,16 @@ def main() -> None:
     journal["ending_capital"] = ledger["current_capital"]
     journal["total_pnl"] = day_pnl
     journal["losing_streak_days_at_end"] = ledger["losing_streak_days"]
+    # Scalp P&L is reported for visibility only - deliberately NOT folded
+    # into day_pnl/losing_streak_days above, which stay scoped to the daily
+    # strategy exactly as before (see config.py's scalp_* comment).
+    journal["scalp_total_pnl"] = scalp_risk.daily_pnl()
     state_mod.log_journal_day(journal)
 
-    notify(f"Daily runner shutting down. Capital Rs.{ledger['current_capital']:.2f}, {len(positions)} position(s) still tracked.")
+    notify(
+        f"Daily runner shutting down. Capital Rs.{ledger['current_capital']:.2f}, {len(positions)} position(s) still tracked"
+        f"{f', {len(scalp_positions)} scalp position(s) still tracked' if cfg.scalp_enabled else ''}."
+    )
     session.logout()
 
 

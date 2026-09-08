@@ -129,6 +129,29 @@ class Config:
     option_chain_log_interval_seconds: int = 300
     option_chain_log_strike_band_pct: float = 0.15  # +-15% of spot around ATM
 
+    # --- scalp add-on (scalp_strategy.py) ---
+    # Explicit user request: an ADD-ON alongside the existing daily strategy,
+    # not a replacement - "keep the existing behaviour as it is, and add
+    # scalping as an add-on if there is a possibility of scalp". Off by
+    # default like every other kill switch in this config; uses its OWN risk
+    # budget/daily loss cap (separate DailyRiskTracker instance, same
+    # capital ledger) so it can never affect the main strategy's risk
+    # tracking. Entry signal is opening-range breakout (Zerodha's ORB
+    # research, research/README.md finding #1) OR a short-window momentum
+    # spike, whichever fires first (user: "combination of both and the
+    # best"). Exit is a hard time-based hold (user: "minutes, true scalp") -
+    # unconditional, whether winning or losing, capped by a stop-loss as a
+    # safety backstop if it moves against it hard before the timer expires.
+    scalp_enabled: bool = False
+    scalp_risk_per_trade_pct: float = 0.01
+    scalp_daily_loss_cap_pct: float = 0.03
+    scalp_max_hold_minutes: int = 5
+    scalp_max_trades_per_day: int = 3
+    scalp_orb_ref_start: str = "09:15"
+    scalp_orb_ref_end: str = "11:15"
+    scalp_momentum_window_minutes: int = 5
+    scalp_momentum_min_move_pct: float = 0.1
+
     @classmethod
     def from_env(cls) -> "Config":
         missing = [
@@ -181,4 +204,13 @@ class Config:
             option_chain_log_enabled=os.environ.get("OPTION_CHAIN_LOG_ENABLED", "true").lower() != "false",
             option_chain_log_interval_seconds=int(os.environ.get("OPTION_CHAIN_LOG_INTERVAL_SECONDS", "300")),
             option_chain_log_strike_band_pct=float(os.environ.get("OPTION_CHAIN_LOG_STRIKE_BAND_PCT", "0.15")),
+            scalp_enabled=os.environ.get("SCALP_ENABLED", "false").lower() == "true",
+            scalp_risk_per_trade_pct=float(os.environ.get("SCALP_RISK_PER_TRADE_PCT", "0.01")),
+            scalp_daily_loss_cap_pct=float(os.environ.get("SCALP_DAILY_LOSS_CAP_PCT", "0.03")),
+            scalp_max_hold_minutes=int(os.environ.get("SCALP_MAX_HOLD_MINUTES", "5")),
+            scalp_max_trades_per_day=int(os.environ.get("SCALP_MAX_TRADES_PER_DAY", "3")),
+            scalp_orb_ref_start=os.environ.get("SCALP_ORB_REF_START", "09:15"),
+            scalp_orb_ref_end=os.environ.get("SCALP_ORB_REF_END", "11:15"),
+            scalp_momentum_window_minutes=int(os.environ.get("SCALP_MOMENTUM_WINDOW_MINUTES", "5")),
+            scalp_momentum_min_move_pct=float(os.environ.get("SCALP_MOMENTUM_MIN_MOVE_PCT", "0.1")),
         )

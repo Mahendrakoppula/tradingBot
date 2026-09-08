@@ -7,6 +7,7 @@ log = logging.getLogger(__name__)
 
 STATE_PATH = Path(__file__).resolve().parent.parent / ".state" / "positions.json"
 LONG_STATE_PATH = Path(__file__).resolve().parent.parent / ".state" / "long_positions.json"
+SCALP_STATE_PATH = Path(__file__).resolve().parent.parent / ".state" / "scalp_positions.json"
 CAPITAL_PATH = Path(__file__).resolve().parent.parent / ".state" / "capital.json"
 TRADE_LOG_PATH = Path(__file__).resolve().parent.parent / ".state" / "trade_log.jsonl"
 JOURNAL_PATH = Path(__file__).resolve().parent.parent / ".state" / "journal.jsonl"
@@ -84,6 +85,35 @@ def save_long(positions: dict[str, OpenLongOption]) -> None:
     LONG_STATE_PATH.write_text(json.dumps(raw, indent=2), encoding="utf-8")
 
 
+@dataclass
+class OpenScalpOption:
+    underlying: str
+    expiry: str  # "DDMMMYYYY", as in the scrip master
+    entered_at: str  # ISO timestamp
+    signal_reason: str  # which scalp trigger fired (ORB breakout / momentum spike)
+    option: LegFill
+
+
+def load_scalp() -> dict[str, OpenScalpOption]:
+    if not SCALP_STATE_PATH.exists():
+        return {}
+    raw = json.loads(SCALP_STATE_PATH.read_text(encoding="utf-8"))
+    result = {}
+    for underlying, o in raw.items():
+        o = dict(o)
+        o["option"] = LegFill(**o["option"])
+        result[underlying] = OpenScalpOption(**o)
+    if result:
+        log.info("Loaded %d open scalp position(s) from %s", len(result), SCALP_STATE_PATH)
+    return result
+
+
+def save_scalp(positions: dict[str, OpenScalpOption]) -> None:
+    SCALP_STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
+    raw = {u: asdict(o) for u, o in positions.items()}
+    SCALP_STATE_PATH.write_text(json.dumps(raw, indent=2), encoding="utf-8")
+
+
 def load_capital(starting_capital: float) -> dict:
     """Paper-trading capital ledger. Created once at `starting_capital` on
     first run; every run after that (including a restart mid-day) picks up
@@ -102,6 +132,26 @@ def load_capital(starting_capital: float) -> dict:
 def save_capital(ledger: dict) -> None:
     CAPITAL_PATH.parent.mkdir(parents=True, exist_ok=True)
     CAPITAL_PATH.write_text(json.dumps(ledger, indent=2), encoding="utf-8")
+
+
+def count_scalp_trades_today(today_iso: str) -> dict[str, int]:
+    """Per-underlying count of already-logged scalp trades for today, so the
+    SCALP_MAX_TRADES_PER_DAY cap survives a mid-day restart (e.g. a CI
+    redeploy) instead of resetting to 0 every time the process restarts.
+    Only counts records with strategy == "scalp" - the existing daily
+    strategy's trade_log entries have no "strategy" key and are never
+    counted here."""
+    counts: dict[str, int] = {}
+    if not TRADE_LOG_PATH.exists():
+        return counts
+    for line in TRADE_LOG_PATH.read_text(encoding="utf-8").splitlines():
+        try:
+            rec = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if rec.get("strategy") == "scalp" and str(rec.get("closed_at", "")).startswith(today_iso):
+            counts[rec["underlying"]] = counts.get(rec["underlying"], 0) + 1
+    return counts
 
 
 def log_trade(record: dict) -> None:
