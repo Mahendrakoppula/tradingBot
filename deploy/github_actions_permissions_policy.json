@@ -8,13 +8,19 @@
       "Resource": "arn:aws:s3:::__DEPLOY_BUCKET__/trading-bot/*"
     },
     {
-      "Sid": "RedeployViaSSM",
+      "Sid": "SendRedeployCommand",
       "Effect": "Allow",
-      "Action": ["ssm:SendCommand", "ssm:GetCommandInvocation"],
+      "Action": "ssm:SendCommand",
       "Resource": [
         "arn:aws:ssm:__REGION__::document/AWS-RunShellScript",
         "arn:aws:ec2:__REGION__:__AWS_ACCOUNT_ID__:instance/__INSTANCE_ID__"
       ]
+    },
+    {
+      "Sid": "ReadCommandResult",
+      "Effect": "Allow",
+      "Action": "ssm:GetCommandInvocation",
+      "Resource": "*"
     },
     {
       "Sid": "StartStopInstance",
