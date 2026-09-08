@@ -14,6 +14,7 @@ from trading_bot.instruments import InstrumentLookup
 from trading_bot.liquidity import check_liquidity, get_quote_for_contract
 from trading_bot.market_context import get_oi_buildup
 from trading_bot.notifier import notify
+from trading_bot.option_chain_logger import log_snapshot
 from trading_bot.options import OptionChain, find_spot_instrument
 from trading_bot.premarket_bias import allows_direction, compute_premarket_bias, format_bias_line
 from trading_bot.rest_client import RestClient
@@ -225,6 +226,7 @@ def main() -> None:
     }
 
     stop = False
+    last_snapshot_at = 0.0  # time.monotonic() of last option-chain log, 0 = never yet
 
     def handle_stop(signum, frame):
         nonlocal stop
@@ -240,6 +242,20 @@ def main() -> None:
             today = now.date()
             risk.reset_day()
         now_t = now.time()
+
+        # Option-chain snapshot logging: pure data collection for a future
+        # premium-based backtest (SmartAPI has no historical option data for
+        # already-expired contracts - see research/README.md), never affects
+        # trading decisions and runs regardless of ENABLE_TRADING/DRY_RUN.
+        # Gated to regular market hours so it doesn't burn API calls before
+        # the open or after the close.
+        if (
+            cfg.option_chain_log_enabled
+            and dt.time(9, 15) <= now_t <= dt.time(15, 30)
+            and time.monotonic() - last_snapshot_at >= cfg.option_chain_log_interval_seconds
+        ):
+            log_snapshot(rest, instruments, cfg.watchlist, cfg.dte_min, cfg.dte_max, today, cfg.option_chain_log_strike_band_pct)
+            last_snapshot_at = time.monotonic()
 
         if now_t >= exit_time:
             for underlying, position in list(positions.items()):
