@@ -13,6 +13,17 @@ class ApiError(RuntimeError):
         self.errorcode = errorcode
 
 
+# Session-invalidation error codes (docs/smartapi-reference.md's error table):
+# AB1010 "AMX Session Expired", AB1011 "Client not login", AB9005 "Invalid
+# Session ID". Added specifically because a second bot process now shares
+# the SAME api_key as this one (Angel One's developer portal turned out to
+# issue one key per account, not per "app" - confirmed live 2026-09-09) -
+# a second login CAN invalidate this session's JWT. Auto-relogin-and-retry
+# turns that into a brief (~one request) hiccup instead of a silent,
+# indefinite outage (nothing previously ever retried a session error).
+SESSION_ERROR_CODES = {"AB1010", "AB1011", "AB9005"}
+
+
 class RestClient:
     """Thin wrapper around the SmartAPI REST endpoints used by the bot.
 
@@ -28,6 +39,16 @@ class RestClient:
         return self.session.headers(authenticated=True)
 
     def _call(self, method: str, path: str, **kwargs) -> dict:
+        try:
+            return self._call_once(method, path, **kwargs)
+        except ApiError as e:
+            if e.errorcode not in SESSION_ERROR_CODES:
+                raise
+            log.warning("Session error (%s) - re-logging in and retrying once", e.errorcode)
+            self.session.login()
+            return self._call_once(method, path, **kwargs)
+
+    def _call_once(self, method: str, path: str, **kwargs) -> dict:
         resp = requests.request(
             method,
             f"{self.session.cfg.root_url}{path}",
