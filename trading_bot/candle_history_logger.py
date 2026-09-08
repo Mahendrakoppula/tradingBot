@@ -104,10 +104,20 @@ def maybe_log_candles(rest: RestClient, instruments: InstrumentLookup, watchlist
     cadence is due. Processes AT MOST ONE due interval per call (bounds
     worst-case added latency on any single tick to one interval's contract
     list, not all five stacked together). Never raises.
+
+    An interval with no entry yet in last_pull_at is ALWAYS due immediately
+    - found via a real CI failure on a fresh runner (2026-09-08): comparing
+    against a 0.0 default assumes time.monotonic() is already past every
+    cadence threshold at process start, which isn't guaranteed (it's time
+    since an arbitrary reference point, often low system uptime on a fresh
+    container OR a freshly-booted EC2 instance - this bot's own instance
+    reboots fresh every morning via EventBridge). Without this fix, the
+    first candle pull of the day could silently be delayed by up to
+    240 minutes instead of firing right away.
     """
     due_interval = next(
         (name for name, cfg in INTERVAL_CONFIG.items()
-         if time.monotonic() - last_pull_at.get(name, 0.0) >= cfg["cadence_minutes"] * 60),
+         if name not in last_pull_at or time.monotonic() - last_pull_at[name] >= cfg["cadence_minutes"] * 60),
         None,
     )
     if due_interval is None:

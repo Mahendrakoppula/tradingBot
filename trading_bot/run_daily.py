@@ -344,7 +344,7 @@ def main() -> None:
     }
 
     stop = False
-    last_snapshot_at = 0.0  # time.monotonic() of last option-chain log, 0 = never yet
+    last_snapshot_at = None  # time.monotonic() of last option-chain log, None = never yet (always due)
     candle_tracked_contracts_cache: dict = {}  # underlying -> fixed contract list, reset daily
     candle_last_pull_at: dict = {}  # interval name -> time.monotonic() of last pull
 
@@ -378,7 +378,7 @@ def main() -> None:
         if (
             cfg.option_chain_log_enabled
             and dt.time(9, 15) <= now_t <= dt.time(15, 30)
-            and time.monotonic() - last_snapshot_at >= cfg.option_chain_log_interval_seconds
+            and (last_snapshot_at is None or time.monotonic() - last_snapshot_at >= cfg.option_chain_log_interval_seconds)
         ):
             log_snapshot(rest, instruments, cfg.watchlist, cfg.dte_min, cfg.dte_max, today, cfg.option_chain_log_strike_band_pct)
             last_snapshot_at = time.monotonic()
