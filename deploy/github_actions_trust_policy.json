@@ -12,7 +12,7 @@
           "token.actions.githubusercontent.com:aud": "sts.amazonaws.com"
         },
         "StringLike": {
-          "token.actions.githubusercontent.com:sub": "repo:Mahendrakoppula/tradingBot:ref:refs/heads/main"
+          "token.actions.githubusercontent.com:sub": "repo:Mahendrakoppula@87843354/tradingBot@1360385816:ref:refs/heads/main"
         }
       }
     }
