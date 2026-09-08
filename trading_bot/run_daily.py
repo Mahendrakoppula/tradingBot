@@ -298,7 +298,7 @@ def main() -> None:
     # state file from the strategy above - see config.py's scalp_* comment.
     scalp_risk = DailyRiskTracker(risk_per_trade_pct=cfg.scalp_risk_per_trade_pct, daily_loss_cap_pct=cfg.scalp_daily_loss_cap_pct, ledger=ledger)
     scalp_positions = state_mod.load_scalp()
-    scalp_trade_counts = state_mod.count_scalp_trades_today(today_ist().date().isoformat())
+    scalp_trade_counts = state_mod.count_scalp_trades_today(today_ist().isoformat())
     orb_trackers = {u: OpeningRangeTracker(_parse_hhmm(cfg.scalp_orb_ref_start), _parse_hhmm(cfg.scalp_orb_ref_end)) for u in cfg.watchlist}
     spike_detectors = {u: MomentumSpikeDetector(cfg.scalp_momentum_window_minutes, cfg.scalp_momentum_min_move_pct) for u in cfg.watchlist}
 
