@@ -41,6 +41,9 @@ with zipfile.ZipFile(out, 'w', zipfile.ZIP_DEFLATED) as z:
     z.write('deploy/fetch_secrets.sh', 'deploy/fetch_secrets.sh')
     z.write('deploy/trading-bot.service', 'deploy/trading-bot.service')
     z.write('deploy/trading-bot-bootstrap.service', 'deploy/trading-bot-bootstrap.service')
+    z.write('deploy/sync_state_to_s3.sh', 'deploy/sync_state_to_s3.sh')
+    z.write('deploy/trading-bot-s3-sync.service', 'deploy/trading-bot-s3-sync.service')
+    z.write('deploy/trading-bot-s3-sync.timer', 'deploy/trading-bot-s3-sync.timer')
 print('built', out, out.stat().st_size, 'bytes')
 "
 

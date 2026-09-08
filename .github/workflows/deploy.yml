@@ -91,6 +91,9 @@ jobs:
               z.write('deploy/fetch_secrets.sh', 'deploy/fetch_secrets.sh')
               z.write('deploy/trading-bot.service', 'deploy/trading-bot.service')
               z.write('deploy/trading-bot-bootstrap.service', 'deploy/trading-bot-bootstrap.service')
+              z.write('deploy/sync_state_to_s3.sh', 'deploy/sync_state_to_s3.sh')
+              z.write('deploy/trading-bot-s3-sync.service', 'deploy/trading-bot-s3-sync.service')
+              z.write('deploy/trading-bot-s3-sync.timer', 'deploy/trading-bot-s3-sync.timer')
           print('built', out, out.stat().st_size, 'bytes')
           "
 
@@ -137,11 +140,14 @@ jobs:
               'unzip -oq /opt/trading-bot/app.zip -d /opt/trading-bot',
               'rm -f /opt/trading-bot/app.zip',
               '/opt/trading-bot/.venv/bin/pip install --quiet -r /opt/trading-bot/requirements.txt',
-              'chmod +x /opt/trading-bot/deploy/fetch_secrets.sh',
+              'chmod +x /opt/trading-bot/deploy/fetch_secrets.sh /opt/trading-bot/deploy/sync_state_to_s3.sh',
               'chown -R tradingbot:tradingbot /opt/trading-bot',
               'cp /opt/trading-bot/deploy/trading-bot-bootstrap.service /etc/systemd/system/trading-bot-bootstrap.service',
               'cp /opt/trading-bot/deploy/trading-bot.service /etc/systemd/system/trading-bot.service',
+              'cp /opt/trading-bot/deploy/trading-bot-s3-sync.service /etc/systemd/system/trading-bot-s3-sync.service',
+              'cp /opt/trading-bot/deploy/trading-bot-s3-sync.timer /etc/systemd/system/trading-bot-s3-sync.timer',
               'systemctl daemon-reload',
+              'systemctl enable --now trading-bot-s3-sync.timer',
               'systemctl start trading-bot.service'
             ]" \
             --query "Command.CommandId" --output text)
