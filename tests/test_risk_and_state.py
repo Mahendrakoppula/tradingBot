@@ -73,3 +73,36 @@ def test_long_option_state_round_trip(tmp_path, monkeypatch):
     loaded = state_mod.load_long()
     assert loaded["NIFTY"].option.tradingsymbol == "NIFTY08SEP2625500CE"
     assert loaded["NIFTY"].option.entry_price == 120.5
+
+
+def test_scalp_option_state_round_trip(tmp_path, monkeypatch):
+    monkeypatch.setattr(state_mod, "SCALP_STATE_PATH", tmp_path / "scalp_positions.json")
+    leg = state_mod.LegFill(
+        tradingsymbol="NIFTY08SEP2625500CE", symboltoken="1", exchange="NFO",
+        lotsize=65, freeze_qty=1801, transaction_type="BUY", quantity=65, entry_price=120.5,
+    )
+    position = state_mod.OpenScalpOption(
+        underlying="NIFTY", expiry="08SEP2026", entered_at="2026-09-07T12:30:00",
+        signal_reason="opening-range breakout -> CE", option=leg,
+    )
+    state_mod.save_scalp({"NIFTY": position})
+    loaded = state_mod.load_scalp()
+    assert loaded["NIFTY"].option.tradingsymbol == "NIFTY08SEP2625500CE"
+    assert loaded["NIFTY"].signal_reason == "opening-range breakout -> CE"
+
+
+def test_scalp_positions_empty_when_no_file(tmp_path, monkeypatch):
+    monkeypatch.setattr(state_mod, "SCALP_STATE_PATH", tmp_path / "scalp_positions.json")
+    assert state_mod.load_scalp() == {}
+
+
+def test_count_scalp_trades_today_only_counts_scalp_strategy_and_today(tmp_path, monkeypatch):
+    monkeypatch.setattr(state_mod, "TRADE_LOG_PATH", tmp_path / "trade_log.jsonl")
+    state_mod.log_trade({"strategy": "scalp", "underlying": "NIFTY", "closed_at": "2026-09-08T12:35:00"})
+    state_mod.log_trade({"strategy": "scalp", "underlying": "NIFTY", "closed_at": "2026-09-08T12:50:00"})
+    state_mod.log_trade({"strategy": "scalp", "underlying": "BANKNIFTY", "closed_at": "2026-09-08T13:00:00"})
+    state_mod.log_trade({"strategy": "scalp", "underlying": "NIFTY", "closed_at": "2026-09-07T12:35:00"})  # yesterday
+    state_mod.log_trade({"underlying": "NIFTY", "closed_at": "2026-09-08T15:15:00"})  # daily strategy, no tag
+
+    counts = state_mod.count_scalp_trades_today("2026-09-08")
+    assert counts == {"NIFTY": 2, "BANKNIFTY": 1}
