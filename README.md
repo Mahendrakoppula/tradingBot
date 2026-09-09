@@ -211,6 +211,9 @@ Fully built and unit-tested, just not capital-appropriate right now.
 4. Daily long-option strategy (stays paper/dry-run until you set
    `DRY_RUN=false` AND `ENABLE_TRADING=true`):
    `.venv\Scripts\python -m trading_bot.run_daily`
+5. Technical-indicator strategy - the second, independent bot (its own
+   `TECH_CAPITAL`/`TECH_DRY_RUN`/`TECH_ENABLE_TRADING`, see "Second bot" below):
+   `.venv\Scripts\python -m trading_bot.run_technical`
 
 ## Layout
 
@@ -257,6 +260,16 @@ Fully built and unit-tested, just not capital-appropriate right now.
 - `timeutil.py` — `now_ist()`/`today_ist()`, IST-aware time helpers (fixed
   UTC+5:30 offset) - use these, never naive `datetime.now()`, for anything
   compared against `ENTRY_TIME`/`EXIT_TIME` or day-rollover checks
+- `indicators.py`, `chart_patterns.py`, `support_resistance.py`,
+  `volume_analysis.py` — pure technical-analysis primitives (see "Second bot" below)
+- `technical_strategy.py` — combines the above into each tier's live
+  scalp/intraday/swing signal
+- `stock_screener.py` — F&O-eligible + volume-filtered stock universe for
+  the swing tier
+- `equity_strategy.py` — `EquityDeliveryStrategy`, NSE CNC delivery
+  buy/sell for the swing tier's stock leg
+- `technical_config.py` — env-based config for the second bot (`TECH_*`)
+- `run_technical.py` — **the second bot's strategy loop** (see "Second bot" below)
 - `notifier.py` — Telegram push notifications, see "Alerts" above
 - `error_notifier.py` — a SEPARATE Telegram bot/chat dedicated to error
   alerts (date-tagged), so real problems don't get lost in routine activity
@@ -271,6 +284,35 @@ Fully built and unit-tested, just not capital-appropriate right now.
 - `tests/` — pytest suite covering strategy logic, sizing, risk caps, state
   persistence, the market filter, and the direction signal - runs in CI
   before every deploy
+
+## Second bot: technical-indicator strategy (`run_technical.py`)
+
+A fully independent second bot/process, trading purely on technical
+indicators (EMA/RSI/MACD/VWAP, support/resistance, volume) rather than
+OI-buildup/momentum - see `.claude/plans/goofy-plotting-sedgewick.md` for the
+full design. Three tiers, all sharing one separate `TECH_CAPITAL` pool
+(50k by default, independent of the daily bot's `CAPITAL`):
+
+- **Scalp** - 1-min EMA9/21 x VWAP x volume, options, same-day exit.
+- **Intraday** - 5-min EMA20/50-or-pivot-breakout x RSI x volume, options,
+  same-day exit.
+- **Swing** - daily support/resistance breakout, multi-day trend-reversal
+  exit. Stocks trade real NSE CNC delivery shares (`equity_strategy.py`);
+  the index trades options with a wide DTE window instead (no
+  equity-shorting infra exists, so a "short" swing signal on a stock is
+  simply skipped).
+
+Shares the SAME SmartAPI credentials/`api_key` as `run_daily.py` - Angel One
+issues one key per account, not per app (confirmed live) - tolerated via
+`rest_client.py`'s auto-relogin-on-session-error. `indicators.py`,
+`chart_patterns.py`, `support_resistance.py`, and `volume_analysis.py` are
+the pure, unit-tested technical-analysis primitives; `technical_strategy.py`
+combines them into each tier's live signal, backed by
+`research/backtest_technical.py`'s validated logic; `stock_screener.py`
+builds the swing tier's F&O-eligible/volume-filtered stock universe.
+`TECH_DRY_RUN=true`/`TECH_ENABLE_TRADING=false` by default, same kill-switch
+convention as the daily bot. Not yet deployed (Phase 3 of the plan above) -
+built and tested locally first.
 
 ## Not built yet
 

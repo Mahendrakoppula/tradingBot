@@ -13,6 +13,17 @@ TRADE_LOG_PATH = Path(__file__).resolve().parent.parent / ".state" / "trade_log.
 JOURNAL_PATH = Path(__file__).resolve().parent.parent / ".state" / "journal.jsonl"
 NEWS_SENTIMENT_LOG_PATH = Path(__file__).resolve().parent.parent / ".state" / "news_sentiment_log.jsonl"
 
+# --- second bot: technical-indicator strategy (run_technical.py) ---------
+# Fully isolated from every path above - a separate OS process, own capital
+# ledger, own position files - see .claude/plans/goofy-plotting-sedgewick.md
+# ("state files must be fully isolated from the live bot's to avoid
+# file-write collisions between two independent OS processes").
+TECHNICAL_SCALP_STATE_PATH = Path(__file__).resolve().parent.parent / ".state" / "technical_scalp_positions.json"
+TECHNICAL_INTRADAY_STATE_PATH = Path(__file__).resolve().parent.parent / ".state" / "technical_intraday_positions.json"
+TECHNICAL_SWING_EQUITY_STATE_PATH = Path(__file__).resolve().parent.parent / ".state" / "technical_swing_equity_positions.json"
+TECHNICAL_SWING_OPTION_STATE_PATH = Path(__file__).resolve().parent.parent / ".state" / "technical_swing_option_positions.json"
+TECHNICAL_CAPITAL_PATH = Path(__file__).resolve().parent.parent / ".state" / "technical_capital.json"
+
 
 @dataclass
 class LegFill:
@@ -157,6 +168,23 @@ def count_scalp_trades_today(today_iso: str) -> dict[str, int]:
     return counts
 
 
+def count_trades_today(strategy_tag: str, today_iso: str) -> dict[str, int]:
+    """Generic version of count_scalp_trades_today for any `strategy` tag -
+    used by the technical bot's per-day trade caps (scalp/intraday) so they
+    survive a mid-day restart instead of resetting to 0."""
+    counts: dict[str, int] = {}
+    if not TRADE_LOG_PATH.exists():
+        return counts
+    for line in TRADE_LOG_PATH.read_text(encoding="utf-8").splitlines():
+        try:
+            rec = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if rec.get("strategy") == strategy_tag and str(rec.get("closed_at", "")).startswith(today_iso):
+            counts[rec["underlying"]] = counts.get(rec["underlying"], 0) + 1
+    return counts
+
+
 def log_trade(record: dict) -> None:
     """Appends one closed trade's outcome for later strategy review."""
     TRADE_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
@@ -171,6 +199,151 @@ def log_news_sentiment(record: dict) -> None:
     NEWS_SENTIMENT_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
     with NEWS_SENTIMENT_LOG_PATH.open("a", encoding="utf-8") as f:
         f.write(json.dumps(record) + "\n")
+
+
+@dataclass
+class OpenTechnicalOption:
+    """Scalp or intraday tier position - options only, same-day exit,
+    mirrors OpenScalpOption's shape. `tier` distinguishes which one so a
+    shared trade_log entry can be filtered later. `entry_spot` is the
+    UNDERLYING's price at entry (not the option's premium) - the backtested
+    stop/take-profit thresholds (SCALP_STOP_PCT etc.) are defined as a % move
+    in the underlying, matching research/backtest_technical.py exactly, not
+    a % move in premium (which is a different, much more volatile scale)."""
+    underlying: str
+    expiry: str  # "DDMMMYYYY", as in the scrip master
+    entered_at: str  # ISO timestamp
+    tier: str  # "scalp" | "intraday"
+    signal_reason: str
+    entry_spot: float
+    option: LegFill
+
+
+def load_technical_scalp() -> dict[str, OpenTechnicalOption]:
+    return _load_technical_options(TECHNICAL_SCALP_STATE_PATH)
+
+
+def save_technical_scalp(positions: dict[str, OpenTechnicalOption]) -> None:
+    _save_technical_options(TECHNICAL_SCALP_STATE_PATH, positions)
+
+
+def load_technical_intraday() -> dict[str, OpenTechnicalOption]:
+    return _load_technical_options(TECHNICAL_INTRADAY_STATE_PATH)
+
+
+def save_technical_intraday(positions: dict[str, OpenTechnicalOption]) -> None:
+    _save_technical_options(TECHNICAL_INTRADAY_STATE_PATH, positions)
+
+
+def _load_technical_options(path: Path) -> dict[str, OpenTechnicalOption]:
+    if not path.exists():
+        return {}
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    result = {}
+    for underlying, o in raw.items():
+        o = dict(o)
+        o["option"] = LegFill(**o["option"])
+        result[underlying] = OpenTechnicalOption(**o)
+    if result:
+        log.info("Loaded %d open technical option position(s) from %s", len(result), path)
+    return result
+
+
+def _save_technical_options(path: Path, positions: dict[str, OpenTechnicalOption]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    raw = {u: asdict(o) for u, o in positions.items()}
+    path.write_text(json.dumps(raw, indent=2), encoding="utf-8")
+
+
+@dataclass
+class OpenTechnicalSwingOption:
+    """Swing tier position on an INDEX - options with a wide DTE window
+    (multi-day hold, no physical-settlement risk since it's cash-settled),
+    exited on trend-reversal rather than a same-day timer. `broken_level`
+    and `entry_index_price` are both index levels (not option premium) -
+    the trend-reversal/stop checks compare the index's current level against
+    them, same convention as backtest_technical.backtest_swing."""
+    underlying: str
+    expiry: str
+    entered_at: str
+    direction: str  # "long" | "short" - which side of the breakout this was
+    broken_level: float  # the S/R level whose reclaim triggers the exit
+    entry_index_price: float
+    signal_reason: str
+    option: LegFill
+
+
+def load_technical_swing_option() -> dict[str, OpenTechnicalSwingOption]:
+    if not TECHNICAL_SWING_OPTION_STATE_PATH.exists():
+        return {}
+    raw = json.loads(TECHNICAL_SWING_OPTION_STATE_PATH.read_text(encoding="utf-8"))
+    result = {}
+    for underlying, o in raw.items():
+        o = dict(o)
+        o["option"] = LegFill(**o["option"])
+        result[underlying] = OpenTechnicalSwingOption(**o)
+    if result:
+        log.info("Loaded %d open technical swing option position(s) from %s", len(result), TECHNICAL_SWING_OPTION_STATE_PATH)
+    return result
+
+
+def save_technical_swing_option(positions: dict[str, OpenTechnicalSwingOption]) -> None:
+    TECHNICAL_SWING_OPTION_STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
+    raw = {u: asdict(o) for u, o in positions.items()}
+    TECHNICAL_SWING_OPTION_STATE_PATH.write_text(json.dumps(raw, indent=2), encoding="utf-8")
+
+
+@dataclass
+class OpenTechnicalEquity:
+    """Swing tier position on a STOCK - real NSE CNC delivery shares (no
+    theta/settlement risk since there's no option contract), exited on
+    trend-reversal. Only ever "long" - no equity-shorting infra exists in
+    this repo, so a "short" swing signal on a stock is skipped by the
+    caller, never opened as a position."""
+    underlying: str
+    entered_at: str
+    broken_level: float
+    signal_reason: str
+    equity: LegFill
+
+
+def load_technical_swing_equity() -> dict[str, OpenTechnicalEquity]:
+    if not TECHNICAL_SWING_EQUITY_STATE_PATH.exists():
+        return {}
+    raw = json.loads(TECHNICAL_SWING_EQUITY_STATE_PATH.read_text(encoding="utf-8"))
+    result = {}
+    for underlying, o in raw.items():
+        o = dict(o)
+        o["equity"] = LegFill(**o["equity"])
+        result[underlying] = OpenTechnicalEquity(**o)
+    if result:
+        log.info("Loaded %d open technical swing equity position(s) from %s", len(result), TECHNICAL_SWING_EQUITY_STATE_PATH)
+    return result
+
+
+def save_technical_swing_equity(positions: dict[str, OpenTechnicalEquity]) -> None:
+    TECHNICAL_SWING_EQUITY_STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
+    raw = {u: asdict(o) for u, o in positions.items()}
+    TECHNICAL_SWING_EQUITY_STATE_PATH.write_text(json.dumps(raw, indent=2), encoding="utf-8")
+
+
+def load_technical_capital(starting_capital: float) -> dict:
+    """Separate paper-trading capital ledger for the technical bot - kept
+    fully independent from the daily bot's CAPITAL_PATH (a genuinely
+    separate 50k pool, not shared)."""
+    if TECHNICAL_CAPITAL_PATH.exists():
+        ledger = json.loads(TECHNICAL_CAPITAL_PATH.read_text(encoding="utf-8"))
+        log.info("Loaded technical capital ledger: Rs.%.2f (started at Rs.%.2f)", ledger["current_capital"], ledger["starting_capital"])
+        return ledger
+    ledger = {"starting_capital": starting_capital, "current_capital": starting_capital, "updated_at": None}
+    save_technical_capital(ledger)
+    log.info("Initialized new technical paper-trading capital ledger at Rs.%.2f", starting_capital)
+    return ledger
+
+
+def save_technical_capital(ledger: dict) -> None:
+    TECHNICAL_CAPITAL_PATH.parent.mkdir(parents=True, exist_ok=True)
+    TECHNICAL_CAPITAL_PATH.write_text(json.dumps(ledger, indent=2), encoding="utf-8")
 
 
 def log_journal_day(record: dict) -> None:

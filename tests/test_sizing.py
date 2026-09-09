@@ -2,7 +2,7 @@ import datetime as dt
 
 from trading_bot.options import OptionContract
 from trading_bot.strategy import CondorLegs
-from trading_bot.sizing import size_condor, size_long_option
+from trading_bot.sizing import size_condor, size_equity_shares, size_long_option
 
 
 def _contract(sym, ot, lotsize=65):
@@ -72,3 +72,16 @@ def test_size_long_option_skips_when_budget_too_small():
     rest = FakeLtpRest(ltp=20.0)
     lots, premium = size_long_option(rest, contract, budget=500, max_lots=5)
     assert lots == 0
+
+
+def test_size_equity_shares_basic():
+    assert size_equity_shares(price=250.0, budget=3000.0) == 12  # floor(3000/250)
+
+
+def test_size_equity_shares_zero_when_price_nonpositive():
+    assert size_equity_shares(price=0.0, budget=3000.0) == 0
+    assert size_equity_shares(price=-5.0, budget=3000.0) == 0
+
+
+def test_size_equity_shares_zero_when_budget_too_small():
+    assert size_equity_shares(price=500.0, budget=100.0) == 0

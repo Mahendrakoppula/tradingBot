@@ -24,6 +24,14 @@ def size_long_option(rest: RestClient, contract: OptionContract, budget: float, 
     return lots, premium_per_lot
 
 
+def size_equity_shares(price: float, budget: float) -> int:
+    """Whole shares `budget` rupees can buy at `price` - no lot size, no
+    margin call (CNC delivery is paid for in full, unlike F&O)."""
+    if price <= 0:
+        return 0
+    return int(budget // price)
+
+
 def margin_positions_for_condor(legs: CondorLegs, qty_lots: int = 1) -> list[dict]:
     def pos(contract, trade_type: str) -> dict:
         return {
