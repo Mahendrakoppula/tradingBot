@@ -220,6 +220,45 @@ def test_atr_stop_target_short_mirrors_long():
     assert stop_price > 100.0 > target_price
 
 
+def test_atr_stop_target_widens_stop_when_volatility_expanding():
+    # calm history, then a recent volatile stretch - short ATR(14) should
+    # sit well above the longer baseline ATR(14*3=42), widening the stop.
+    candles = _atr_candles(40, base=100.0, rng=1.0) + _atr_candles(20, base=100.0, rng=6.0)
+    result = ts.atr_stop_target(candles, "long", entry_price=100.0, period=14, stop_mult=1.5, target_mult=2.5)
+    assert result is not None
+    stop_price, target_price, atr_value = result
+    base_distance = 1.5 * atr_value
+    actual_distance = 100.0 - stop_price
+    assert actual_distance > base_distance  # widened, not the flat 1.5x
+
+
+def test_atr_stop_target_tightens_stop_when_volatility_contracting():
+    # volatile history, then a recent calm stretch - short ATR(14) should
+    # sit well below the longer baseline, tightening the stop.
+    candles = _atr_candles(40, base=100.0, rng=6.0) + _atr_candles(20, base=100.0, rng=1.0)
+    result = ts.atr_stop_target(candles, "long", entry_price=100.0, period=14, stop_mult=1.5, target_mult=2.5)
+    assert result is not None
+    stop_price, target_price, atr_value = result
+    base_distance = 1.5 * atr_value
+    actual_distance = 100.0 - stop_price
+    assert actual_distance < base_distance  # tightened, not the flat 1.5x
+
+
+def test_atr_stop_target_widens_target_on_a_strong_trend():
+    # a steady climb -> EMA9/EMA21 diverge meaningfully -> wider target.
+    trending = [{"open": 100 + i, "high": 101 + i, "low": 99 + i, "close": 100 + i} for i in range(30)]
+    flat = _atr_candles(30, base=100.0, rng=2.0)
+    trending_result = ts.atr_stop_target(trending, "long", entry_price=trending[-1]["close"], period=14, stop_mult=1.5, target_mult=2.5)
+    flat_result = ts.atr_stop_target(flat, "long", entry_price=100.0, period=14, stop_mult=1.5, target_mult=2.5)
+    assert trending_result is not None and flat_result is not None
+    trending_target_distance = trending_result[1] - trending[-1]["close"]
+    flat_target_distance = flat_result[1] - 100.0
+    trending_atr, flat_atr = trending_result[2], flat_result[2]
+    # normalize by each scenario's own ATR so this compares the MULTIPLIER
+    # effect, not just a difference in raw volatility between the fixtures
+    assert (trending_target_distance / trending_atr) > (flat_target_distance / flat_atr)
+
+
 def test_should_activate_trailing_long():
     assert ts.should_activate_trailing("long", entry_price=100.0, current_price=103.0, atr_value=2.0, activate_mult=1.0) is True
     assert ts.should_activate_trailing("long", entry_price=100.0, current_price=101.0, atr_value=2.0, activate_mult=1.0) is False

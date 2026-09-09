@@ -186,23 +186,57 @@ def swing_signal(
 
 def atr_stop_target(
     candles: list[dict], direction: str, entry_price: float, period: int, stop_mult: float, target_mult: float,
+    *, baseline_period_mult: int = 3, trend_fast_period: int = 9, trend_slow_period: int = 21,
+    stop_scale_min: float = 0.7, stop_scale_max: float = 1.5,
+    target_scale_min: float = 1.0, target_scale_max: float = 1.8,
 ) -> tuple[float, float, float] | None:
     """ATR-based stop/target prices for `entry_price` - quoted in whatever
     price series `candles` is (underlying spot for the options tiers, the
     stock's own price for the swing equity leg), same convention used
     throughout this module for the percentage-based checks this replaces.
     Returns (stop_price, target_price, atr_value), or None if there isn't
-    yet enough history for a `period`-length ATR. First-cut multipliers
-    (default 1.5x stop / 2.5x target, ~1:1.7 reward:risk) - same
-    unvalidated-until-backtested caveat as every other threshold in this
-    module (see module docstring)."""
+    yet enough history for a `period`-length ATR - `atr_value` is always
+    the raw short-period one (used later for trailing), not scaled by
+    either adjustment below.
+
+    Both `stop_mult`/`target_mult` are themselves scenario-adjusted, not
+    applied as flat constants:
+    - STOP side, by volatility regime: current ATR(`period`) vs its own
+      longer-term baseline ATR(`period` x `baseline_period_mult`). Expanding
+      volatility (ratio > 1) widens the stop so ordinary chop doesn't clip
+      it; contracting volatility (ratio < 1) tightens it. Clamped to
+      [`stop_scale_min`, `stop_scale_max`] so one outlier bar can't blow the
+      stop out to something absurd.
+    - TARGET side, by trend strength: EMA(`trend_fast_period`) vs
+      EMA(`trend_slow_period`) spread, as a % of `entry_price`. A wide
+      spread (strong trend) widens the target to let a winner run further;
+      a near-zero spread (flat/choppy) keeps it at the base multiplier.
+      Clamped to [`target_scale_min`, `target_scale_max`].
+    Both are first-cut, unbacktested scaling choices - same caveat class as
+    the base multipliers themselves (see module docstring)."""
     atr_series = atr(candles, period)
     atr_value = atr_series[-1]
     if atr_value is None or atr_value <= 0:
         return None
+
+    effective_stop_mult = stop_mult
+    baseline_atr = atr(candles, period * baseline_period_mult)[-1]
+    if baseline_atr is not None and baseline_atr > 0:
+        volatility_scale = min(max(atr_value / baseline_atr, stop_scale_min), stop_scale_max)
+        effective_stop_mult = stop_mult * volatility_scale
+
+    effective_target_mult = target_mult
+    closes = [c["close"] for c in candles]
+    fast_ma = ema(closes, trend_fast_period)[-1]
+    slow_ma = ema(closes, trend_slow_period)[-1]
+    if fast_ma is not None and slow_ma is not None and entry_price > 0:
+        spread_pct = abs(fast_ma - slow_ma) / entry_price * 100
+        trend_scale = min(max(1.0 + spread_pct, target_scale_min), target_scale_max)
+        effective_target_mult = target_mult * trend_scale
+
     if direction == "long":
-        return entry_price - stop_mult * atr_value, entry_price + target_mult * atr_value, atr_value
-    return entry_price + stop_mult * atr_value, entry_price - target_mult * atr_value, atr_value
+        return entry_price - effective_stop_mult * atr_value, entry_price + effective_target_mult * atr_value, atr_value
+    return entry_price + effective_stop_mult * atr_value, entry_price - effective_target_mult * atr_value, atr_value
 
 
 def should_activate_trailing(direction: str, entry_price: float, current_price: float, atr_value: float, activate_mult: float) -> bool:

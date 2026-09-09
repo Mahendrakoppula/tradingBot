@@ -134,6 +134,19 @@ def _direction_from_option_type(option_type: str) -> str:
     return "long" if option_type == "CE" else "short"
 
 
+def _atr_scaling_kwargs(cfg: TechnicalConfig) -> dict:
+    """Scenario-adjustment knobs for atr_stop_target(), shared by every tier's entry."""
+    return {
+        "baseline_period_mult": cfg.atr_baseline_period_mult,
+        "trend_fast_period": cfg.atr_trend_fast_period,
+        "trend_slow_period": cfg.atr_trend_slow_period,
+        "stop_scale_min": cfg.atr_stop_scale_min,
+        "stop_scale_max": cfg.atr_stop_scale_max,
+        "target_scale_min": cfg.atr_target_scale_min,
+        "target_scale_max": cfg.atr_target_scale_max,
+    }
+
+
 # --- candle fetch/cache ------------------------------------------------
 
 
@@ -227,7 +240,7 @@ def _maybe_scalp_enter(cfg: TechnicalConfig, rest: RestClient, instruments: Inst
         return
     spot = candles[-1]["close"]
     direction = _direction_from_option_type(option_type)
-    atr_result = atr_stop_target(candles, direction, spot, cfg.atr_period, cfg.atr_stop_mult, cfg.atr_target_mult)
+    atr_result = atr_stop_target(candles, direction, spot, cfg.atr_period, cfg.atr_stop_mult, cfg.atr_target_mult, **_atr_scaling_kwargs(cfg))
     if atr_result is None:
         log.info("TECH SCALP %s: skipping entry - not enough history yet for an ATR-based stop/target", underlying)
         return
@@ -284,7 +297,7 @@ def _maybe_intraday_enter(cfg: TechnicalConfig, rest: RestClient, instruments: I
         return
     spot = bars[-1]["close"]
     direction = _direction_from_option_type(option_type)
-    atr_result = atr_stop_target(bars, direction, spot, cfg.atr_period, cfg.atr_stop_mult, cfg.atr_target_mult)
+    atr_result = atr_stop_target(bars, direction, spot, cfg.atr_period, cfg.atr_stop_mult, cfg.atr_target_mult, **_atr_scaling_kwargs(cfg))
     if atr_result is None:
         log.info("TECH INTRADAY %s: skipping entry - not enough history yet for an ATR-based stop/target", underlying)
         return
@@ -337,7 +350,7 @@ def _maybe_swing_index_enter(cfg: TechnicalConfig, rest: RestClient, instruments
         return
     option_type = "CE" if direction == "long" else "PE"
     spot = float(rest.get_ltp(spot_row["exch_seg"], spot_row["symbol"], spot_row["token"])["ltp"])
-    atr_result = atr_stop_target(daily, direction, spot, cfg.atr_period, cfg.atr_stop_mult, cfg.atr_target_mult)
+    atr_result = atr_stop_target(daily, direction, spot, cfg.atr_period, cfg.atr_stop_mult, cfg.atr_target_mult, **_atr_scaling_kwargs(cfg))
     if atr_result is None:
         log.info("TECH SWING %s: skipping entry - not enough daily history yet for an ATR-based stop/target", underlying)
         return
@@ -398,7 +411,7 @@ def _maybe_swing_equity_enter(cfg: TechnicalConfig, rest: RestClient, equity_str
             return
 
     price = float(rest.get_ltp(exchange, symbol, token)["ltp"])
-    atr_result = atr_stop_target(daily, "long", price, cfg.atr_period, cfg.atr_stop_mult, cfg.atr_target_mult)
+    atr_result = atr_stop_target(daily, "long", price, cfg.atr_period, cfg.atr_stop_mult, cfg.atr_target_mult, **_atr_scaling_kwargs(cfg))
     if atr_result is None:
         log.info("TECH SWING EQUITY %s: skipping entry - not enough daily history yet for an ATR-based stop/target", name)
         return

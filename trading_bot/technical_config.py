@@ -47,6 +47,21 @@ class TechnicalConfig:
     atr_trail_activate_mult: float = 1.0
     atr_trail_mult: float = 1.0
 
+    # --- scenario-adaptive scaling on top of the base multipliers above ---
+    # STOP side scales with volatility regime (current ATR vs its own
+    # baseline_period_mult-x-longer baseline ATR); TARGET side scales with
+    # trend strength (EMA(trend_fast_period)/EMA(trend_slow_period) spread as
+    # a % of entry price). See technical_strategy.atr_stop_target's
+    # docstring for the exact formula - both are first-cut, unbacktested
+    # scaling choices, same caveat as the base multipliers themselves.
+    atr_baseline_period_mult: int = 3
+    atr_trend_fast_period: int = 9
+    atr_trend_slow_period: int = 21
+    atr_stop_scale_min: float = 0.7
+    atr_stop_scale_max: float = 1.5
+    atr_target_scale_min: float = 1.0
+    atr_target_scale_max: float = 1.8
+
     # --- scalp tier (1-min, EMA9/21 x VWAP x volume) ---
     scalp_watchlist: tuple[str, ...] = ("NIFTY", "BANKNIFTY", "RELIANCE", "TCS", "HDFCBANK", "ICICIBANK", "INFY", "SBIN")
     scalp_risk_per_trade_pct: float = 0.02
@@ -126,6 +141,13 @@ class TechnicalConfig:
             atr_target_mult=float(os.environ.get("TECH_ATR_TARGET_MULT", "2.5")),
             atr_trail_activate_mult=float(os.environ.get("TECH_ATR_TRAIL_ACTIVATE_MULT", "1.0")),
             atr_trail_mult=float(os.environ.get("TECH_ATR_TRAIL_MULT", "1.0")),
+            atr_baseline_period_mult=int(os.environ.get("TECH_ATR_BASELINE_PERIOD_MULT", "3")),
+            atr_trend_fast_period=int(os.environ.get("TECH_ATR_TREND_FAST_PERIOD", "9")),
+            atr_trend_slow_period=int(os.environ.get("TECH_ATR_TREND_SLOW_PERIOD", "21")),
+            atr_stop_scale_min=float(os.environ.get("TECH_ATR_STOP_SCALE_MIN", "0.7")),
+            atr_stop_scale_max=float(os.environ.get("TECH_ATR_STOP_SCALE_MAX", "1.5")),
+            atr_target_scale_min=float(os.environ.get("TECH_ATR_TARGET_SCALE_MIN", "1.0")),
+            atr_target_scale_max=float(os.environ.get("TECH_ATR_TARGET_SCALE_MAX", "1.8")),
             scalp_watchlist=_tuple("TECH_SCALP_WATCHLIST", "NIFTY,BANKNIFTY,RELIANCE,TCS,HDFCBANK,ICICIBANK,INFY,SBIN"),
             scalp_risk_per_trade_pct=float(os.environ.get("TECH_SCALP_RISK_PER_TRADE_PCT", "0.02")),
             scalp_daily_loss_cap_pct=float(os.environ.get("TECH_SCALP_DAILY_LOSS_CAP_PCT", "0.05")),
