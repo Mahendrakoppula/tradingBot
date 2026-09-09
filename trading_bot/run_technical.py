@@ -25,10 +25,8 @@ from trading_bot.auth import Session
 from trading_bot.config import Config
 from trading_bot.debit_strategy import LongOptionStrategy, build_long_leg
 from trading_bot.equity_strategy import EquityDeliveryStrategy
-from trading_bot.error_notifier import notify_error
 from trading_bot.instruments import InstrumentLookup
 from trading_bot.liquidity import check_liquidity, get_quote_for_contract
-from trading_bot.notifier import notify
 from trading_bot.options import OptionChain, find_spot_instrument
 from trading_bot.rest_client import ApiError, RestClient
 from trading_bot.risk import DailyRiskTracker
@@ -36,6 +34,7 @@ from trading_bot.sizing import size_equity_shares, size_long_option
 from trading_bot.stock_screener import build_universe
 from trading_bot.support_resistance import classic_pivot_points
 from trading_bot.technical_config import TechnicalConfig
+from trading_bot.technical_notifier import notify, notify_error
 from trading_bot.technical_strategy import candles_from_rows, intraday_signal, scalp_signal, swing_should_exit, swing_signal
 from trading_bot.timeutil import now_ist, today_ist
 
