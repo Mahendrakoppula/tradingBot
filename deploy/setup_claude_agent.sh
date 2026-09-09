@@ -16,7 +16,11 @@
 #   - clones the repo to ~/trading-bot-agent (separate from /opt/trading-bot,
 #     which is an unzipped release artifact, not a git checkout)
 #   - installs the systemd service + timer that runs the review each weekday
-set -euxo pipefail
+set -euo pipefail
+# Deliberately NOT using -x: xtrace would echo ANTHROPIC_API_KEY/GITHUB_TOKEN
+# in cleartext into this script's output, which lands in SSM command
+# output/CloudWatch Logs (readable by anyone with read access to command
+# history) - defeats the point of storing them as SecureString.
 
 REGION="${AWS_REGION:-ap-south-1}"
 AGENT_USER="tradingbot"
@@ -52,9 +56,12 @@ if [ ! -d "${AGENT_REPO}/.git" ]; then
     "https://${GITHUB_TOKEN}@github.com/${REPO_URL_PATH}" "$AGENT_REPO"
 fi
 # Store the token in the remote URL so unattended push works without a
-# credential helper prompt. File is 0600 inside the agent's own checkout.
+# credential helper prompt. `git clone`/`remote set-url` write it into
+# .git/config at the checkout user's default umask (typically 644), NOT
+# 0600 - chmod it explicitly so the PAT isn't world/group-readable on disk.
 sudo -u "$AGENT_USER" git -C "$AGENT_REPO" remote set-url origin \
   "https://${GITHUB_TOKEN}@github.com/${REPO_URL_PATH}"
+chmod 600 "${AGENT_REPO}/.git/config"
 sudo -u "$AGENT_USER" git -C "$AGENT_REPO" config user.email "trading-bot-agent@users.noreply.github.com"
 sudo -u "$AGENT_USER" git -C "$AGENT_REPO" config user.name "trading-bot nightly agent"
 

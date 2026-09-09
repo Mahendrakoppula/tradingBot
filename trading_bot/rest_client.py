@@ -38,11 +38,24 @@ class RestClient:
     def _headers(self) -> dict:
         return self.session.headers(authenticated=True)
 
-    def _call(self, method: str, path: str, **kwargs) -> dict:
+    def _call(self, method: str, path: str, retry_on_session_error: bool = True, **kwargs) -> dict:
         try:
             return self._call_once(method, path, **kwargs)
         except ApiError as e:
             if e.errorcode not in SESSION_ERROR_CODES:
+                raise
+            if not retry_on_session_error:
+                # place/modify/cancelOrder: NEVER blindly resubmit here - if
+                # the broker's own session-invalidation race meant the order
+                # was actually accepted just before the JWT died, an
+                # automatic retry would place/modify/cancel it a second
+                # time. Re-login so the NEXT call succeeds, but re-raise this
+                # one so the caller's own try/except (which already treats
+                # any order failure as "MANUAL INTERVENTION NEEDED" - see
+                # run_daily.py's _settle_close/_maybe_enter) surfaces it for
+                # a human to check the order/trade book before deciding.
+                log.warning("Session error (%s) on a mutating order call - re-logging in, NOT auto-retrying the order", e.errorcode)
+                self.session.login()
                 raise
             log.warning("Session error (%s) - re-logging in and retrying once", e.errorcode)
             self.session.login()
@@ -162,13 +175,13 @@ class RestClient:
         if self.session.cfg.dry_run:
             log.info("[DRY RUN] would place order: %s", order)
             return {"dry_run": True, "order": order}
-        return self._call("POST", "/rest/secure/angelbroking/order/v1/placeOrder", json=order)
+        return self._call("POST", "/rest/secure/angelbroking/order/v1/placeOrder", json=order, retry_on_session_error=False)
 
     def modify_order(self, order: dict) -> dict:
         if self.session.cfg.dry_run:
             log.info("[DRY RUN] would modify order: %s", order)
             return {"dry_run": True, "order": order}
-        return self._call("POST", "/rest/secure/angelbroking/order/v1/modifyOrder", json=order)
+        return self._call("POST", "/rest/secure/angelbroking/order/v1/modifyOrder", json=order, retry_on_session_error=False)
 
     def cancel_order(self, variety: str, orderid: str) -> dict:
         if self.session.cfg.dry_run:
@@ -178,4 +191,5 @@ class RestClient:
             "POST",
             "/rest/secure/angelbroking/order/v1/cancelOrder",
             json={"variety": variety, "orderid": orderid},
+            retry_on_session_error=False,
         )

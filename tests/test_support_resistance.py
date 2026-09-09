@@ -43,6 +43,24 @@ def test_cluster_levels_merges_close_points_and_counts_touches():
     assert high_levels[1].price == pytest.approx(110.0)
 
 
+def test_cluster_levels_does_not_drift_through_chained_small_steps():
+    from trading_bot.support_resistance import SwingPoint
+
+    # Each point is 0.4% above the last - under the 0.5% tolerance pairwise,
+    # but the chain spans ~7.9% end to end. Anchoring to the group's first
+    # point (not the previous point) must split this into multiple levels,
+    # not merge all 20 into one.
+    points = []
+    price = 100.0
+    for i in range(20):
+        points.append(SwingPoint(index=i, price=price, kind="high"))
+        price *= 1.004
+    levels = cluster_levels(points, tolerance_pct=0.5)
+    assert len(levels) > 1
+    for lv in levels:
+        assert lv.touches < len(points)
+
+
 def test_classic_pivot_points_formula():
     result = classic_pivot_points(prev_high=110, prev_low=90, prev_close=100)
     pp = (110 + 90 + 100) / 3

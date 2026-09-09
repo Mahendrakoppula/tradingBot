@@ -60,13 +60,21 @@ def _level_from_group(group: list[SwingPoint], kind: str) -> PriceLevel:
 def cluster_levels(swing_points: list[SwingPoint], tolerance_pct: float = 0.5) -> list[PriceLevel]:
     """Merges swing points of the same kind within `tolerance_pct` of each
     other (percentage distance, e.g. 0.5 = 0.5%) into one PriceLevel - more
-    touches means a level more likely to be "real" rather than noise."""
+    touches means a level more likely to be "real" rather than noise.
+
+    Each group is anchored to its FIRST (lowest-price) point, not the
+    previous point added - comparing against group[-1] let a level drift
+    arbitrarily far past tolerance_pct through a chain of small steps (e.g.
+    20 points each 0.4% apart, under a 0.5% tolerance, would previously all
+    merge into one "level" despite the first and last being ~8% apart).
+    Anchoring keeps every point in a group within tolerance_pct of where the
+    group started."""
     levels: list[PriceLevel] = []
     for kind in ("high", "low"):
         pts = sorted((p for p in swing_points if p.kind == kind), key=lambda p: p.price)
         group: list[SwingPoint] = []
         for p in pts:
-            if group and abs(p.price - group[-1].price) / group[-1].price * 100 > tolerance_pct:
+            if group and abs(p.price - group[0].price) / group[0].price * 100 > tolerance_pct:
                 levels.append(_level_from_group(group, kind))
                 group = []
             group.append(p)

@@ -32,6 +32,7 @@ from trading_bot.config import Config
 from trading_bot.instruments import InstrumentLookup
 from trading_bot.options import find_spot_instrument
 from trading_bot.rest_client import ApiError, RestClient
+from trading_bot.timeutil import now_ist
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger(__name__)
@@ -149,7 +150,12 @@ def main():
     session = Session(cfg)
     session.login()
     client = RestClient(session)
-    now = dt.datetime.now()
+    # IST, not host-local time - the EC2 instance this can also run on has a
+    # UTC system clock (confirmed live), and comparing a naive datetime.now()
+    # against a hardcoded IST wall-clock time silently misjudges "today" by
+    # hours (see trading_bot/timeutil.py's now_ist() docstring for the
+    # original incident this class of bug caused).
+    now = now_ist()
     # Requesting a chunk whose range includes TODAY before the market has
     # opened makes the API reject it outright ("From datetime can't be
     # greater than current datetime") - confirmed live, wasted ~70s/symbol
