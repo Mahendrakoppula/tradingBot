@@ -31,6 +31,22 @@ class TechnicalConfig:
     dte_max: int = 45  # scalp/intraday: nearest available contract, same convention as run_daily.py
     otm_distance_pct: float = 0.01  # closer to ATM than run_daily.py's 0.02 - shorter-horizon signals
 
+    # --- ATR-based stop/target/trailing-stop, shared across all 3 tiers ---
+    # Replaces fixed-percentage stop/take-profit: the stop/target distance is
+    # `mult x ATR(period)` on whichever price series the tier signals off of
+    # (underlying spot for options tiers, the stock's own price for swing
+    # equity) - a calculated, volatility-scaled distance instead of a single
+    # guessed percentage that's the same on a calm day as a violent one.
+    # 1.5x stop / 2.5x target (~1:1.7 reward:risk) and a 1x-ATR trail
+    # (activating once 1x ATR in profit) are first-cut choices, same
+    # unvalidated-until-backtested caveat as every other threshold in this
+    # file - see technical_strategy.atr_stop_target's docstring.
+    atr_period: int = 14
+    atr_stop_mult: float = 1.5
+    atr_target_mult: float = 2.5
+    atr_trail_activate_mult: float = 1.0
+    atr_trail_mult: float = 1.0
+
     # --- scalp tier (1-min, EMA9/21 x VWAP x volume) ---
     scalp_watchlist: tuple[str, ...] = ("NIFTY", "BANKNIFTY", "RELIANCE", "TCS", "HDFCBANK", "ICICIBANK", "INFY", "SBIN")
     scalp_risk_per_trade_pct: float = 0.02
@@ -39,8 +55,6 @@ class TechnicalConfig:
     scalp_ema_slow: int = 21
     scalp_avg_volume_period: int = 20
     scalp_min_relative_volume: float = 1.5
-    scalp_stop_pct: float = 0.5
-    scalp_take_profit_pct: float = 0.85
     scalp_max_hold_minutes: int = 15
     scalp_max_trades_per_day: int = 3
     scalp_poll_seconds: int = 60  # a fresh 1-min bar every ~60s
@@ -55,8 +69,6 @@ class TechnicalConfig:
     intraday_rsi_period: int = 14
     intraday_avg_volume_period: int = 20
     intraday_min_relative_volume: float = 1.5
-    intraday_stop_pct: float = 1.0
-    intraday_take_profit_pct: float = 1.7
     intraday_max_trades_per_day: int = 1  # per underlying - "only first signal per day", matches the backtest
     intraday_bar_minutes: int = 5
     intraday_poll_seconds: int = 300
@@ -82,9 +94,8 @@ class TechnicalConfig:
     swing_sr_tolerance_pct: float = 1.0
     swing_sr_min_touches: int = 2
     swing_level_reclaim_buffer_pct: float = 2.0
-    swing_stop_pct: float = 8.0
     swing_max_hold_days: int = 90
-    swing_equity_budget_pct_per_trade: float = 0.05  # a diversified book, unlike the concentrated options tiers
+    swing_equity_budget_pct_per_trade: float = 0.05  # exposure cap; risk sizing itself uses the ATR-derived stop distance
     swing_max_equity_positions: int = 10
     swing_index_dte_min: int = 20
     swing_index_dte_max: int = 60  # wide, expiry-safe window - explicitly NOT futures (see plan decision #1)
@@ -110,6 +121,11 @@ class TechnicalConfig:
             dte_min=int(os.environ.get("TECH_DTE_MIN", "0")),
             dte_max=int(os.environ.get("TECH_DTE_MAX", "45")),
             otm_distance_pct=float(os.environ.get("TECH_OTM_DISTANCE_PCT", "0.01")),
+            atr_period=int(os.environ.get("TECH_ATR_PERIOD", "14")),
+            atr_stop_mult=float(os.environ.get("TECH_ATR_STOP_MULT", "1.5")),
+            atr_target_mult=float(os.environ.get("TECH_ATR_TARGET_MULT", "2.5")),
+            atr_trail_activate_mult=float(os.environ.get("TECH_ATR_TRAIL_ACTIVATE_MULT", "1.0")),
+            atr_trail_mult=float(os.environ.get("TECH_ATR_TRAIL_MULT", "1.0")),
             scalp_watchlist=_tuple("TECH_SCALP_WATCHLIST", "NIFTY,BANKNIFTY,RELIANCE,TCS,HDFCBANK,ICICIBANK,INFY,SBIN"),
             scalp_risk_per_trade_pct=float(os.environ.get("TECH_SCALP_RISK_PER_TRADE_PCT", "0.02")),
             scalp_daily_loss_cap_pct=float(os.environ.get("TECH_SCALP_DAILY_LOSS_CAP_PCT", "0.05")),
@@ -117,8 +133,6 @@ class TechnicalConfig:
             scalp_ema_slow=int(os.environ.get("TECH_SCALP_EMA_SLOW", "21")),
             scalp_avg_volume_period=int(os.environ.get("TECH_SCALP_AVG_VOLUME_PERIOD", "20")),
             scalp_min_relative_volume=float(os.environ.get("TECH_SCALP_MIN_RELATIVE_VOLUME", "1.5")),
-            scalp_stop_pct=float(os.environ.get("TECH_SCALP_STOP_PCT", "0.5")),
-            scalp_take_profit_pct=float(os.environ.get("TECH_SCALP_TAKE_PROFIT_PCT", "0.85")),
             scalp_max_hold_minutes=int(os.environ.get("TECH_SCALP_MAX_HOLD_MINUTES", "15")),
             scalp_max_trades_per_day=int(os.environ.get("TECH_SCALP_MAX_TRADES_PER_DAY", "3")),
             scalp_poll_seconds=int(os.environ.get("TECH_SCALP_POLL_SECONDS", "60")),
@@ -133,8 +147,6 @@ class TechnicalConfig:
             intraday_rsi_period=int(os.environ.get("TECH_INTRADAY_RSI_PERIOD", "14")),
             intraday_avg_volume_period=int(os.environ.get("TECH_INTRADAY_AVG_VOLUME_PERIOD", "20")),
             intraday_min_relative_volume=float(os.environ.get("TECH_INTRADAY_MIN_RELATIVE_VOLUME", "1.5")),
-            intraday_stop_pct=float(os.environ.get("TECH_INTRADAY_STOP_PCT", "1.0")),
-            intraday_take_profit_pct=float(os.environ.get("TECH_INTRADAY_TAKE_PROFIT_PCT", "1.7")),
             intraday_max_trades_per_day=int(os.environ.get("TECH_INTRADAY_MAX_TRADES_PER_DAY", "1")),
             intraday_bar_minutes=int(os.environ.get("TECH_INTRADAY_BAR_MINUTES", "5")),
             intraday_poll_seconds=int(os.environ.get("TECH_INTRADAY_POLL_SECONDS", "300")),
@@ -148,7 +160,6 @@ class TechnicalConfig:
             swing_sr_tolerance_pct=float(os.environ.get("TECH_SWING_SR_TOLERANCE_PCT", "1.0")),
             swing_sr_min_touches=int(os.environ.get("TECH_SWING_SR_MIN_TOUCHES", "2")),
             swing_level_reclaim_buffer_pct=float(os.environ.get("TECH_SWING_LEVEL_RECLAIM_BUFFER_PCT", "2.0")),
-            swing_stop_pct=float(os.environ.get("TECH_SWING_STOP_PCT", "8.0")),
             swing_max_hold_days=int(os.environ.get("TECH_SWING_MAX_HOLD_DAYS", "90")),
             swing_equity_budget_pct_per_trade=float(os.environ.get("TECH_SWING_EQUITY_BUDGET_PCT_PER_TRADE", "0.05")),
             swing_max_equity_positions=int(os.environ.get("TECH_SWING_MAX_EQUITY_POSITIONS", "10")),

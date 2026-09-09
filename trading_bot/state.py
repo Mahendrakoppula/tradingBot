@@ -205,18 +205,30 @@ def log_news_sentiment(record: dict) -> None:
 class OpenTechnicalOption:
     """Scalp or intraday tier position - options only, same-day exit,
     mirrors OpenScalpOption's shape. `tier` distinguishes which one so a
-    shared trade_log entry can be filtered later. `entry_spot` is the
-    UNDERLYING's price at entry (not the option's premium) - the backtested
-    stop/take-profit thresholds (SCALP_STOP_PCT etc.) are defined as a % move
-    in the underlying, matching research/backtest_technical.py exactly, not
-    a % move in premium (which is a different, much more volatile scale)."""
+    shared trade_log entry can be filtered later. `entry_spot`/`stop_price`/
+    `target_price`/`favorable_extreme` are all UNDERLYING prices (not the
+    option's premium) - the ATR-based stop/target/trailing (see
+    technical_strategy.atr_stop_target) are defined as a move in the
+    underlying, matching research/backtest_technical.py's own convention,
+    not a move in premium (a different, much more volatile scale).
+    `stop_orderid`/`target_orderid` are the real exchange order ids for the
+    broker-side protective orders once TECH_DRY_RUN=false - empty string in
+    dry-run (place_order's stub response has no orderid) or before they've
+    been placed."""
     underlying: str
     expiry: str  # "DDMMMYYYY", as in the scrip master
     entered_at: str  # ISO timestamp
     tier: str  # "scalp" | "intraday"
     signal_reason: str
     entry_spot: float
+    stop_price: float
+    target_price: float
+    atr_value: float
+    favorable_extreme: float  # best underlying price seen since entry - trailing-stop anchor
+    trailing_active: bool
     option: LegFill
+    stop_orderid: str = ""
+    target_orderid: str = ""
 
 
 def load_technical_scalp() -> dict[str, OpenTechnicalOption]:
@@ -259,18 +271,27 @@ def _save_technical_options(path: Path, positions: dict[str, OpenTechnicalOption
 class OpenTechnicalSwingOption:
     """Swing tier position on an INDEX - options with a wide DTE window
     (multi-day hold, no physical-settlement risk since it's cash-settled),
-    exited on trend-reversal rather than a same-day timer. `broken_level`
-    and `entry_index_price` are both index levels (not option premium) -
-    the trend-reversal/stop checks compare the index's current level against
-    them, same convention as backtest_technical.backtest_swing."""
+    exited on trend-reversal rather than a same-day timer. `broken_level`,
+    `entry_index_price`, `stop_price`/`target_price`/`favorable_extreme` are
+    all index levels (not option premium) - the trend-reversal/stop/target/
+    trailing checks compare the index's current level against them, same
+    convention as backtest_technical.backtest_swing / technical_strategy.
+    atr_stop_target. `stop_orderid`/`target_orderid` as in OpenTechnicalOption."""
     underlying: str
     expiry: str
     entered_at: str
     direction: str  # "long" | "short" - which side of the breakout this was
     broken_level: float  # the S/R level whose reclaim triggers the exit
     entry_index_price: float
+    stop_price: float
+    target_price: float
+    atr_value: float
+    favorable_extreme: float
+    trailing_active: bool
     signal_reason: str
     option: LegFill
+    stop_orderid: str = ""
+    target_orderid: str = ""
 
 
 def load_technical_swing_option() -> dict[str, OpenTechnicalSwingOption]:
@@ -299,12 +320,22 @@ class OpenTechnicalEquity:
     theta/settlement risk since there's no option contract), exited on
     trend-reversal. Only ever "long" - no equity-shorting infra exists in
     this repo, so a "short" swing signal on a stock is skipped by the
-    caller, never opened as a position."""
+    caller, never opened as a position. `stop_price`/`target_price`/
+    `favorable_extreme` are the stock's own price (see
+    technical_strategy.atr_stop_target) - sizing itself uses the ATR-derived
+    stop distance too, see run_technical._maybe_swing_equity_enter."""
     underlying: str
     entered_at: str
     broken_level: float
+    stop_price: float
+    target_price: float
+    atr_value: float
+    favorable_extreme: float
+    trailing_active: bool
     signal_reason: str
     equity: LegFill
+    stop_orderid: str = ""
+    target_orderid: str = ""
 
 
 def load_technical_swing_equity() -> dict[str, OpenTechnicalEquity]:

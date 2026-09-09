@@ -17,7 +17,7 @@ and the Phase 1 backtest output reviewed with the user before this was
 built.
 """
 from trading_bot.chart_patterns import detect_breakout, detect_ma_crossover
-from trading_bot.indicators import ema, rolling_avg_volume, rsi, sma, vwap
+from trading_bot.indicators import atr, ema, rolling_avg_volume, rsi, sma, vwap
 from trading_bot.support_resistance import cluster_levels, find_swing_points
 from trading_bot.volume_analysis import volume_confirms_move
 
@@ -182,6 +182,81 @@ def swing_signal(
                 f"RSI {rsi_series[i]:.1f}, regime {regime or 'neutral'}"
             )
     return None, None, "no valid S/R breakout as of the latest close"
+
+
+def atr_stop_target(
+    candles: list[dict], direction: str, entry_price: float, period: int, stop_mult: float, target_mult: float,
+) -> tuple[float, float, float] | None:
+    """ATR-based stop/target prices for `entry_price` - quoted in whatever
+    price series `candles` is (underlying spot for the options tiers, the
+    stock's own price for the swing equity leg), same convention used
+    throughout this module for the percentage-based checks this replaces.
+    Returns (stop_price, target_price, atr_value), or None if there isn't
+    yet enough history for a `period`-length ATR. First-cut multipliers
+    (default 1.5x stop / 2.5x target, ~1:1.7 reward:risk) - same
+    unvalidated-until-backtested caveat as every other threshold in this
+    module (see module docstring)."""
+    atr_series = atr(candles, period)
+    atr_value = atr_series[-1]
+    if atr_value is None or atr_value <= 0:
+        return None
+    if direction == "long":
+        return entry_price - stop_mult * atr_value, entry_price + target_mult * atr_value, atr_value
+    return entry_price + stop_mult * atr_value, entry_price - target_mult * atr_value, atr_value
+
+
+def should_activate_trailing(direction: str, entry_price: float, current_price: float, atr_value: float, activate_mult: float) -> bool:
+    """True once price has moved favorably by >= activate_mult x ATR from
+    entry - trailing only starts once a trade is already comfortably in
+    profit, not from the very first tick in its favor."""
+    if direction == "long":
+        return current_price >= entry_price + activate_mult * atr_value
+    return current_price <= entry_price - activate_mult * atr_value
+
+
+def trailing_stop_price(direction: str, favorable_extreme: float, atr_value: float, trail_mult: float) -> float:
+    """New stop level once trailing is active: `trail_mult` x ATR behind the
+    best price seen since entry (`favorable_extreme` - highest for long,
+    lowest for short). Callers must only adopt this if it's more favorable
+    (tighter) than the current stop - a trailing stop must never loosen."""
+    if direction == "long":
+        return favorable_extreme - trail_mult * atr_value
+    return favorable_extreme + trail_mult * atr_value
+
+
+def stop_breached(direction: str, stop_price: float, current_price: float) -> bool:
+    return current_price <= stop_price if direction == "long" else current_price >= stop_price
+
+
+def target_reached(direction: str, target_price: float, current_price: float) -> bool:
+    return current_price >= target_price if direction == "long" else current_price <= target_price
+
+
+def update_trailing_stop(
+    direction: str, entry_price: float, current_price: float, atr_value: float,
+    favorable_extreme: float, stop_price: float, trailing_active: bool,
+    activate_mult: float, trail_mult: float,
+) -> tuple[float, float, bool]:
+    """One trailing-stop update step, called on every price check. Ratchets
+    `favorable_extreme` in the trade's favor, activates trailing once price
+    is `activate_mult` x ATR in profit from entry, and once active only ever
+    TIGHTENS the stop toward `favorable_extreme` - never loosens it, and
+    never overrides an existing stop that's already tighter than what
+    trailing would compute right now. Returns (new_favorable_extreme,
+    new_stop_price, new_trailing_active)."""
+    if direction == "long":
+        favorable_extreme = max(favorable_extreme, current_price)
+    else:
+        favorable_extreme = min(favorable_extreme, current_price)
+
+    if not trailing_active and should_activate_trailing(direction, entry_price, current_price, atr_value, activate_mult):
+        trailing_active = True
+
+    if trailing_active:
+        candidate = trailing_stop_price(direction, favorable_extreme, atr_value, trail_mult)
+        stop_price = max(stop_price, candidate) if direction == "long" else min(stop_price, candidate)
+
+    return favorable_extreme, stop_price, trailing_active
 
 
 def swing_should_exit(direction: str, broken_level: float, latest_close: float, reclaim_buffer_pct: float) -> bool:

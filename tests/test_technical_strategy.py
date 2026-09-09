@@ -1,5 +1,7 @@
 from unittest.mock import patch
 
+import pytest
+
 import trading_bot.technical_strategy as ts
 from trading_bot.support_resistance import PriceLevel
 
@@ -187,6 +189,114 @@ def test_swing_signal_no_breakout_means_no_signal():
         direction, broken_level, reason = ts.swing_signal(candles, 50, 200, 14, 5, 1.0, 2)
     assert direction is None
     assert broken_level is None
+
+
+# --- atr_stop_target / trailing ---
+
+
+def _atr_candles(n, base=100.0, rng=2.0):
+    # constant high-low range each bar -> a predictable, stable ATR
+    return [{"open": base, "high": base + rng / 2, "low": base - rng / 2, "close": base} for _ in range(n)]
+
+
+def test_atr_stop_target_not_enough_history():
+    assert ts.atr_stop_target(_atr_candles(5), "long", 100.0, period=14, stop_mult=1.5, target_mult=2.5) is None
+
+
+def test_atr_stop_target_long():
+    candles = _atr_candles(30, base=100.0, rng=2.0)  # true range ~2.0 every bar -> ATR settles near 2.0
+    result = ts.atr_stop_target(candles, "long", entry_price=100.0, period=14, stop_mult=1.5, target_mult=2.5)
+    assert result is not None
+    stop_price, target_price, atr_value = result
+    assert atr_value == pytest.approx(2.0, abs=0.05)
+    assert stop_price == pytest.approx(100.0 - 1.5 * atr_value, abs=0.01)
+    assert target_price == pytest.approx(100.0 + 2.5 * atr_value, abs=0.01)
+    assert stop_price < 100.0 < target_price
+
+
+def test_atr_stop_target_short_mirrors_long():
+    candles = _atr_candles(30, base=100.0, rng=2.0)
+    stop_price, target_price, atr_value = ts.atr_stop_target(candles, "short", entry_price=100.0, period=14, stop_mult=1.5, target_mult=2.5)
+    assert stop_price > 100.0 > target_price
+
+
+def test_should_activate_trailing_long():
+    assert ts.should_activate_trailing("long", entry_price=100.0, current_price=103.0, atr_value=2.0, activate_mult=1.0) is True
+    assert ts.should_activate_trailing("long", entry_price=100.0, current_price=101.0, atr_value=2.0, activate_mult=1.0) is False
+
+
+def test_should_activate_trailing_short():
+    assert ts.should_activate_trailing("short", entry_price=100.0, current_price=97.0, atr_value=2.0, activate_mult=1.0) is True
+    assert ts.should_activate_trailing("short", entry_price=100.0, current_price=99.0, atr_value=2.0, activate_mult=1.0) is False
+
+
+def test_trailing_stop_price_long_trails_below_extreme():
+    assert ts.trailing_stop_price("long", favorable_extreme=110.0, atr_value=2.0, trail_mult=1.0) == pytest.approx(108.0)
+
+
+def test_trailing_stop_price_short_trails_above_extreme():
+    assert ts.trailing_stop_price("short", favorable_extreme=90.0, atr_value=2.0, trail_mult=1.0) == pytest.approx(92.0)
+
+
+# --- stop_breached / target_reached / update_trailing_stop ---
+
+
+def test_stop_breached_long():
+    assert ts.stop_breached("long", stop_price=95.0, current_price=94.0) is True
+    assert ts.stop_breached("long", stop_price=95.0, current_price=96.0) is False
+
+
+def test_stop_breached_short():
+    assert ts.stop_breached("short", stop_price=105.0, current_price=106.0) is True
+    assert ts.stop_breached("short", stop_price=105.0, current_price=104.0) is False
+
+
+def test_target_reached_long():
+    assert ts.target_reached("long", target_price=110.0, current_price=111.0) is True
+    assert ts.target_reached("long", target_price=110.0, current_price=109.0) is False
+
+
+def test_update_trailing_stop_not_yet_activated_leaves_stop_unchanged():
+    favorable, stop, active = ts.update_trailing_stop(
+        "long", entry_price=100.0, current_price=100.5, atr_value=2.0,
+        favorable_extreme=100.0, stop_price=97.0, trailing_active=False,
+        activate_mult=1.0, trail_mult=1.0,
+    )
+    assert active is False
+    assert stop == 97.0  # unchanged - not enough favorable move yet
+    assert favorable == 100.5  # still tracks the best price seen
+
+
+def test_update_trailing_stop_activates_and_tightens():
+    # favorable move of 3.0 >= activate_mult(1.0) x atr(2.0) -> activates
+    favorable, stop, active = ts.update_trailing_stop(
+        "long", entry_price=100.0, current_price=103.0, atr_value=2.0,
+        favorable_extreme=103.0, stop_price=97.0, trailing_active=False,
+        activate_mult=1.0, trail_mult=1.0,
+    )
+    assert active is True
+    assert stop == pytest.approx(101.0)  # 103 - 1.0*2.0, tighter than the original 97.0
+
+
+def test_update_trailing_stop_never_loosens():
+    # price retraces after activation - stop must not move back down
+    favorable, stop, active = ts.update_trailing_stop(
+        "long", entry_price=100.0, current_price=101.0, atr_value=2.0,
+        favorable_extreme=105.0, stop_price=103.0, trailing_active=True,
+        activate_mult=1.0, trail_mult=1.0,
+    )
+    assert stop == 103.0  # candidate (105-2=103) ties; retraced price alone can't loosen it
+    assert favorable == 105.0  # extreme doesn't reset just because price pulled back
+
+
+def test_update_trailing_stop_short_direction():
+    favorable, stop, active = ts.update_trailing_stop(
+        "short", entry_price=100.0, current_price=96.0, atr_value=2.0,
+        favorable_extreme=96.0, stop_price=103.0, trailing_active=False,
+        activate_mult=1.0, trail_mult=1.0,
+    )
+    assert active is True
+    assert stop == pytest.approx(98.0)  # 96 + 1.0*2.0, tighter than 103.0
 
 
 # --- swing_should_exit ---

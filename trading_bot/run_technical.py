@@ -35,7 +35,17 @@ from trading_bot.stock_screener import build_universe
 from trading_bot.support_resistance import classic_pivot_points
 from trading_bot.technical_config import TechnicalConfig
 from trading_bot.technical_notifier import notify, notify_error
-from trading_bot.technical_strategy import candles_from_rows, intraday_signal, scalp_signal, swing_should_exit, swing_signal
+from trading_bot.technical_strategy import (
+    atr_stop_target,
+    candles_from_rows,
+    intraday_signal,
+    scalp_signal,
+    stop_breached,
+    swing_should_exit,
+    swing_signal,
+    target_reached,
+    update_trailing_stop,
+)
 from trading_bot.timeutil import now_ist, today_ist
 
 log = logging.getLogger("trading_bot.technical")
@@ -122,18 +132,6 @@ def _leg_ltp_and_pnl(rest: RestClient, leg: state_mod.LegFill) -> tuple[float, f
 
 def _direction_from_option_type(option_type: str) -> str:
     return "long" if option_type == "CE" else "short"
-
-
-def _price_moved_against(direction: str, entry_price: float, current_price: float, pct: float) -> bool:
-    if direction == "long":
-        return current_price <= entry_price * (1 - pct / 100)
-    return current_price >= entry_price * (1 + pct / 100)
-
-
-def _price_moved_in_favor(direction: str, entry_price: float, current_price: float, pct: float) -> bool:
-    if direction == "long":
-        return current_price >= entry_price * (1 + pct / 100)
-    return current_price <= entry_price * (1 - pct / 100)
 
 
 # --- candle fetch/cache ------------------------------------------------
@@ -228,6 +226,12 @@ def _maybe_scalp_enter(cfg: TechnicalConfig, rest: RestClient, instruments: Inst
     if option_type is None:
         return
     spot = candles[-1]["close"]
+    direction = _direction_from_option_type(option_type)
+    atr_result = atr_stop_target(candles, direction, spot, cfg.atr_period, cfg.atr_stop_mult, cfg.atr_target_mult)
+    if atr_result is None:
+        log.info("TECH SCALP %s: skipping entry - not enough history yet for an ATR-based stop/target", underlying)
+        return
+    stop_price, target_price, atr_value = atr_result
 
     chain = OptionChain(instruments.instruments, underlying, exchange="NFO")
     expiry = chain.nearest_expiry_within(today, cfg.dte_min, cfg.dte_max)
@@ -254,11 +258,13 @@ def _maybe_scalp_enter(cfg: TechnicalConfig, rest: RestClient, instruments: Inst
     leg = strategy.enter(contract, qty_lots=lots, quote=quote)
     positions[underlying] = state_mod.OpenTechnicalOption(
         underlying=underlying, expiry=expiry.strftime("%d%b%Y").upper(), entered_at=now_ist().isoformat(),
-        tier="scalp", signal_reason=reason, entry_spot=spot, option=leg,
+        tier="scalp", signal_reason=reason, entry_spot=spot, stop_price=stop_price, target_price=target_price,
+        atr_value=atr_value, favorable_extreme=spot, trailing_active=False, option=leg,
     )
     trade_counts[underlying] = trade_counts.get(underlying, 0) + 1
     journal["scalp_decisions"].append({"time": now_ist().isoformat(), "underlying": underlying, "reason": reason, "lots": lots})
-    notify(_entry_message(cfg.dry_run, "TECH SCALP", underlying, contract.tradingsymbol, lots, leg.entry_price, premium_per_lot * lots, reason), html=True)
+    notify(_entry_message(cfg.dry_run, "TECH SCALP", underlying, contract.tradingsymbol, lots, leg.entry_price, premium_per_lot * lots,
+                           f"{reason} (stop {stop_price:.2f}, target {target_price:.2f}, ATR {atr_value:.2f})"), html=True)
 
 
 # --- intraday tier ---------------------------------------------------------
@@ -277,6 +283,12 @@ def _maybe_intraday_enter(cfg: TechnicalConfig, rest: RestClient, instruments: I
     if option_type is None:
         return
     spot = bars[-1]["close"]
+    direction = _direction_from_option_type(option_type)
+    atr_result = atr_stop_target(bars, direction, spot, cfg.atr_period, cfg.atr_stop_mult, cfg.atr_target_mult)
+    if atr_result is None:
+        log.info("TECH INTRADAY %s: skipping entry - not enough history yet for an ATR-based stop/target", underlying)
+        return
+    stop_price, target_price, atr_value = atr_result
 
     chain = OptionChain(instruments.instruments, underlying, exchange="NFO")
     expiry = chain.nearest_expiry_within(today, cfg.dte_min, cfg.dte_max)
@@ -303,11 +315,13 @@ def _maybe_intraday_enter(cfg: TechnicalConfig, rest: RestClient, instruments: I
     leg = strategy.enter(contract, qty_lots=lots, quote=quote)
     positions[underlying] = state_mod.OpenTechnicalOption(
         underlying=underlying, expiry=expiry.strftime("%d%b%Y").upper(), entered_at=now_ist().isoformat(),
-        tier="intraday", signal_reason=reason, entry_spot=spot, option=leg,
+        tier="intraday", signal_reason=reason, entry_spot=spot, stop_price=stop_price, target_price=target_price,
+        atr_value=atr_value, favorable_extreme=spot, trailing_active=False, option=leg,
     )
     trade_counts[underlying] = trade_counts.get(underlying, 0) + 1
     journal["intraday_decisions"].append({"time": now_ist().isoformat(), "underlying": underlying, "reason": reason, "lots": lots})
-    notify(_entry_message(cfg.dry_run, "TECH INTRADAY", underlying, contract.tradingsymbol, lots, leg.entry_price, premium_per_lot * lots, reason), html=True)
+    notify(_entry_message(cfg.dry_run, "TECH INTRADAY", underlying, contract.tradingsymbol, lots, leg.entry_price, premium_per_lot * lots,
+                           f"{reason} (stop {stop_price:.2f}, target {target_price:.2f}, ATR {atr_value:.2f})"), html=True)
 
 
 # --- swing tier -------------------------------------------------------
@@ -323,6 +337,11 @@ def _maybe_swing_index_enter(cfg: TechnicalConfig, rest: RestClient, instruments
         return
     option_type = "CE" if direction == "long" else "PE"
     spot = float(rest.get_ltp(spot_row["exch_seg"], spot_row["symbol"], spot_row["token"])["ltp"])
+    atr_result = atr_stop_target(daily, direction, spot, cfg.atr_period, cfg.atr_stop_mult, cfg.atr_target_mult)
+    if atr_result is None:
+        log.info("TECH SWING %s: skipping entry - not enough daily history yet for an ATR-based stop/target", underlying)
+        return
+    stop_price, target_price, atr_value = atr_result
 
     chain = OptionChain(instruments.instruments, underlying, exchange="NFO")
     expiry = chain.nearest_expiry_within(today, cfg.swing_index_dte_min, cfg.swing_index_dte_max)
@@ -349,10 +368,13 @@ def _maybe_swing_index_enter(cfg: TechnicalConfig, rest: RestClient, instruments
     leg = strategy.enter(contract, qty_lots=lots, quote=quote)
     positions[underlying] = state_mod.OpenTechnicalSwingOption(
         underlying=underlying, expiry=expiry.strftime("%d%b%Y").upper(), entered_at=now_ist().isoformat(),
-        direction=direction, broken_level=broken_level, entry_index_price=spot, signal_reason=reason, option=leg,
+        direction=direction, broken_level=broken_level, entry_index_price=spot, stop_price=stop_price,
+        target_price=target_price, atr_value=atr_value, favorable_extreme=spot, trailing_active=False,
+        signal_reason=reason, option=leg,
     )
     journal["swing_decisions"].append({"time": now_ist().isoformat(), "underlying": underlying, "reason": reason, "lots": lots})
-    notify(_entry_message(cfg.dry_run, "TECH SWING", underlying, contract.tradingsymbol, lots, leg.entry_price, premium_per_lot * lots, reason), html=True)
+    notify(_entry_message(cfg.dry_run, "TECH SWING", underlying, contract.tradingsymbol, lots, leg.entry_price, premium_per_lot * lots,
+                           f"{reason} (stop {stop_price:.2f}, target {target_price:.2f}, ATR {atr_value:.2f})"), html=True)
 
 
 def _maybe_swing_equity_enter(cfg: TechnicalConfig, rest: RestClient, equity_strategy: EquityDeliveryStrategy,
@@ -376,21 +398,39 @@ def _maybe_swing_equity_enter(cfg: TechnicalConfig, rest: RestClient, equity_str
             return
 
     price = float(rest.get_ltp(exchange, symbol, token)["ltp"])
-    exposure_budget = min(
-        risk.max_loss_per_trade() / (cfg.swing_stop_pct / 100),
-        risk.ledger["current_capital"] * cfg.swing_equity_budget_pct_per_trade,
-    )
-    shares = size_equity_shares(price, exposure_budget)
+    atr_result = atr_stop_target(daily, "long", price, cfg.atr_period, cfg.atr_stop_mult, cfg.atr_target_mult)
+    if atr_result is None:
+        log.info("TECH SWING EQUITY %s: skipping entry - not enough daily history yet for an ATR-based stop/target", name)
+        return
+    stop_price, target_price, atr_value = atr_result
+
+    # Size off the ACTUAL ATR-derived stop distance (rupees/share risked if
+    # stopped out), not an assumed fixed percentage - risking
+    # max_loss_per_trade() across `shares` means shares*(price-stop) <=
+    # max_loss_per_trade(). Also capped by swing_equity_budget_pct_per_trade
+    # as a straight notional-exposure ceiling (a diversified book of many
+    # small stock positions, unlike the concentrated options tiers).
+    stop_distance = price - stop_price
+    if stop_distance <= 0:
+        log.info("TECH SWING EQUITY %s: skipping entry - non-positive ATR stop distance (price %.2f, stop %.2f)", name, price, stop_price)
+        return
+    max_shares_by_risk = int(risk.max_loss_per_trade() / stop_distance)
+    max_shares_by_exposure = size_equity_shares(price, risk.ledger["current_capital"] * cfg.swing_equity_budget_pct_per_trade)
+    shares = min(max_shares_by_risk, max_shares_by_exposure)
     if shares < 1:
-        log.info("TECH SWING EQUITY %s: skipping entry - budget Rs.%.2f can't buy 1 share at Rs.%.2f", name, exposure_budget, price)
+        log.info("TECH SWING EQUITY %s: skipping entry - budget can't size even 1 share (risk-capped %d, exposure-capped %d) at Rs.%.2f",
+                  name, max_shares_by_risk, max_shares_by_exposure, price)
         return
 
     leg = equity_strategy.enter(symbol, token, exchange, shares, quote=quote)
     positions[name] = state_mod.OpenTechnicalEquity(
-        underlying=name, entered_at=now_ist().isoformat(), broken_level=broken_level, signal_reason=reason, equity=leg,
+        underlying=name, entered_at=now_ist().isoformat(), broken_level=broken_level, stop_price=stop_price,
+        target_price=target_price, atr_value=atr_value, favorable_extreme=price, trailing_active=False,
+        signal_reason=reason, equity=leg,
     )
     journal["swing_decisions"].append({"time": now_ist().isoformat(), "underlying": name, "reason": reason, "shares": shares})
-    notify(_entry_message(cfg.dry_run, "TECH SWING EQUITY", name, symbol, shares, leg.entry_price, shares * leg.entry_price, reason), html=True)
+    notify(_entry_message(cfg.dry_run, "TECH SWING EQUITY", name, symbol, shares, leg.entry_price, shares * leg.entry_price,
+                           f"{reason} (stop {stop_price:.2f}, target {target_price:.2f}, ATR {atr_value:.2f})"), html=True)
 
 
 def _run_swing_scan(cfg: TechnicalConfig, rest: RestClient, instruments: InstrumentLookup, strategy: LongOptionStrategy,
@@ -598,12 +638,16 @@ def main() -> None:
                     log.exception("Could not price TECH SCALP %s for exit check", underlying)
                     notify_error(f"Could not price TECH SCALP {underlying} for exit check - {e}")
                     continue
+                position.favorable_extreme, position.stop_price, position.trailing_active = update_trailing_stop(
+                    direction, position.entry_spot, spot, position.atr_value, position.favorable_extreme,
+                    position.stop_price, position.trailing_active, cfg.atr_trail_activate_mult, cfg.atr_trail_mult,
+                )
                 entered_at = dt.datetime.fromisoformat(position.entered_at)
                 if now - entered_at >= dt.timedelta(minutes=cfg.scalp_max_hold_minutes):
                     reason = "scalp_time_exit"
-                elif _price_moved_against(direction, position.entry_spot, spot, cfg.scalp_stop_pct):
-                    reason = "stop_loss"
-                elif _price_moved_in_favor(direction, position.entry_spot, spot, cfg.scalp_take_profit_pct):
+                elif stop_breached(direction, position.stop_price, spot):
+                    reason = "trailing_stop_loss" if position.trailing_active else "stop_loss"
+                elif target_reached(direction, position.target_price, spot):
                     reason = "take_profit"
                 elif now_t >= exit_time:
                     reason = "exit_time"
@@ -632,11 +676,15 @@ def main() -> None:
                     log.exception("Could not price TECH INTRADAY %s for exit check", underlying)
                     notify_error(f"Could not price TECH INTRADAY {underlying} for exit check - {e}")
                     continue
+                position.favorable_extreme, position.stop_price, position.trailing_active = update_trailing_stop(
+                    direction, position.entry_spot, spot, position.atr_value, position.favorable_extreme,
+                    position.stop_price, position.trailing_active, cfg.atr_trail_activate_mult, cfg.atr_trail_mult,
+                )
                 if now_t >= exit_time:
                     reason = "exit_time"
-                elif _price_moved_against(direction, position.entry_spot, spot, cfg.intraday_stop_pct):
-                    reason = "stop_loss"
-                elif _price_moved_in_favor(direction, position.entry_spot, spot, cfg.intraday_take_profit_pct):
+                elif stop_breached(direction, position.stop_price, spot):
+                    reason = "trailing_stop_loss" if position.trailing_active else "stop_loss"
+                elif target_reached(direction, position.target_price, spot):
                     reason = "take_profit"
                 else:
                     continue
@@ -695,7 +743,8 @@ def main() -> None:
                 notify_error(f"TECH SWING daily scan failed - {e}")
             swing_scan_done_today = True
 
-        # --- swing: stop-loss safety check, every cycle ---
+        # --- swing: stop/target/trailing check, every cycle (trend-reversal/
+        # max-hold exits are checked once/day in _run_swing_scan above) ---
         if swing_option_positions:
             for underlying, position in list(swing_option_positions.items()):
                 try:
@@ -704,18 +753,26 @@ def main() -> None:
                     log.exception("Could not price TECH SWING %s for stop check", underlying)
                     notify_error(f"Could not price TECH SWING {underlying} for stop check - {e}")
                     continue
-                if not _price_moved_against(position.direction, position.entry_index_price, spot, cfg.swing_stop_pct):
+                position.favorable_extreme, position.stop_price, position.trailing_active = update_trailing_stop(
+                    position.direction, position.entry_index_price, spot, position.atr_value, position.favorable_extreme,
+                    position.stop_price, position.trailing_active, cfg.atr_trail_activate_mult, cfg.atr_trail_mult,
+                )
+                if stop_breached(position.direction, position.stop_price, spot):
+                    reason = "trailing_stop_loss" if position.trailing_active else "stop_loss"
+                elif target_reached(position.direction, position.target_price, spot):
+                    reason = "take_profit"
+                else:
                     continue
                 try:
-                    _settle_close(strategy.exit, rest, position.option, swing_risk, ledger, "technical_swing_option", underlying, "stop_loss",
+                    _settle_close(strategy.exit, rest, position.option, swing_risk, ledger, "technical_swing_option", underlying, reason,
                                   {"expiry": position.expiry, "option_type": position.option.tradingsymbol[-2:], "direction": position.direction,
                                    "broken_level": position.broken_level, "entered_at": position.entered_at, "signal_reason": position.signal_reason},
                                   journal, "swing_trades", "TECH SWING")
                     del swing_option_positions[underlying]
                 except Exception as e:
-                    log.exception("Failed to close TECH SWING %s on stop - MANUAL INTERVENTION MAY BE NEEDED", underlying)
-                    notify(f"URGENT: failed to close TECH SWING {underlying} on stop-loss - MANUAL INTERVENTION NEEDED")
-                    notify_error(f"Failed to close TECH SWING {underlying} on stop-loss - MANUAL INTERVENTION NEEDED - {e}")
+                    log.exception("Failed to close TECH SWING %s - MANUAL INTERVENTION MAY BE NEEDED", underlying)
+                    notify(f"URGENT: failed to close TECH SWING {underlying} - MANUAL INTERVENTION NEEDED")
+                    notify_error(f"Failed to close TECH SWING {underlying} - MANUAL INTERVENTION NEEDED - {e}")
             state_mod.save_technical_swing_option(swing_option_positions)
 
         if swing_equity_positions:
@@ -727,17 +784,25 @@ def main() -> None:
                     log.exception("Could not price TECH SWING EQUITY %s for stop check", underlying)
                     notify_error(f"Could not price TECH SWING EQUITY {underlying} for stop check - {e}")
                     continue
-                if not _price_moved_against("long", leg.entry_price, ltp, cfg.swing_stop_pct):
+                position.favorable_extreme, position.stop_price, position.trailing_active = update_trailing_stop(
+                    "long", leg.entry_price, ltp, position.atr_value, position.favorable_extreme,
+                    position.stop_price, position.trailing_active, cfg.atr_trail_activate_mult, cfg.atr_trail_mult,
+                )
+                if stop_breached("long", position.stop_price, ltp):
+                    reason = "trailing_stop_loss" if position.trailing_active else "stop_loss"
+                elif target_reached("long", position.target_price, ltp):
+                    reason = "take_profit"
+                else:
                     continue
                 try:
-                    _settle_close(equity_strategy.exit, rest, leg, swing_risk, ledger, "technical_swing_equity", underlying, "stop_loss",
+                    _settle_close(equity_strategy.exit, rest, leg, swing_risk, ledger, "technical_swing_equity", underlying, reason,
                                   {"broken_level": position.broken_level, "entered_at": position.entered_at, "signal_reason": position.signal_reason},
                                   journal, "swing_trades", "TECH SWING EQUITY")
                     del swing_equity_positions[underlying]
                 except Exception as e:
-                    log.exception("Failed to close TECH SWING EQUITY %s on stop - MANUAL INTERVENTION MAY BE NEEDED", underlying)
-                    notify(f"URGENT: failed to close TECH SWING EQUITY {underlying} on stop-loss - MANUAL INTERVENTION NEEDED")
-                    notify_error(f"Failed to close TECH SWING EQUITY {underlying} on stop-loss - MANUAL INTERVENTION NEEDED - {e}")
+                    log.exception("Failed to close TECH SWING EQUITY %s - MANUAL INTERVENTION MAY BE NEEDED", underlying)
+                    notify(f"URGENT: failed to close TECH SWING EQUITY {underlying} - MANUAL INTERVENTION NEEDED")
+                    notify_error(f"Failed to close TECH SWING EQUITY {underlying} - MANUAL INTERVENTION NEEDED - {e}")
             state_mod.save_technical_swing_equity(swing_equity_positions)
 
         time.sleep(POLL_SECONDS)
