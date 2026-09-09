@@ -22,7 +22,17 @@ class TechnicalConfig:
     exit_time: str = "15:15"  # same-day close for scalp/intraday, matches run_daily.py
 
     # --- shared options-tier sizing/risk (scalp + intraday + index swing) ---
-    max_capital_pct_per_trade: float = 0.10
+    # Raised 0.10 -> 0.20 (from 0.02 -> 0.15 on the two per-tier risk pcts
+    # below) 2026-09-09, live-verified: with the old Rs.1,000 budget
+    # (min(0.02, 0.10) x 50k), EVERY scalp/intraday signal that fired all day
+    # got blocked at sizing - real premiums ranged Rs.2,000-16,000+/lot. Also
+    # fixes a knock-on: this cap was ALSO the binding constraint on the swing
+    # INDEX leg's budget (min(swing_risk_per_trade_pct=0.15, this)), silently
+    # undoing part of that earlier fix. Budget = min(risk_pct, this) x
+    # capital, so effective max ~Rs.7,500/trade now - covers most but not
+    # all of today's premiums (deliberately not raised further to match the
+    # priciest ones, e.g. the Rs.16k+ BANKNIFTY scalp spike, still skipped).
+    max_capital_pct_per_trade: float = 0.20
     max_lots_per_trade: int = 5
     max_spread_pct: float = 8.0
     min_open_interest: int = 100
@@ -64,7 +74,7 @@ class TechnicalConfig:
 
     # --- scalp tier (1-min, EMA9/21 x VWAP x volume) ---
     scalp_watchlist: tuple[str, ...] = ("NIFTY", "BANKNIFTY", "RELIANCE", "TCS", "HDFCBANK", "ICICIBANK", "INFY", "SBIN")
-    scalp_risk_per_trade_pct: float = 0.02
+    scalp_risk_per_trade_pct: float = 0.15  # 0.02 -> 0.15 2026-09-09, see max_capital_pct_per_trade's comment
     scalp_daily_loss_cap_pct: float = 0.05
     scalp_ema_fast: int = 9
     scalp_ema_slow: int = 21
@@ -77,7 +87,7 @@ class TechnicalConfig:
     # --- intraday tier (5-min, EMA20/50 or pivot breakout) ---
     intraday_watchlist: tuple[str, ...] = ("NIFTY", "BANKNIFTY", "RELIANCE", "TCS", "HDFCBANK", "ICICIBANK", "INFY",
                                             "SBIN", "ITC", "LT", "AXISBANK", "KOTAKBANK", "BHARTIARTL", "TATASTEEL", "MARUTI")
-    intraday_risk_per_trade_pct: float = 0.02
+    intraday_risk_per_trade_pct: float = 0.15  # 0.02 -> 0.15 2026-09-09, see max_capital_pct_per_trade's comment
     intraday_daily_loss_cap_pct: float = 0.05
     intraday_ema_fast: int = 20
     intraday_ema_slow: int = 50
@@ -128,7 +138,7 @@ class TechnicalConfig:
             capital=float(os.environ.get("TECH_CAPITAL", "50000")),
             entry_time=os.environ.get("TECH_ENTRY_TIME", "09:20"),
             exit_time=os.environ.get("TECH_EXIT_TIME", "15:15"),
-            max_capital_pct_per_trade=float(os.environ.get("TECH_MAX_CAPITAL_PCT_PER_TRADE", "0.10")),
+            max_capital_pct_per_trade=float(os.environ.get("TECH_MAX_CAPITAL_PCT_PER_TRADE", "0.20")),
             max_lots_per_trade=int(os.environ.get("TECH_MAX_LOTS_PER_TRADE", "5")),
             max_spread_pct=float(os.environ.get("TECH_MAX_SPREAD_PCT", "8.0")),
             min_open_interest=int(os.environ.get("TECH_MIN_OPEN_INTEREST", "100")),
@@ -149,7 +159,7 @@ class TechnicalConfig:
             atr_target_scale_min=float(os.environ.get("TECH_ATR_TARGET_SCALE_MIN", "1.0")),
             atr_target_scale_max=float(os.environ.get("TECH_ATR_TARGET_SCALE_MAX", "1.8")),
             scalp_watchlist=_tuple("TECH_SCALP_WATCHLIST", "NIFTY,BANKNIFTY,RELIANCE,TCS,HDFCBANK,ICICIBANK,INFY,SBIN"),
-            scalp_risk_per_trade_pct=float(os.environ.get("TECH_SCALP_RISK_PER_TRADE_PCT", "0.02")),
+            scalp_risk_per_trade_pct=float(os.environ.get("TECH_SCALP_RISK_PER_TRADE_PCT", "0.15")),
             scalp_daily_loss_cap_pct=float(os.environ.get("TECH_SCALP_DAILY_LOSS_CAP_PCT", "0.05")),
             scalp_ema_fast=int(os.environ.get("TECH_SCALP_EMA_FAST", "9")),
             scalp_ema_slow=int(os.environ.get("TECH_SCALP_EMA_SLOW", "21")),
@@ -162,7 +172,7 @@ class TechnicalConfig:
                 "TECH_INTRADAY_WATCHLIST",
                 "NIFTY,BANKNIFTY,RELIANCE,TCS,HDFCBANK,ICICIBANK,INFY,SBIN,ITC,LT,AXISBANK,KOTAKBANK,BHARTIARTL,TATASTEEL,MARUTI",
             ),
-            intraday_risk_per_trade_pct=float(os.environ.get("TECH_INTRADAY_RISK_PER_TRADE_PCT", "0.02")),
+            intraday_risk_per_trade_pct=float(os.environ.get("TECH_INTRADAY_RISK_PER_TRADE_PCT", "0.15")),
             intraday_daily_loss_cap_pct=float(os.environ.get("TECH_INTRADAY_DAILY_LOSS_CAP_PCT", "0.05")),
             intraday_ema_fast=int(os.environ.get("TECH_INTRADAY_EMA_FAST", "20")),
             intraday_ema_slow=int(os.environ.get("TECH_INTRADAY_EMA_SLOW", "50")),

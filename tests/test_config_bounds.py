@@ -84,11 +84,11 @@ NUMERIC_BOUNDS = {
     "TECH_ATR_STOP_SCALE_MAX": (1.0, 3.0),
     "TECH_ATR_TARGET_SCALE_MIN": (1.0, 2.0),
     "TECH_ATR_TARGET_SCALE_MAX": (1.0, 4.0),
-    "TECH_SCALP_RISK_PER_TRADE_PCT": (0.002, 0.05),
+    "TECH_SCALP_RISK_PER_TRADE_PCT": (0.005, 0.20),
     "TECH_SCALP_DAILY_LOSS_CAP_PCT": (0.005, 0.10),
     "TECH_SCALP_MAX_HOLD_MINUTES": (1, 120),
     "TECH_SCALP_MAX_TRADES_PER_DAY": (1, 20),
-    "TECH_INTRADAY_RISK_PER_TRADE_PCT": (0.002, 0.05),
+    "TECH_INTRADAY_RISK_PER_TRADE_PCT": (0.005, 0.20),
     "TECH_INTRADAY_DAILY_LOSS_CAP_PCT": (0.005, 0.10),
     "TECH_INTRADAY_MAX_TRADES_PER_DAY": (1, 10),
     "TECH_SWING_RISK_PER_TRADE_PCT": (0.005, 0.20),
@@ -191,6 +191,22 @@ def test_tech_swing_daily_loss_cap_versus_single_trade_risk_is_not_extreme():
     cap = float(CONFIG["TECH_SWING_DAILY_LOSS_CAP_PCT"])
     assert risk <= cap * 4, (
         f"TECH_SWING_RISK_PER_TRADE_PCT ({risk}) is more than 4x TECH_SWING_DAILY_LOSS_CAP_PCT ({cap}) - "
+        f"reconcile them deliberately rather than letting the tuner drift here."
+    )
+
+
+@pytest.mark.parametrize("risk_key,cap_key", [
+    ("TECH_SCALP_RISK_PER_TRADE_PCT", "TECH_SCALP_DAILY_LOSS_CAP_PCT"),
+    ("TECH_INTRADAY_RISK_PER_TRADE_PCT", "TECH_INTRADAY_DAILY_LOSS_CAP_PCT"),
+])
+def test_tech_scalp_intraday_daily_loss_cap_versus_single_trade_risk_is_not_extreme(risk_key, cap_key):
+    """Same reasoning as the swing check above - both raised 0.02 -> 0.15
+    2026-09-09 (live-verified the old Rs.1,000 budget blocked every real
+    premium seen), deliberately above their own 0.05 daily loss caps."""
+    risk = float(CONFIG[risk_key])
+    cap = float(CONFIG[cap_key])
+    assert risk <= cap * 4, (
+        f"{risk_key} ({risk}) is more than 4x {cap_key} ({cap}) - "
         f"reconcile them deliberately rather than letting the tuner drift here."
     )
 
