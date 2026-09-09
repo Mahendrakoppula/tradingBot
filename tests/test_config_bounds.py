@@ -84,14 +84,14 @@ NUMERIC_BOUNDS = {
     "TECH_ATR_STOP_SCALE_MAX": (1.0, 3.0),
     "TECH_ATR_TARGET_SCALE_MIN": (1.0, 2.0),
     "TECH_ATR_TARGET_SCALE_MAX": (1.0, 4.0),
-    "TECH_SCALP_RISK_PER_TRADE_PCT": (0.005, 0.20),
+    "TECH_SCALP_RISK_PER_TRADE_PCT": (0.005, 0.35),
     "TECH_SCALP_DAILY_LOSS_CAP_PCT": (0.005, 0.10),
     "TECH_SCALP_MAX_HOLD_MINUTES": (1, 120),
     "TECH_SCALP_MAX_TRADES_PER_DAY": (1, 20),
-    "TECH_INTRADAY_RISK_PER_TRADE_PCT": (0.005, 0.20),
+    "TECH_INTRADAY_RISK_PER_TRADE_PCT": (0.005, 0.35),
     "TECH_INTRADAY_DAILY_LOSS_CAP_PCT": (0.005, 0.10),
     "TECH_INTRADAY_MAX_TRADES_PER_DAY": (1, 10),
-    "TECH_SWING_RISK_PER_TRADE_PCT": (0.005, 0.20),
+    "TECH_SWING_RISK_PER_TRADE_PCT": (0.005, 0.35),
     "TECH_SWING_DAILY_LOSS_CAP_PCT": (0.01, 0.15),
     "TECH_SWING_MIN_VOLUME": (0, 50_000_000),
     "TECH_SWING_MAX_HOLD_DAYS": (5, 365),
@@ -183,14 +183,16 @@ def test_tech_entry_time_is_before_exit_time():
 
 def test_tech_swing_daily_loss_cap_versus_single_trade_risk_is_not_extreme():
     """Same check as test_daily_loss_cap_versus_single_trade_risk_is_not_extreme,
-    for the second bot's swing tier - TECH_SWING_RISK_PER_TRADE_PCT (0.15) is
+    for the second bot's swing tier - TECH_SWING_RISK_PER_TRADE_PCT (0.30) is
     deliberately above TECH_SWING_DAILY_LOSS_CAP_PCT (0.05), same reasoning
-    (a wide-DTE option's premium IS the max loss). Catches the tuner making
-    that ratio dramatically worse."""
+    (a wide-DTE option's premium IS the max loss). Bound widened 4x -> 8x
+    2026-09-09 evening alongside the user's explicit 0.15 -> 0.30 budget
+    increase - catches the tuner making the ratio worse than THAT deliberate
+    human decision, not the decision itself."""
     risk = float(CONFIG["TECH_SWING_RISK_PER_TRADE_PCT"])
     cap = float(CONFIG["TECH_SWING_DAILY_LOSS_CAP_PCT"])
-    assert risk <= cap * 4, (
-        f"TECH_SWING_RISK_PER_TRADE_PCT ({risk}) is more than 4x TECH_SWING_DAILY_LOSS_CAP_PCT ({cap}) - "
+    assert risk <= cap * 8, (
+        f"TECH_SWING_RISK_PER_TRADE_PCT ({risk}) is more than 8x TECH_SWING_DAILY_LOSS_CAP_PCT ({cap}) - "
         f"reconcile them deliberately rather than letting the tuner drift here."
     )
 
@@ -200,13 +202,14 @@ def test_tech_swing_daily_loss_cap_versus_single_trade_risk_is_not_extreme():
     ("TECH_INTRADAY_RISK_PER_TRADE_PCT", "TECH_INTRADAY_DAILY_LOSS_CAP_PCT"),
 ])
 def test_tech_scalp_intraday_daily_loss_cap_versus_single_trade_risk_is_not_extreme(risk_key, cap_key):
-    """Same reasoning as the swing check above - both raised 0.02 -> 0.15
-    2026-09-09 (live-verified the old Rs.1,000 budget blocked every real
-    premium seen), deliberately above their own 0.05 daily loss caps."""
+    """Same reasoning as the swing check above - both raised 0.02 -> 0.15 ->
+    0.30 on 2026-09-09 (live-verified the Rs.1,000 then Rs.7,500 budgets
+    both blocked real premiums seen that day), deliberately above their own
+    0.05 daily loss caps. Bound widened 4x -> 8x alongside the increase."""
     risk = float(CONFIG[risk_key])
     cap = float(CONFIG[cap_key])
-    assert risk <= cap * 4, (
-        f"{risk_key} ({risk}) is more than 4x {cap_key} ({cap}) - "
+    assert risk <= cap * 8, (
+        f"{risk_key} ({risk}) is more than 8x {cap_key} ({cap}) - "
         f"reconcile them deliberately rather than letting the tuner drift here."
     )
 
