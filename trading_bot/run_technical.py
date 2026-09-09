@@ -18,6 +18,8 @@ import signal
 import time
 from html import escape as esc
 
+import requests
+
 from trading_bot import state as state_mod
 from trading_bot.auth import Session
 from trading_bot.config import Config
@@ -28,7 +30,7 @@ from trading_bot.instruments import InstrumentLookup
 from trading_bot.liquidity import check_liquidity, get_quote_for_contract
 from trading_bot.notifier import notify
 from trading_bot.options import OptionChain, find_spot_instrument
-from trading_bot.rest_client import RestClient
+from trading_bot.rest_client import ApiError, RestClient
 from trading_bot.risk import DailyRiskTracker
 from trading_bot.sizing import size_equity_shares, size_long_option
 from trading_bot.stock_screener import build_universe
@@ -47,6 +49,30 @@ POLL_SECONDS = 30
 # pace every daily-candle call in the swing scan the same way that script does,
 # since it can fire dozens of these back to back across the stock universe.
 CANDLE_CALL_SLEEP_SECONDS = 1.2
+CANDLE_FETCH_RETRIES = 6
+CANDLE_FETCH_RETRY_BASE_SECONDS = 3.0
+
+
+def _get_candle_data_with_retry(rest: RestClient, exchange: str, token: str, interval: str, fromdate: str, todate: str) -> list:
+    """getCandleData failures get retried with backoff - confirmed live
+    (smoke-tested 2026-09-09) that even the FIRST call right after a fresh
+    login can come back as a plain-text 403 ("Access denied because of
+    exceeding access rate") that resp.json() can't parse, raising a
+    ValueError/JSONDecodeError, not just an ApiError - same finding
+    research/fetch_historical.py already documented and retries around
+    (`_fetch_chunked`). Without this, a single transient rate-limit hiccup
+    silently reads as "no signal today" for that underlying, forever - a
+    real gap for a strategy whose whole point is to trade multiple times a
+    day. Returns [] (no candles) only after every retry is exhausted."""
+    for attempt in range(CANDLE_FETCH_RETRIES):
+        try:
+            return rest.get_candle_data(exchange, token, interval, fromdate, todate)
+        except (ApiError, ValueError, requests.exceptions.RequestException) as e:
+            log.warning("getCandleData failed (attempt %d/%d) for %s %s %s->%s: %s",
+                        attempt + 1, CANDLE_FETCH_RETRIES, token, interval, fromdate, todate, e)
+            time.sleep(CANDLE_FETCH_RETRY_BASE_SECONDS * (attempt + 1))
+    log.error("Giving up on getCandleData for %s %s after %d attempts", token, interval, CANDLE_FETCH_RETRIES)
+    return []
 
 
 # --- messaging --------------------------------------------------------------
@@ -117,14 +143,14 @@ def _price_moved_in_favor(direction: str, entry_price: float, current_price: flo
 def _fetch_today_candles(rest: RestClient, exchange: str, token: str, interval: str, today: dt.date) -> list[dict]:
     fromdate = f"{today.isoformat()} 09:15"
     todate = now_ist().strftime("%Y-%m-%d %H:%M")
-    rows = rest.get_candle_data(exchange, token, interval, fromdate, todate)
+    rows = _get_candle_data_with_retry(rest, exchange, token, interval, fromdate, todate)
     return candles_from_rows(rows)
 
 
 def _fetch_prev_day_ohlc(rest: RestClient, exchange: str, token: str, today: dt.date) -> tuple[float, float, float] | None:
     fromdate = f"{(today - dt.timedelta(days=10)).isoformat()} 09:00"
     todate = f"{(today - dt.timedelta(days=1)).isoformat()} 15:30"
-    rows = rest.get_candle_data(exchange, token, "ONE_DAY", fromdate, todate)
+    rows = _get_candle_data_with_retry(rest, exchange, token, "ONE_DAY", fromdate, todate)
     candles = candles_from_rows(rows)
     if not candles:
         return None
@@ -135,7 +161,7 @@ def _fetch_prev_day_ohlc(rest: RestClient, exchange: str, token: str, today: dt.
 def _fetch_daily_candles(rest: RestClient, exchange: str, token: str, today: dt.date, days: int = 400) -> list[dict]:
     fromdate = f"{(today - dt.timedelta(days=days)).isoformat()} 09:00"
     todate = f"{(today - dt.timedelta(days=1)).isoformat()} 15:30"
-    rows = rest.get_candle_data(exchange, token, "ONE_DAY", fromdate, todate)
+    rows = _get_candle_data_with_retry(rest, exchange, token, "ONE_DAY", fromdate, todate)
     return candles_from_rows(rows)
 
 
