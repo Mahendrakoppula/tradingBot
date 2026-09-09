@@ -62,7 +62,17 @@ class TechnicalConfig:
     intraday_poll_seconds: int = 300
 
     # --- swing tier (daily, trend-reversal exit) ---
-    swing_risk_per_trade_pct: float = 0.02
+    # 0.15, not the other tiers' 0.02: a wide-DTE (20-60 day) index option
+    # carries far more time value than a same-day contract - live-verified
+    # 2026-09-09, a NIFTY swing signal's actual premium was ~Rs.6,922.50/lot,
+    # which 0.02 (Rs.1,000 budget on 50k capital) could never size even 1 lot
+    # of - same class of bug already hit and fixed once in run_daily.py's own
+    # RISK_PER_TRADE_PCT. For a long option, max loss per trade = premium
+    # paid, so this is also the effective max loss per trade (~15% of
+    # capital) - fine for paper-mode learning, revisit before ever setting
+    # TECH_DRY_RUN=false. Only affects the swing tier's INDEX/options leg -
+    # the stock/equity leg sizes off swing_equity_budget_pct_per_trade instead.
+    swing_risk_per_trade_pct: float = 0.15
     swing_daily_loss_cap_pct: float = 0.05
     swing_min_volume: int = 500_000  # today's tradeVolume floor for a stock to enter the swing universe
     swing_sma_fast: int = 50
@@ -128,7 +138,7 @@ class TechnicalConfig:
             intraday_max_trades_per_day=int(os.environ.get("TECH_INTRADAY_MAX_TRADES_PER_DAY", "1")),
             intraday_bar_minutes=int(os.environ.get("TECH_INTRADAY_BAR_MINUTES", "5")),
             intraday_poll_seconds=int(os.environ.get("TECH_INTRADAY_POLL_SECONDS", "300")),
-            swing_risk_per_trade_pct=float(os.environ.get("TECH_SWING_RISK_PER_TRADE_PCT", "0.02")),
+            swing_risk_per_trade_pct=float(os.environ.get("TECH_SWING_RISK_PER_TRADE_PCT", "0.15")),
             swing_daily_loss_cap_pct=float(os.environ.get("TECH_SWING_DAILY_LOSS_CAP_PCT", "0.05")),
             swing_min_volume=int(os.environ.get("TECH_SWING_MIN_VOLUME", "500000")),
             swing_sma_fast=int(os.environ.get("TECH_SWING_SMA_FAST", "50")),
