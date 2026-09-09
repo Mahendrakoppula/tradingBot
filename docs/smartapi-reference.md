@@ -437,7 +437,7 @@ FULL mode fields: `exchange`, `tradingSymbol`, `symbolToken`, `ltp`, `open`, `hi
 OHLC mode: `exchange`, `tradingSymbol`, `symbolToken`, `ltp`, `open`, `high`, `low`, `close`.
 LTP mode: `exchange`, `tradingSymbol`, `symbolToken`, `ltp`.
 `unfetched[]` items: `{ exchange, symbolToken, message, errorCode }` (e.g. `AB4018` "Symbol token cannot be empty").
-`exchange` enum for this API: NSE, NFO, BSE, MCX, CDS, NCDEX.
+`exchange` enum for this API: NSE, NFO, BSE, MCX, CDS, NCDEX. **This list is incomplete** - verified live 2026-09-09, `BFO` (BSE F&O, e.g. SENSEX options) works fine on this endpoint (FULL mode, real depth/OI/volume returned) despite not being listed here.
 
 ## Option Greeks
 
@@ -666,6 +666,8 @@ Array of objects: `{ "token", "symbol", "name", "expiry", "strike", "lotsize", "
 This is the master file to resolve `tradingsymbol` ↔ `symboltoken` ↔ `exch_seg` for all REST/WebSocket calls — download and cache/refresh daily.
 
 **Verified against a live download (2026-09-07), correcting this doc page's own text:** `exch_seg` is a plain exchange code — `NSE`, `NFO`, `BSE`, `BFO`, `MCX`, `CDS`, `NCDEX`, `NCO` — NOT the "nse_cm"/"nse_fo" naming (that belongs to the WebSocket `exchangeType` field only, see WebSocket Streaming 2.0 above). `strike` is the actual strike price × 100. `freeze_qty` is present per row — NSE's per-order max quantity for that contract; larger orders must be split. Index spot instruments (for LTP lookups) have `instrumenttype: "AMXIDX"`, e.g. NIFTY → token `99926000`, BANKNIFTY → token `99926009`, both `exch_seg: "NSE"`. Equity spot rows have `instrumenttype: ""` with tradingsymbol ending `-EQ`. Options: `instrumenttype` is `OPTIDX` (index) or `OPTSTK` (stock), `exch_seg` is `NFO`/`BFO`, `expiry` format is `DDMMMYYYY` (e.g. `08SEP2026`), tradingsymbol ends `CE`/`PE`. As of this date, NIFTY has weekly expiries; BANKNIFTY and stock options are monthly only.
+
+**SENSEX verified live 2026-09-09** (a BSE index, not NSE): spot is `instrumenttype: "AMXIDX"`, `exch_seg: "BSE"`, token `99919000` - a different exchange from every other index checked so far. Its options are `exch_seg: "BFO"` (not `NFO`), `instrumenttype: "OPTIDX"`, lotsize `20`, freeze_qty `1000`, and - unlike BANKNIFTY/stocks - **SENSEX has weekly expiries** (confirmed: 2026-09-10, 09-17, 09-24, 10-01, 10-08 all listed simultaneously), closer to NIFTY's cadence than BANKNIFTY's monthly-only one.
 
 CSV-flavored column doc (same data, alt framing): `exchange_token`, `tradingsymbol`, `name`, `expiry`, `strike`, `tick_size`, `lot_size`, `instrument_type` (EQ, FUT, CE, PE).
 

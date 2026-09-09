@@ -34,7 +34,7 @@ class TechnicalConfig:
     # before ever setting TECH_DRY_RUN=false. History: 0.10 (initial) ->
     # 0.20 (first live-verified fix, same day) -> 0.30 (this).
     max_capital_pct_per_trade: float = 0.30
-    max_lots_per_trade: int = 5
+    max_lots_per_trade: int = 1  # 5 -> 1 2026-09-09 evening, user's explicit instruction - start conservative on size per trade
     max_spread_pct: float = 8.0
     min_open_interest: int = 100
     limit_order_buffer_pct: float = 0.5
@@ -74,7 +74,7 @@ class TechnicalConfig:
     atr_target_scale_max: float = 1.8
 
     # --- scalp tier (1-min, EMA9/21 x VWAP x volume) ---
-    scalp_watchlist: tuple[str, ...] = ("NIFTY", "BANKNIFTY", "RELIANCE", "TCS", "HDFCBANK", "ICICIBANK", "INFY", "SBIN")
+    scalp_watchlist: tuple[str, ...] = ("NIFTY", "BANKNIFTY", "SENSEX", "RELIANCE", "TCS", "HDFCBANK", "ICICIBANK", "INFY", "SBIN")
     scalp_risk_per_trade_pct: float = 0.30  # 0.02 -> 0.15 -> 0.30 2026-09-09, see max_capital_pct_per_trade's comment
     scalp_daily_loss_cap_pct: float = 0.05
     scalp_ema_fast: int = 9
@@ -86,7 +86,7 @@ class TechnicalConfig:
     scalp_poll_seconds: int = 60  # a fresh 1-min bar every ~60s
 
     # --- intraday tier (5-min, EMA20/50 or pivot breakout) ---
-    intraday_watchlist: tuple[str, ...] = ("NIFTY", "BANKNIFTY", "RELIANCE", "TCS", "HDFCBANK", "ICICIBANK", "INFY",
+    intraday_watchlist: tuple[str, ...] = ("NIFTY", "BANKNIFTY", "SENSEX", "RELIANCE", "TCS", "HDFCBANK", "ICICIBANK", "INFY",
                                             "SBIN", "ITC", "LT", "AXISBANK", "KOTAKBANK", "BHARTIARTL", "TATASTEEL", "MARUTI")
     intraday_risk_per_trade_pct: float = 0.30  # 0.02 -> 0.15 -> 0.30 2026-09-09, see max_capital_pct_per_trade's comment
     intraday_daily_loss_cap_pct: float = 0.05
@@ -125,7 +125,7 @@ class TechnicalConfig:
     swing_max_equity_positions: int = 10
     swing_index_dte_min: int = 20
     swing_index_dte_max: int = 60  # wide, expiry-safe window - explicitly NOT futures (see plan decision #1)
-    swing_watchlist_indices: tuple[str, ...] = ("NIFTY", "BANKNIFTY")
+    swing_watchlist_indices: tuple[str, ...] = ("NIFTY", "BANKNIFTY", "SENSEX")
 
     @classmethod
     def from_env(cls) -> "TechnicalConfig":
@@ -140,7 +140,7 @@ class TechnicalConfig:
             entry_time=os.environ.get("TECH_ENTRY_TIME", "09:20"),
             exit_time=os.environ.get("TECH_EXIT_TIME", "15:15"),
             max_capital_pct_per_trade=float(os.environ.get("TECH_MAX_CAPITAL_PCT_PER_TRADE", "0.30")),
-            max_lots_per_trade=int(os.environ.get("TECH_MAX_LOTS_PER_TRADE", "5")),
+            max_lots_per_trade=int(os.environ.get("TECH_MAX_LOTS_PER_TRADE", "1")),
             max_spread_pct=float(os.environ.get("TECH_MAX_SPREAD_PCT", "8.0")),
             min_open_interest=int(os.environ.get("TECH_MIN_OPEN_INTEREST", "100")),
             limit_order_buffer_pct=float(os.environ.get("TECH_LIMIT_ORDER_BUFFER_PCT", "0.5")),
@@ -159,7 +159,7 @@ class TechnicalConfig:
             atr_stop_scale_max=float(os.environ.get("TECH_ATR_STOP_SCALE_MAX", "1.5")),
             atr_target_scale_min=float(os.environ.get("TECH_ATR_TARGET_SCALE_MIN", "1.0")),
             atr_target_scale_max=float(os.environ.get("TECH_ATR_TARGET_SCALE_MAX", "1.8")),
-            scalp_watchlist=_tuple("TECH_SCALP_WATCHLIST", "NIFTY,BANKNIFTY,RELIANCE,TCS,HDFCBANK,ICICIBANK,INFY,SBIN"),
+            scalp_watchlist=_tuple("TECH_SCALP_WATCHLIST", "NIFTY,BANKNIFTY,SENSEX,RELIANCE,TCS,HDFCBANK,ICICIBANK,INFY,SBIN"),
             scalp_risk_per_trade_pct=float(os.environ.get("TECH_SCALP_RISK_PER_TRADE_PCT", "0.30")),
             scalp_daily_loss_cap_pct=float(os.environ.get("TECH_SCALP_DAILY_LOSS_CAP_PCT", "0.05")),
             scalp_ema_fast=int(os.environ.get("TECH_SCALP_EMA_FAST", "9")),
@@ -171,7 +171,7 @@ class TechnicalConfig:
             scalp_poll_seconds=int(os.environ.get("TECH_SCALP_POLL_SECONDS", "60")),
             intraday_watchlist=_tuple(
                 "TECH_INTRADAY_WATCHLIST",
-                "NIFTY,BANKNIFTY,RELIANCE,TCS,HDFCBANK,ICICIBANK,INFY,SBIN,ITC,LT,AXISBANK,KOTAKBANK,BHARTIARTL,TATASTEEL,MARUTI",
+                "NIFTY,BANKNIFTY,SENSEX,RELIANCE,TCS,HDFCBANK,ICICIBANK,INFY,SBIN,ITC,LT,AXISBANK,KOTAKBANK,BHARTIARTL,TATASTEEL,MARUTI",
             ),
             intraday_risk_per_trade_pct=float(os.environ.get("TECH_INTRADAY_RISK_PER_TRADE_PCT", "0.30")),
             intraday_daily_loss_cap_pct=float(os.environ.get("TECH_INTRADAY_DAILY_LOSS_CAP_PCT", "0.05")),
@@ -198,5 +198,5 @@ class TechnicalConfig:
             swing_max_equity_positions=int(os.environ.get("TECH_SWING_MAX_EQUITY_POSITIONS", "10")),
             swing_index_dte_min=int(os.environ.get("TECH_SWING_INDEX_DTE_MIN", "20")),
             swing_index_dte_max=int(os.environ.get("TECH_SWING_INDEX_DTE_MAX", "60")),
-            swing_watchlist_indices=_tuple("TECH_SWING_WATCHLIST_INDICES", "NIFTY,BANKNIFTY"),
+            swing_watchlist_indices=_tuple("TECH_SWING_WATCHLIST_INDICES", "NIFTY,BANKNIFTY,SENSEX"),
         )

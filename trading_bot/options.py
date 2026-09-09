@@ -74,6 +74,9 @@ class OptionChain:
         return min(candidates, key=lambda c: abs(c.strike - target_strike))
 
 
+INDEX_EXCHANGES = ("NSE", "BSE")  # tried in order - most indices are NSE, SENSEX is BSE
+
+
 def find_spot_instrument(instruments: list[dict], underlying: str) -> dict:
     """Resolves an underlying name to its spot-price instrument (index or equity).
 
@@ -81,15 +84,20 @@ def find_spot_instrument(instruments: list[dict], underlying: str) -> dict:
     - Index: instrumenttype "AMXIDX" (e.g. NIFTY -> token 99926000, exch_seg NSE;
       BANKNIFTY -> token 99926009).
     - Equity: instrumenttype "" with tradingsymbol "<NAME>-EQ" on exch_seg NSE.
+
+    Also checks BSE for the index case (verified live 2026-09-09: SENSEX is
+    "AMXIDX" on exch_seg BSE, not NSE, token 99919000) - equity spot lookup
+    stays NSE-only, no BSE equity underlyings are traded by this bot.
     """
     underlying = underlying.upper()
-    for row in instruments:
-        if (
-            str(row.get("name", "")).upper() == underlying
-            and row.get("instrumenttype") == "AMXIDX"
-            and row.get("exch_seg") == "NSE"
-        ):
-            return row
+    for exch_seg in INDEX_EXCHANGES:
+        for row in instruments:
+            if (
+                str(row.get("name", "")).upper() == underlying
+                and row.get("instrumenttype") == "AMXIDX"
+                and row.get("exch_seg") == exch_seg
+            ):
+                return row
     for row in instruments:
         if (
             str(row.get("name", "")).upper() == underlying

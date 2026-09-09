@@ -134,6 +134,16 @@ def _direction_from_option_type(option_type: str) -> str:
     return "long" if option_type == "CE" else "short"
 
 
+def _options_exchange_for(spot_row: dict) -> str:
+    """The F&O segment an underlying's options trade on, derived from its
+    spot instrument's own exchange - BSE indices (SENSEX) trade options on
+    BFO, everything else (NSE indices/stocks) on NFO. Live-verified
+    2026-09-09: SENSEX is exch_seg BSE for its spot AMXIDX row and BFO for
+    its OPTIDX rows, same NSE-exch_seg-implies-NFO-options pattern already
+    used for NIFTY/BANKNIFTY/stocks."""
+    return "BFO" if spot_row.get("exch_seg") == "BSE" else "NFO"
+
+
 def _atr_scaling_kwargs(cfg: TechnicalConfig) -> dict:
     """Scenario-adjustment knobs for atr_stop_target(), shared by every tier's entry."""
     return {
@@ -246,7 +256,7 @@ def _maybe_scalp_enter(cfg: TechnicalConfig, rest: RestClient, instruments: Inst
         return
     stop_price, target_price, atr_value = atr_result
 
-    chain = OptionChain(instruments.instruments, underlying, exchange="NFO")
+    chain = OptionChain(instruments.instruments, underlying, exchange=_options_exchange_for(spot_row))
     expiry = chain.nearest_expiry_within(today, cfg.dte_min, cfg.dte_max)
     if expiry is None:
         log.info("TECH SCALP %s: no expiry within DTE window [%d, %d]", underlying, cfg.dte_min, cfg.dte_max)
@@ -303,7 +313,7 @@ def _maybe_intraday_enter(cfg: TechnicalConfig, rest: RestClient, instruments: I
         return
     stop_price, target_price, atr_value = atr_result
 
-    chain = OptionChain(instruments.instruments, underlying, exchange="NFO")
+    chain = OptionChain(instruments.instruments, underlying, exchange=_options_exchange_for(spot_row))
     expiry = chain.nearest_expiry_within(today, cfg.dte_min, cfg.dte_max)
     if expiry is None:
         log.info("TECH INTRADAY %s: no expiry within DTE window [%d, %d]", underlying, cfg.dte_min, cfg.dte_max)
@@ -356,7 +366,7 @@ def _maybe_swing_index_enter(cfg: TechnicalConfig, rest: RestClient, instruments
         return
     stop_price, target_price, atr_value = atr_result
 
-    chain = OptionChain(instruments.instruments, underlying, exchange="NFO")
+    chain = OptionChain(instruments.instruments, underlying, exchange=_options_exchange_for(spot_row))
     expiry = chain.nearest_expiry_within(today, cfg.swing_index_dte_min, cfg.swing_index_dte_max)
     if expiry is None:
         log.info("TECH SWING %s: no expiry within wide DTE window [%d, %d]", underlying, cfg.swing_index_dte_min, cfg.swing_index_dte_max)
