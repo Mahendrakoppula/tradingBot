@@ -21,9 +21,10 @@ in its 12-month Free Tier window.
 
 ## 1. Set up Telegram alerts
 
-Two separate bots recommended: one for routine activity (entries, exits,
-morning briefing), one dedicated to error alerts so real problems don't get
-lost in the noise.
+Three separate bots recommended: one for the daily bot's routine activity
+(entries, exits, morning briefing), one dedicated to its error alerts so
+real problems don't get lost in the noise, and one for the second
+(technical-indicator) bot's alerts - both routine and error, one channel.
 
 1. Message [@BotFather](https://t.me/BotFather) on Telegram, send `/newbot`,
    follow the prompts, for each bot. You get a **bot token**
@@ -32,19 +33,22 @@ lost in the noise.
 3. Get each **chat ID**: visit
    `https://api.telegram.org/bot<TOKEN>/getUpdates` in a browser right after
    step 2 - look for `"chat":{"id":...}` in the JSON.
-4. Put all four values in `.env`: `TELEGRAM_BOT_TOKEN`/`TELEGRAM_CHAT_ID`
-   (activity) and `ERROR_TELEGRAM_BOT_TOKEN`/`ERROR_TELEGRAM_CHAT_ID`
-   (errors).
+4. Put all six values in `.env`: `TELEGRAM_BOT_TOKEN`/`TELEGRAM_CHAT_ID`
+   (daily bot activity), `ERROR_TELEGRAM_BOT_TOKEN`/`ERROR_TELEGRAM_CHAT_ID`
+   (daily bot errors), `TECH_TELEGRAM_BOT_TOKEN`/`TECH_TELEGRAM_CHAT_ID`
+   (second bot, everything).
 
 ## 2. Fill in real credentials locally
 
 Copy `.env.example` to `.env` in the repo root and fill in everything:
-SmartAPI key/client code/PIN/TOTP secret, both Telegram bot pairs. This file
-is gitignored and never leaves your machine except via the SSM push below.
+SmartAPI key/client code/PIN/TOTP secret, all three Telegram bot pairs. This
+file is gitignored and never leaves your machine except via the SSM push
+below.
 
-Also decide now: keep `DRY_RUN=true` and `ENABLE_TRADING=false` (in
-`deploy/config.env`, not `.env` - see below) for a while before flipping
-either. Nothing places a real order until both are set.
+Also decide now: keep `DRY_RUN=true`/`TECH_DRY_RUN=true` and
+`ENABLE_TRADING=false`/`TECH_ENABLE_TRADING=false` (in `deploy/config.env`,
+not `.env` - see below) for a while before flipping either pair. Nothing
+places a real order until both of a pair are set.
 
 ## 3. One-time AWS setup
 
@@ -73,7 +77,13 @@ cd deploy/.tmp && python push_secrets_to_ssm.py
 ```
 
 (That script reads `../../.env` and pushes each `SMARTAPI_*`/`TELEGRAM_*`/
-`ERROR_TELEGRAM_*` key as a `SecureString` parameter under `/trading-bot/`.)
+`ERROR_TELEGRAM_*`/`TECH_TELEGRAM_*` key as a `SecureString` parameter under
+`/trading-bot/`. It's local-only/gitignored, not tracked in the repo -
+re-run it after adding/rotating any secret in `.env`. Needs AWS credentials
+with `ssm:PutParameter` on `/trading-bot/*` - the scoped
+`trading-bot-deployer` IAM user does NOT have this by design (least
+privilege: it can provision infrastructure but not read/write runtime
+secrets), so run this step with different/broader credentials.)
 
 ## 4. Verify it's running
 
@@ -82,12 +92,18 @@ No SSH needed - use SSM Session Manager:
 ```
 aws ssm start-session --target <INSTANCE_ID>
 sudo journalctl -u trading-bot -f
+sudo journalctl -u trading-bot-technical -f   # second bot, separate unit/log
 ```
 
-You should get a Telegram message when the service starts, followed by the
-morning briefing. If nothing shows up:
-- `sudo systemctl status trading-bot-bootstrap` (did secret-fetching work?)
-- `sudo systemctl status trading-bot` (did the main service start?)
+You should get a Telegram message when each service starts (daily bot's own
+chat; second bot's separate chat), followed by the daily bot's morning
+briefing. If nothing shows up:
+- `sudo systemctl status trading-bot-bootstrap` (did secret-fetching work? -
+  shared by both bots, since they read the same `/opt/trading-bot/.env`)
+- `sudo systemctl status trading-bot` (did the daily bot start?)
+- `sudo systemctl status trading-bot-technical` (did the second bot start? -
+  `TECH_ENABLE_TRADING=false` at first deploy on purpose, see config.env's
+  own comment - flip it once this looks healthy)
 - `sudo cat /var/log/cloud-init-output.log` (first-boot provisioning log,
   only relevant right after the very first launch)
 

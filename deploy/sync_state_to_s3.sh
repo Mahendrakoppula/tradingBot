@@ -8,11 +8,12 @@
 # store - see research/README.md for what this data is for.
 #
 # Syncs everything EXCEPT the current-state files (capital.json,
-# long_positions.json, scalp_positions.json - these get overwritten in
-# place, not accumulated, so they're not useful in a growing archive) -
-# an exclude-list rather than an extension allowlist so any new log
-# category added later (like candle_log/*.json) is backed up automatically
-# without needing to remember to update this script too.
+# long_positions.json, scalp_positions.json, and the second bot's
+# technical_*.json equivalents - these get overwritten in place, not
+# accumulated, so they're not useful in a growing archive) - an
+# exclude-list rather than an extension allowlist so any new log category
+# added later (like candle_log/*.json) is backed up automatically without
+# needing to remember to update this script too.
 set -euo pipefail
 
 APP_DIR="/opt/trading-bot"
@@ -24,4 +25,7 @@ DEPLOY_BUCKET="${DEPLOY_BUCKET:-trading-bot-deploy-396913392704}"
 
 aws s3 sync "$APP_DIR/.state/" "s3://${DEPLOY_BUCKET}/trading-bot/historical/" \
   --exclude "capital.json" --exclude "long_positions.json" --exclude "scalp_positions.json" \
+  --exclude "technical_capital.json" --exclude "technical_scalp_positions.json" \
+  --exclude "technical_intraday_positions.json" --exclude "technical_swing_option_positions.json" \
+  --exclude "technical_swing_equity_positions.json" \
   --only-show-errors

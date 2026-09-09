@@ -38,10 +38,16 @@ chown -R tradingbot:tradingbot /opt/trading-bot
 
 cp /opt/trading-bot/deploy/trading-bot-bootstrap.service /etc/systemd/system/trading-bot-bootstrap.service
 cp /opt/trading-bot/deploy/trading-bot.service /etc/systemd/system/trading-bot.service
+cp /opt/trading-bot/deploy/trading-bot-technical.service /etc/systemd/system/trading-bot-technical.service
 cp /opt/trading-bot/deploy/trading-bot-s3-sync.service /etc/systemd/system/trading-bot-s3-sync.service
 cp /opt/trading-bot/deploy/trading-bot-s3-sync.timer /etc/systemd/system/trading-bot-s3-sync.timer
 systemctl daemon-reload
-# Requires=/Before= on trading-bot.service pulls the bootstrap service in
-# automatically on every start - no need to separately enable it.
+# Requires=/Before= on trading-bot.service (and trading-bot-technical.service,
+# same dependency) pulls the bootstrap service in automatically on every
+# start - no need to separately enable it.
 systemctl enable --now trading-bot.service
+# Second, independent bot - same account/session, own capital/kill switches
+# (see deploy/config.env's TECH_* block). TECH_ENABLE_TRADING=false by
+# default there for a first deploy, so this starts safely dry-run-only.
+systemctl enable --now trading-bot-technical.service
 systemctl enable --now trading-bot-s3-sync.timer

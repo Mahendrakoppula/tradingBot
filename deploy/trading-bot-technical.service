@@ -1,0 +1,21 @@
+[Unit]
+Description=SmartAPI technical-indicator trading bot (second, independent strategy)
+After=network-online.target trading-bot-bootstrap.service
+Wants=network-online.target
+Requires=trading-bot-bootstrap.service
+
+[Service]
+Type=simple
+User=tradingbot
+Group=tradingbot
+WorkingDirectory=/opt/trading-bot
+EnvironmentFile=/opt/trading-bot/.env
+ExecStart=/opt/trading-bot/.venv/bin/python -m trading_bot.run_technical
+Restart=on-failure
+RestartSec=60
+# systemd sends SIGTERM on stop (including when EventBridge stops the EC2
+# instance) - run_technical.py handles that the same as Ctrl+C (SIGINT).
+TimeoutStopSec=30
+
+[Install]
+WantedBy=multi-user.target

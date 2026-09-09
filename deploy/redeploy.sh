@@ -20,6 +20,7 @@ COMMAND_ID=$(aws ssm send-command \
   --comment "trading-bot redeploy" \
   --parameters "commands=[
     'systemctl stop trading-bot.service',
+    'systemctl stop trading-bot-technical.service || true',
     'aws s3 cp s3://${DEPLOY_BUCKET}/trading-bot/app.zip /opt/trading-bot/app.zip',
     'unzip -oq /opt/trading-bot/app.zip -d /opt/trading-bot',
     'rm -f /opt/trading-bot/app.zip',
@@ -28,11 +29,13 @@ COMMAND_ID=$(aws ssm send-command \
     'chown -R tradingbot:tradingbot /opt/trading-bot',
     'cp /opt/trading-bot/deploy/trading-bot-bootstrap.service /etc/systemd/system/trading-bot-bootstrap.service',
     'cp /opt/trading-bot/deploy/trading-bot.service /etc/systemd/system/trading-bot.service',
+    'cp /opt/trading-bot/deploy/trading-bot-technical.service /etc/systemd/system/trading-bot-technical.service',
     'cp /opt/trading-bot/deploy/trading-bot-s3-sync.service /etc/systemd/system/trading-bot-s3-sync.service',
     'cp /opt/trading-bot/deploy/trading-bot-s3-sync.timer /etc/systemd/system/trading-bot-s3-sync.timer',
     'systemctl daemon-reload',
     'systemctl enable --now trading-bot-s3-sync.timer',
-    'systemctl start trading-bot.service'
+    'systemctl start trading-bot.service',
+    'systemctl enable --now trading-bot-technical.service'
   ]" \
   --query "Command.CommandId" --output text)
 
