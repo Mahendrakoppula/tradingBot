@@ -14,6 +14,7 @@ class Trade:
     expiry: dt.date
     stop_price: float  # in SPOT-price terms, not premium terms
     target_price: float
+    entry_regime: str = "UNKNOWN"  # market_state.classifier's regime label at entry - for attribution, see backtesting/attribution.py
     exit_index: int | None = None
     exit_timestamp: object | None = None
     exit_spot: float | None = None

@@ -212,3 +212,50 @@ not as proof of a validated edge**, for several concrete reasons:
 this is what both methods returned, reported together specifically so
 neither the encouraging bootstrap result nor the discouraging
 walk-forward inconsistency gets quietly dropped.
+
+---
+
+## Investigation 001 - Why do specific walk-forward folds lose?
+
+**Date**: 2026-09-11
+**Purpose**: Turn Run 002R's "3/5 folds profitable, high variance"
+observation into a testable, mechanism-level explanation rather than
+leaving it as an unexplained number - using backtesting/attribution.py
+(new: breaks trades down by strategy_name and by entry_regime, which
+Trade now records at entry).
+**Finding**: The LAST fold (bars 996-1240, 2025-09-16 to 2026-09-09) is
+a losing fold on ALL THREE indices, and in every case the loss is
+concentrated almost entirely in `trend_following` trades entered during
+a TRENDING_UP regime classification - 0% win rate on those specific
+trades, all three indices (NIFTY: 5 trades, -932.3; BANKNIFTY: 6
+trades, -2,892.5; SENSEX: 6 trades, -3,141.1).
+**Mechanism, confirmed against the actual price data**: NIFTY rallied
+from ~24,611 to a peak of ~26,203 (Sep-Nov 2025), then reversed sharply
+to ~22,331 by March 2026 (-15% from the peak) before chopping sideways
+for the rest of the fold. Every trend_following CE entry taken during
+that Sep-Nov rally (correctly classified as TRENDING_UP at the time,
+per market_state's own swing-confirmation logic) rode straight into the
+subsequent reversal. This is a well-known, well-documented
+characteristic of trend-following strategies generally, not a bug:
+they profit during sustained trends and lose at trend
+reversals/market tops, by construction - exactly matching the pattern
+in the WINNING folds too, where trend_following's biggest gains
+(BANKNIFTY fold [498:742]: +4,981.4, 55.6% win rate) come from folds
+containing sustained trends, not choppy reversals.
+**Important caveat on independence**: NIFTY/BANKNIFTY/SENSEX move
+together to a substantial degree. This "confirmed across three indices"
+finding is really ONE Indian-market topping event (Nov 2025-Mar 2026)
+observed through three correlated proxies, not three independent
+confirmations - it should be read as one clear example of a
+well-established general phenomenon (trend-following whipsaws at
+reversals), not as fresh statistical proof from three separate data
+points.
+**Deliberately NOT acted on**: no parameter was tuned and no rule was
+added to filter this specific reversal out - doing so now would mean
+fitting a rule to the one topping event visible in this dataset, which
+is p-hacking against a single historical instance dressed up as a
+mechanism. A genuine mitigation (e.g. a trend-exhaustion/momentum-
+divergence filter, or leaning on Model 2's eventual direction-
+probability once it exists) is real future work, but it would need
+validation on a DIFFERENT reversal event than this one to mean anything
+- this dataset only contains one clear example of the phenomenon.

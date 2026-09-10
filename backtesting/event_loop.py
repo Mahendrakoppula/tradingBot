@@ -171,6 +171,7 @@ def run_backtest(df: pd.DataFrame, config: BacktestConfig | None = None) -> Back
             strategy_name=best.strategy_name, direction=best.direction, entry_index=t,
             entry_timestamp=bar["timestamp"], entry_spot=entry_price, entry_premium=entry_snapshot.price,
             strike=strike, expiry=expiry, stop_price=levels.stop_price, target_price=levels.target_price,
+            entry_regime=market_state.regime,
         )
 
     if open_trade is not None:

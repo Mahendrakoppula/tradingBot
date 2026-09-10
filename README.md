@@ -27,6 +27,15 @@ walk-forward still shows only 3/5 time-blocked folds profitable -
 suggestive, not proof of a validated edge). No live trading logic
 exists yet - nothing here is promoted or wired into a live decision.
 
+**Follow-up investigation** (backtesting/attribution.py, BACKTESTS.md's
+Investigation 001): traced the walk-forward inconsistency to a specific,
+mechanistically-understood cause - trend_following losing at a real
+Nov 2025-Mar 2026 market reversal (a well-known trend-following
+characteristic, not a bug), confirmed across all three indices though
+they're correlated enough that this is really one market event, not
+three independent confirmations. Deliberately not "fixed" - doing so
+would mean fitting a rule to the one reversal visible in this dataset.
+
 **Infrastructure**: runs on the SAME shared t3.micro EC2 instance as the
 existing `main`-branch bots (not new/dedicated infra) - as a third,
 independent systemd service (`codex-trading.service`) in its own
