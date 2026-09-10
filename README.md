@@ -107,9 +107,11 @@ models/       (Phase 7, in progress) ML training. Model 1/8 (regime
               tractable. Meta-labeling/calibration (Phase 8) not started
 risk/         (done, ahead of the ML phases since it's rule-based and
               safety-critical) daily P&L selectivity engine, equity-
-              protection capital tiers, risk-based position sizing.
-              Portfolio-level Greek aggregation across instruments still
-              pending a later pass
+              protection capital tiers, risk-based position sizing,
+              dynamic ATR/structure-based stop-loss/target/trailing
+              (EV-based targets and ML-probability trailing explicitly
+              deferred - they need Models 2/6, not built yet). Portfolio-
+              level Greek aggregation across instruments still pending
 execution/    (Phase 17) order execution, reconciliation
 portfolio/    (Phase 11) aggregated Greeks/exposure across instruments
 backtesting/  (Phase 12-13) event-driven backtester, walk-forward/OOS
