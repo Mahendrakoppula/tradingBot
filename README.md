@@ -16,11 +16,13 @@ below. Phase 7: ML models - Model 1/8 (regime classifier) built and
 evaluated against real data; it did NOT beat the naive baseline - see
 models/EXPERIMENTS.md for the honest result and why it wasn't tuned to
 look better. Dynamic ATR/structure stops, portfolio Greek aggregation,
-an execution engine (always simulated), and Phase 12's event-driven
-backtester are all done too - see backtesting/BACKTESTS.md for its
-first, deliberately-not-validated smoke-test result). No live trading
-logic exists yet - nothing here is promoted or wired into a live
-decision.
+an execution engine (always simulated), Phase 12's event-driven
+backtester, and Phase 13's walk-forward validation are all done too -
+see backtesting/BACKTESTS.md: a 5-fold walk-forward across all three
+indices came back inconclusive (3/5 folds profitable, but standard
+deviation of per-fold P&L exceeds the mean in every case - not evidence
+of a validated edge)). No live trading logic exists yet - nothing here
+is promoted or wired into a live decision.
 
 **Infrastructure**: runs on the SAME shared t3.micro EC2 instance as the
 existing `main`-branch bots (not new/dedicated infra) - as a third,
@@ -132,9 +134,13 @@ backtesting/  (Phase 12, done) event-driven backtester - processes bars
               strictly in order, leakage-free (see event_loop.py's
               docstring for its known first-pass simplifications: daily
               bars only, one conceptual unit not lot-sized, fixed 7-day
-              expiry, no costs/slippage). backtesting/BACKTESTS.md logs
-              every run honestly - Phase 13 (walk-forward/OOS/Monte
-              Carlo) not started, so nothing here is validated yet
+              expiry, no costs/slippage). (Phase 13, done) walk-forward
+              validation (walk_forward.py) - non-overlapping, embargoed
+              folds, each an independent backtest. BACKTESTS.md logs
+              every run honestly, including the walk-forward result
+              coming back inconclusive - no confidence-interval/
+              bootstrap/Monte Carlo validation yet, so nothing here is
+              a validated edge
 research/     (Phase 18) autonomous hypothesis generation/validation loop
 dashboard/    (Phase 15) Streamlit
 tests/        test-first, mirrors every module above
