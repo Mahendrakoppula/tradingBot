@@ -1,8 +1,9 @@
 # Codex — Autonomous ML-Driven Index Options Trading System
 
-Status: **Phase 1 of 18** (project scaffolding, config, logging,
-notifications, and the deploy infrastructure to run it). No trading logic
-exists yet.
+Status: **Phase 2 of 18** (Phase 1: project scaffolding, config, logging,
+notifications, deploy infra - done. Phase 2: historical OHLCV data
+pipeline + quality engine for the three in-scope indices - done). No
+trading logic exists yet.
 
 **Infrastructure**: runs on the SAME shared t3.micro EC2 instance as the
 existing `main`-branch bots (not new/dedicated infra) - as a third,
@@ -57,7 +58,9 @@ honestly.
 config/       centralized settings (Pydantic), env-var driven
 monitoring/   structured logging, Telegram notifications, health checks
 app/          entry point(s) - currently a health-check skeleton only
-data/         (Phase 2+) ingestion, storage, quality checks
+data/         (Phase 2, done) SmartAPI historical OHLCV fetch, quality
+              engine, Parquet storage - index spot data only (NIFTY/
+              BANKNIFTY/SENSEX), run manually via `python -m data.pull_history`
 features/     (Phase 4-5) pre-indicator market-state + multi-timeframe features
 market_state/ (Phase 4) regime/structure classification
 strategies/   (Phase 7) strategy portfolio, eligibility-by-regime
