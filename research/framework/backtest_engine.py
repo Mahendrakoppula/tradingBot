@@ -57,6 +57,7 @@ from dataclasses import dataclass, field
 from research.framework import risk as risk_mod
 from research.framework import strategies as strat
 from research.framework import mtf as mtf_mod
+from research.framework import relative_strength as rs_mod
 from research.framework.market_structure import find_structure_events
 from research.framework.regime import Regime, classify_regime
 from research.framework.scoring import ScoreWeights, ScoringInputs
@@ -101,6 +102,18 @@ class BacktestConfig:
     trailing_atr_mult: float = 3.0
     require_mtf_confirmation: bool = False  # entry only allowed if the higher-timeframe regime agrees with the candidate direction
     mtf_unit: str = "week"  # "week" | "month", passed to mtf.resample_daily
+
+    # --- cross-sectional relative-strength gate, added 2026-09-10 at the
+    # user's request for a "fundamentally different entry filter" - a
+    # genuinely different signal class from everything above (all of which
+    # judge an instrument against only its OWN history): requires the
+    # instrument to be outperforming (for "up") or underperforming (for
+    # "down") a benchmark over relative_strength_lookback bars. OFF by
+    # default; requires the caller to pass benchmark_candles (this engine
+    # never fetches data itself) - see research/framework/relative_strength.py.
+    require_relative_strength_confirmation: bool = False
+    relative_strength_lookback: int = 60
+    benchmark_candles: list = None  # list[dict], same shape as `candles` passed to simulate()
 
 
 @dataclass
@@ -277,6 +290,13 @@ def simulate(
         htf_candles = mtf_mod.resample_daily(candles, config.mtf_unit)
         htf_ctx = mtf_mod.aligned_view(htf_candles, candles)
 
+    excess_return_line = None
+    if config.require_relative_strength_confirmation:
+        if not config.benchmark_candles:
+            raise ValueError("require_relative_strength_confirmation=True needs BacktestConfig.benchmark_candles set")
+        aligned_benchmark = rs_mod.align_benchmark_closes(candles, config.benchmark_candles)
+        excess_return_line = rs_mod.excess_return_line(candles, aligned_benchmark, config.relative_strength_lookback)
+
     capital = config.starting_capital
     peak_capital = capital
     portfolio_state = risk_mod.PortfolioRiskState(starting_capital=capital, current_capital=capital, peak_capital=capital)
@@ -388,6 +408,21 @@ def simulate(
                     {
                         "strategy": result.strategy, "direction": result.direction, "rejected_because": "mtf_not_confirmed",
                         "htf_trend_direction": htf_regime.trend_direction,
+                    },
+                ))
+                continue
+
+        if config.require_relative_strength_confirmation:
+            excess_return = excess_return_line[i]
+            confirmed = excess_return is not None and (
+                (excess_return > 0) if result.direction == "up" else (excess_return < 0)
+            )
+            if not confirmed:
+                decisions.append(DecisionRecord(
+                    underlying, i, candle.get("date"), "no_trade",
+                    {
+                        "strategy": result.strategy, "direction": result.direction,
+                        "rejected_because": "relative_strength_not_confirmed", "excess_return": excess_return,
                     },
                 ))
                 continue

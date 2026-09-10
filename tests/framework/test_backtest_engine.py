@@ -170,3 +170,47 @@ def test_mtf_confirmation_allows_entries_in_a_real_sustained_uptrend():
     result = simulate(candles, "TEST", "equity_delivery", "trend_following", cfg)
     assert len(result.trades) >= 1
     assert all(t.direction == "up" for t in result.trades)
+
+
+# --- cross-sectional relative-strength confirmation (2026-09-10, added at
+# the user's request for a "fundamentally different entry filter" - unlike
+# everything else in this engine, this compares the instrument against a
+# BENCHMARK, not just its own history) ---
+
+def test_relative_strength_confirmation_requires_benchmark_candles():
+    candles = _choppy_then_trend_candles()
+    cfg = BacktestConfig(min_history_bars=60, lot_size=1, require_relative_strength_confirmation=True)
+    try:
+        simulate(candles, "TEST", "equity_delivery", "trend_following", cfg)
+        assert False, "expected ValueError"
+    except ValueError:
+        pass
+
+
+def test_relative_strength_confirmation_allows_a_stock_beating_a_flat_benchmark():
+    candles = _choppy_then_trend_candles()
+    flat_benchmark = [_candle(c["date"], 100.0, 100.5, 99.5, 100.0) for c in candles]
+    cfg = BacktestConfig(
+        min_history_bars=60, lot_size=1, relative_strength_lookback=10,
+        require_relative_strength_confirmation=True, benchmark_candles=flat_benchmark,
+    )
+    result = simulate(candles, "TEST", "equity_delivery", "trend_following", cfg)
+    assert len(result.trades) >= 1
+
+
+def test_relative_strength_confirmation_blocks_a_stock_lagging_a_stronger_benchmark():
+    # A benchmark rising even FASTER than the stock's own uptrend - the
+    # stock is up in absolute terms but LAGGING the benchmark, so a
+    # relative-strength gate should refuse the "up" signal.
+    candles = _choppy_then_trend_candles()
+    strong_benchmark = []
+    price = 100.0
+    for c in candles:
+        price *= 1.02
+        strong_benchmark.append(_candle(c["date"], price, price + 1, price - 1, price))
+    cfg = BacktestConfig(
+        min_history_bars=60, lot_size=1, relative_strength_lookback=10,
+        require_relative_strength_confirmation=True, benchmark_candles=strong_benchmark,
+    )
+    result = simulate(candles, "TEST", "equity_delivery", "trend_following", cfg)
+    assert any(d.detail.get("rejected_because") == "relative_strength_not_confirmed" for d in result.decisions)
