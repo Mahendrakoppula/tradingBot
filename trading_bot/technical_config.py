@@ -101,6 +101,18 @@ class TechnicalConfig:
     scalp_stop_rupees_per_lot: float = 600.0
     scalp_target_rupees_per_lot: float = 700.0
 
+    # --- relative-strength gate (scalp + intraday), added 2026-09-10 -
+    # adapted from research/framework/relative_strength.py's walk-forward
+    # validated finding. NIFTY is the benchmark for BANKNIFTY/SENSEX
+    # signals (index-rotation framing); NIFTY's own signals pass through
+    # ungated (no natural benchmark for the benchmark itself) - see
+    # technical_strategy.relative_strength_confirmed. `require_relative_strength`
+    # is a legitimate de-risking lever for the nightly review agent to flip
+    # to False (fewer trades) - never back to True unattended, per
+    # deploy/daily_review_prompt.md's reduction-only rule.
+    require_relative_strength: bool = True
+    relative_strength_lookback_bars: int = 20
+
     # --- intraday tier (5-min, EMA20/50 or pivot breakout) ---
     # Index-only as of 2026-09-09 evening, same reasoning as scalp above.
     intraday_watchlist: tuple[str, ...] = ("NIFTY", "BANKNIFTY", "SENSEX")
@@ -221,6 +233,8 @@ class TechnicalConfig:
             scalp_poll_seconds=int(os.environ.get("TECH_SCALP_POLL_SECONDS", "60")),
             scalp_stop_rupees_per_lot=float(os.environ.get("TECH_SCALP_STOP_RUPEES_PER_LOT", "600.0")),
             scalp_target_rupees_per_lot=float(os.environ.get("TECH_SCALP_TARGET_RUPEES_PER_LOT", "700.0")),
+            require_relative_strength=os.environ.get("TECH_REQUIRE_RELATIVE_STRENGTH", "true").lower() != "false",
+            relative_strength_lookback_bars=int(os.environ.get("TECH_RELATIVE_STRENGTH_LOOKBACK_BARS", "20")),
             intraday_watchlist=_tuple("TECH_INTRADAY_WATCHLIST", "NIFTY,BANKNIFTY,SENSEX"),
             intraday_risk_per_trade_pct=float(os.environ.get("TECH_INTRADAY_RISK_PER_TRADE_PCT", "0.30")),
             intraday_daily_loss_cap_pct=float(os.environ.get("TECH_INTRADAY_DAILY_LOSS_CAP_PCT", "0.05")),

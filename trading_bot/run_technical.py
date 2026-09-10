@@ -41,6 +41,7 @@ from trading_bot.technical_strategy import (
     candles_from_rows,
     intraday_signal,
     premium_stop_target,
+    relative_strength_confirmed,
     scalp_signal,
     stop_breached,
     swing_should_exit,
@@ -266,6 +267,33 @@ def _settle_close(exit_fn, rest: RestClient, leg: state_mod.LegFill, risk: Daily
 # --- scalp tier -----------------------------------------------------------
 
 
+RELATIVE_STRENGTH_BENCHMARK = "NIFTY"  # index-rotation framing - "is this index leading or lagging the broader market"
+
+
+def _relative_strength_ok(cfg: TechnicalConfig, rest: RestClient, instruments: InstrumentLookup, candle_cache: dict,
+                           poll_seconds: int, interval: str, today: dt.date, underlying: str, direction: str,
+                           own_candles: list[dict]) -> bool:
+    """Gates a BANKNIFTY/SENSEX signal on relative strength vs NIFTY (the
+    benchmark) - see technical_strategy.relative_strength_confirmed's own
+    docstring for the validated idea this adapts. NIFTY's own signals are
+    exempt (no natural benchmark for the benchmark itself). Reuses the
+    SAME per-tier candle_cache/interval/poll_seconds the caller already
+    uses for its own candles, so when NIFTY is itself in the watchlist
+    (it always is, currently) this adds no extra API calls - NIFTY's
+    benchmark fetch here and its own entry-check fetch share one cache
+    entry keyed by "NIFTY"."""
+    if not cfg.require_relative_strength or underlying == RELATIVE_STRENGTH_BENCHMARK:
+        return True
+    benchmark_row = find_spot_instrument(instruments.instruments, RELATIVE_STRENGTH_BENCHMARK)
+    benchmark_candles = _refresh_candles(
+        candle_cache, RELATIVE_STRENGTH_BENCHMARK, poll_seconds,
+        lambda: _fetch_today_candles(rest, benchmark_row["exch_seg"], benchmark_row["token"], interval, today),
+    )
+    own_closes = [c["close"] for c in own_candles]
+    benchmark_closes = [c["close"] for c in benchmark_candles]
+    return relative_strength_confirmed(direction, own_closes, benchmark_closes, cfg.relative_strength_lookback_bars)
+
+
 def _maybe_scalp_enter(cfg: TechnicalConfig, rest: RestClient, instruments: InstrumentLookup, strategy: LongOptionStrategy,
                         risk: DailyRiskTracker, positions: dict, trade_counts: dict, underlying: str, today: dt.date,
                         candle_cache: dict, journal: dict) -> None:
@@ -276,6 +304,13 @@ def _maybe_scalp_enter(cfg: TechnicalConfig, rest: RestClient, instruments: Inst
     )
     option_type, reason = scalp_signal(candles, cfg.scalp_ema_fast, cfg.scalp_ema_slow, cfg.scalp_avg_volume_period, cfg.scalp_min_relative_volume)
     if option_type is None:
+        return
+    if not _relative_strength_ok(cfg, rest, instruments, candle_cache, cfg.scalp_poll_seconds, "ONE_MINUTE", today,
+                                  underlying, option_type, candles):
+        log.info("TECH SCALP %s: skipping entry - relative strength vs %s not confirmed for %s",
+                  underlying, RELATIVE_STRENGTH_BENCHMARK, option_type)
+        journal["scalp_decisions"].append({"time": now_ist().isoformat(), "underlying": underlying,
+                                            "reason": "relative_strength_not_confirmed", "lots": 0})
         return
     spot = candles[-1]["close"]
 
@@ -327,6 +362,13 @@ def _maybe_intraday_enter(cfg: TechnicalConfig, rest: RestClient, instruments: I
     option_type, reason = intraday_signal(bars, pivots, cfg.intraday_ema_fast, cfg.intraday_ema_slow, cfg.intraday_rsi_period,
                                            cfg.intraday_avg_volume_period, cfg.intraday_min_relative_volume)
     if option_type is None:
+        return
+    if not _relative_strength_ok(cfg, rest, instruments, candle_cache, cfg.intraday_poll_seconds, "FIVE_MINUTE", today,
+                                  underlying, option_type, bars):
+        log.info("TECH INTRADAY %s: skipping entry - relative strength vs %s not confirmed for %s",
+                  underlying, RELATIVE_STRENGTH_BENCHMARK, option_type)
+        journal["intraday_decisions"].append({"time": now_ist().isoformat(), "underlying": underlying,
+                                               "reason": "relative_strength_not_confirmed", "lots": 0})
         return
     spot = bars[-1]["close"]
 

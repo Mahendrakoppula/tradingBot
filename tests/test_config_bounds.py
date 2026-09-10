@@ -88,13 +88,10 @@ NUMERIC_BOUNDS = {
     "TECH_SCALP_DAILY_LOSS_CAP_PCT": (0.005, 0.10),
     "TECH_SCALP_MAX_HOLD_MINUTES": (1, 120),
     "TECH_SCALP_MAX_TRADES_PER_DAY": (1, 20),
-    "TECH_SCALP_STOP_RUPEES_PER_LOT": (100, 3000),
-    "TECH_SCALP_TARGET_RUPEES_PER_LOT": (100, 3000),
+    "TECH_RELATIVE_STRENGTH_LOOKBACK_BARS": (5, 100),
     "TECH_INTRADAY_RISK_PER_TRADE_PCT": (0.005, 0.35),
     "TECH_INTRADAY_DAILY_LOSS_CAP_PCT": (0.005, 0.10),
     "TECH_INTRADAY_MAX_TRADES_PER_DAY": (1, 10),
-    "TECH_INTRADAY_STOP_RUPEES_PER_LOT": (100, 3000),
-    "TECH_INTRADAY_TARGET_RUPEES_PER_LOT": (100, 3000),
     "TECH_SWING_RISK_PER_TRADE_PCT": (0.005, 0.35),
     "TECH_SWING_DAILY_LOSS_CAP_PCT": (0.01, 0.15),
     "TECH_SWING_MIN_VOLUME": (0, 50_000_000),
@@ -127,6 +124,18 @@ PINNED = {
     "TECH_COST_EQUITY_BROKERAGE_PER_ORDER": "0.0",
     "TECH_COST_EQUITY_STT_PCT": "0.1",
     "TECH_COST_EQUITY_STAMP_DUTY_PCT": "0.015",
+    # Moved here from NUMERIC_BOUNDS 2026-09-10: these are the scalp/
+    # intraday exit MECHANISM (see technical_strategy.premium_stop_target),
+    # not a risk-sizing knob - the same class of "signal tuning, not risk
+    # reduction" the daily_review_prompt.md rules already forbid for the
+    # first bot. Retuning these based on a handful of days' P&L is exactly
+    # the overfitting risk that prompt warns against; changing them is a
+    # deliberate human decision informed by real premium-range data (see
+    # today's live replay), not something a nightly agent should touch.
+    "TECH_SCALP_STOP_RUPEES_PER_LOT": "600.0",
+    "TECH_SCALP_TARGET_RUPEES_PER_LOT": "700.0",
+    "TECH_INTRADAY_STOP_RUPEES_PER_LOT": "600.0",
+    "TECH_INTRADAY_TARGET_RUPEES_PER_LOT": "700.0",
 }
 
 REQUIRED_PRESENT = ["ENABLE_TRADING", "WATCHLIST", "ENTRY_TIME", "EXIT_TIME",

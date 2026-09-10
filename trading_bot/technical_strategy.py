@@ -321,3 +321,34 @@ def swing_should_exit(direction: str, broken_level: float, latest_close: float, 
     if direction == "long":
         return latest_close < broken_level * (1 - reclaim_buffer_pct / 100)
     return latest_close > broken_level * (1 + reclaim_buffer_pct / 100)
+
+
+def relative_strength_confirmed(direction: str, own_closes: list[float], benchmark_closes: list[float], lookback: int) -> bool:
+    """Cross-sectional relative-strength gate, adapted from
+    research/framework/relative_strength.py's validated idea (walk-forward
+    tested 2026-09-10 on an unbiased random F&O stock sample: gating
+    breakout entries on this condition nearly quadrupled expectancy versus
+    no gate) to this bot's own intraday bar cadence, rather than that
+    module's daily bars.
+
+    Requires the instrument's own return over the last `lookback` bars to
+    be stronger than the benchmark's return over the same window for a
+    bullish ("CE") signal, or weaker for a bearish ("PE") one - only take
+    a directional signal on an instrument that's genuinely LEADING the
+    market in that direction, not just moving with it.
+
+    Fails closed (returns False) if either series doesn't have enough
+    history yet - a missing benchmark reading should never read as
+    "confirmed"."""
+    if len(own_closes) <= lookback or len(benchmark_closes) <= lookback:
+        return False
+    own_now, own_then = own_closes[-1], own_closes[-1 - lookback]
+    bench_now, bench_then = benchmark_closes[-1], benchmark_closes[-1 - lookback]
+    if own_then == 0 or bench_then == 0:
+        return False
+    excess = (own_now - own_then) / own_then - (bench_now - bench_then) / bench_then
+    if direction == "CE":
+        return excess > 0
+    if direction == "PE":
+        return excess < 0
+    raise ValueError(f"direction must be 'CE' or 'PE', got {direction!r}")

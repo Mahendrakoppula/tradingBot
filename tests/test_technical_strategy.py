@@ -368,3 +368,49 @@ def test_swing_should_exit_long_no_reclaim_yet():
 
 def test_swing_should_exit_short_reclaim_true():
     assert ts.swing_should_exit("short", broken_level=100.0, latest_close=103.0, reclaim_buffer_pct=2.0) is True
+
+
+# --- relative_strength_confirmed ---
+
+
+def test_relative_strength_confirmed_ce_when_outperforming_benchmark():
+    own = [100.0] * 10 + [102.0]  # +2% over the lookback
+    benchmark = [100.0] * 10 + [100.5]  # +0.5% over the same window
+    assert ts.relative_strength_confirmed("CE", own, benchmark, lookback=10) is True
+
+
+def test_relative_strength_confirmed_ce_false_when_lagging_benchmark():
+    own = [100.0] * 10 + [100.5]
+    benchmark = [100.0] * 10 + [102.0]
+    assert ts.relative_strength_confirmed("CE", own, benchmark, lookback=10) is False
+
+
+def test_relative_strength_confirmed_pe_when_underperforming_benchmark():
+    own = [100.0] * 10 + [98.0]  # -2%
+    benchmark = [100.0] * 10 + [99.5]  # -0.5%, own fell further -> PE confirmed
+    assert ts.relative_strength_confirmed("PE", own, benchmark, lookback=10) is True
+
+
+def test_relative_strength_confirmed_pe_false_when_own_falls_less_than_benchmark():
+    own = [100.0] * 10 + [99.5]
+    benchmark = [100.0] * 10 + [98.0]
+    assert ts.relative_strength_confirmed("PE", own, benchmark, lookback=10) is False
+
+
+def test_relative_strength_confirmed_fails_closed_on_insufficient_own_history():
+    own = [100.0] * 5  # only 5 bars, lookback needs > 10
+    benchmark = [100.0] * 20
+    assert ts.relative_strength_confirmed("CE", own, benchmark, lookback=10) is False
+
+
+def test_relative_strength_confirmed_fails_closed_on_insufficient_benchmark_history():
+    own = [100.0] * 20
+    benchmark = [100.0] * 5
+    assert ts.relative_strength_confirmed("CE", own, benchmark, lookback=10) is False
+
+
+def test_relative_strength_confirmed_invalid_direction_raises():
+    own = [100.0] * 20
+    benchmark = [100.0] * 20
+    with pytest.raises(ValueError):
+        ts.relative_strength_confirmed("sideways", own, benchmark, lookback=10)
