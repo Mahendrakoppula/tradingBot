@@ -258,6 +258,25 @@ def trailing_stop_price(direction: str, favorable_extreme: float, atr_value: flo
     return favorable_extreme + trail_mult * atr_value
 
 
+def premium_stop_target(entry_premium: float, lotsize: int, stop_rupees_per_lot: float, target_rupees_per_lot: float) -> tuple[float, float]:
+    """Fixed rupee-per-lot stop/target, converted to a premium level - used
+    by the scalp/intraday tiers INSTEAD of atr_stop_target(). Every position
+    here is a BOUGHT option (CE or PE), so P&L is always
+    (exit_premium - entry_premium) x quantity regardless of option type -
+    there's no CE/PE direction to account for here, unlike the underlying-
+    price convention atr_stop_target() uses. Callers should treat the
+    result as direction "long" when calling stop_breached()/target_reached()
+    (the option's own premium, not the underlying's price).
+
+    A fixed rupee floor makes more sense here than a purely ATR-scaled one:
+    live-verified 2026-09-10, several scalp trades closed with a gross
+    P&L of only Rs.20-50/lot on a calm day - real round-trip transaction
+    costs (see costs.py) can plausibly wipe out or reverse a gain that
+    small, so a "win" needs to clear a real minimum before it's worth
+    calling one."""
+    return entry_premium - stop_rupees_per_lot / lotsize, entry_premium + target_rupees_per_lot / lotsize
+
+
 def stop_breached(direction: str, stop_price: float, current_price: float) -> bool:
     return current_price <= stop_price if direction == "long" else current_price >= stop_price
 

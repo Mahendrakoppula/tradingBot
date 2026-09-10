@@ -13,8 +13,7 @@ def test_technical_scalp_round_trip(tmp_path, monkeypatch):
     pos = state_mod.OpenTechnicalOption(
         underlying="NIFTY", expiry="08SEP2026", entered_at="2026-09-09T09:20:00",
         tier="scalp", signal_reason="golden cross", entry_spot=25000.0,
-        stop_price=24950.0, target_price=25100.0, atr_value=20.0, favorable_extreme=25000.0,
-        trailing_active=False, option=_legfill(), stop_orderid="SL1", target_orderid="TP1",
+        stop_price=24950.0, target_price=25100.0, option=_legfill(), stop_orderid="SL1", target_orderid="TP1",
     )
     state_mod.save_technical_scalp({"NIFTY": pos})
     loaded = state_mod.load_technical_scalp()
@@ -31,8 +30,7 @@ def test_technical_intraday_round_trip(tmp_path, monkeypatch):
     pos = state_mod.OpenTechnicalOption(
         underlying="BANKNIFTY", expiry="30SEP2026", entered_at="2026-09-09T10:00:00",
         tier="intraday", signal_reason="pivot breakout", entry_spot=52000.0,
-        stop_price=51800.0, target_price=52400.0, atr_value=100.0, favorable_extreme=52000.0,
-        trailing_active=False, option=_legfill(),
+        stop_price=51800.0, target_price=52400.0, option=_legfill(),
     )
     state_mod.save_technical_intraday({"BANKNIFTY": pos})
     loaded = state_mod.load_technical_intraday()

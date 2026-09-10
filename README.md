@@ -269,6 +269,8 @@ Fully built and unit-tested, just not capital-appropriate right now.
 - `equity_strategy.py` — `EquityDeliveryStrategy`, NSE CNC delivery
   buy/sell for the swing tier's stock leg
 - `technical_config.py` — env-based config for the second bot (`TECH_*`)
+- `costs.py` — real round-trip transaction cost estimates (brokerage, STT,
+  exchange charges, SEBI fee, stamp duty, GST) for the second bot's realized P&L
 - `run_technical.py` — **the second bot's strategy loop** (see "Second bot" below)
 - `notifier.py` — Telegram push notifications, see "Alerts" above
 - `error_notifier.py` — a SEPARATE Telegram bot/chat dedicated to error
@@ -290,17 +292,54 @@ Fully built and unit-tested, just not capital-appropriate right now.
 A fully independent second bot/process, trading purely on technical
 indicators (EMA/RSI/MACD/VWAP, support/resistance, volume) rather than
 OI-buildup/momentum - see `.claude/plans/goofy-plotting-sedgewick.md` for the
-full design. Three tiers, all sharing one separate `TECH_CAPITAL` pool
-(50k by default, independent of the daily bot's `CAPITAL`):
+full design. **Live in production** since 2026-09-09 (`trading-bot-technical.service`),
+paper trading (`TECH_DRY_RUN=true`) with `TECH_ENABLE_TRADING=true`. Three
+tiers, all sharing one separate `TECH_CAPITAL` pool (50k by default,
+independent of the daily bot's `CAPITAL`):
 
-- **Scalp** - 1-min EMA9/21 x VWAP x volume, options, same-day exit.
+- **Scalp** - 1-min EMA9/21 x VWAP x volume, options, same-day exit. Fixed
+  rupee-per-lot stop/target on the option's own premium (not ATR-based -
+  see below), no trailing stop.
 - **Intraday** - 5-min EMA20/50-or-pivot-breakout x RSI x volume, options,
-  same-day exit.
+  same-day exit. Same fixed rupee-per-lot stop/target mechanism as scalp.
 - **Swing** - daily support/resistance breakout, multi-day trend-reversal
-  exit. Stocks trade real NSE CNC delivery shares (`equity_strategy.py`);
-  the index trades options with a wide DTE window instead (no
-  equity-shorting infra exists, so a "short" swing signal on a stock is
-  simply skipped).
+  exit, ATR-based stop/target/trailing-stop (see below). Stocks trade real
+  NSE CNC delivery shares (`equity_strategy.py`) - **disabled for new
+  entries as of 2026-09-09** (`TECH_SWING_EQUITY_ENABLED=false`, "index
+  options only"; any equity positions already open keep being monitored/
+  exited normally); the index trades options with a wide DTE window
+  instead (no equity-shorting infra exists, so a "short" swing signal on a
+  stock would be skipped anyway even with the leg re-enabled).
+
+**Index-only as of 2026-09-09**: scalp/intraday watchlists are NIFTY,
+BANKNIFTY, SENSEX - no stocks. SENSEX needed real work beyond a watchlist
+edit: it's a BSE index (not NSE like every other underlying here), with
+options on the BFO segment (not NFO) - `options.find_spot_instrument()` now
+checks BSE as well as NSE, and `run_technical._options_exchange_for()`
+derives BFO-vs-NFO from the resolved spot instrument rather than hardcoding
+NFO.
+
+**Stop/target mechanics differ by tier, both first-cut/unbacktested**:
+scalp/intraday use a **fixed rupee-per-lot** stop (`TECH_SCALP_STOP_RUPEES_PER_LOT`
+etc., default Rs.600) and target (default Rs.700) on the option's own
+premium (`technical_strategy.premium_stop_target`) - added 2026-09-09 after
+several scalp trades closed with a gross P&L of only Rs.20-50/lot, too
+small to reliably clear real transaction costs. Swing keeps an ATR-based
+stop/target/trailing-stop (`technical_strategy.atr_stop_target`), scaled by
+volatility regime (stop side) and trend strength (target side) - a
+multi-day hold with a bigger expected move doesn't fit a small fixed
+rupee floor the way scalp/intraday do.
+
+**Real transaction costs** (`costs.py`) are deducted from every realized
+P&L as of 2026-09-09: brokerage, STT, exchange transaction charges, SEBI
+turnover fee, stamp duty, GST - separate rates for F&O options (STT/stamp
+duty on the buy or sell leg only) vs. NSE equity delivery (STT on both
+legs, brokerage defaults to 0 since delivery is commission-free on most
+discount broker plans). **Every rate is a first-cut, publicly-known-
+structure default** (`TECH_COST_*` in `deploy/config.env`), NOT verified
+against the account's actual Angel One brokerage plan or current statutory
+rates - both change periodically. Trade log entries now carry `gross_pnl`/
+`costs`/`realized_pnl` separately for transparency.
 
 Shares the SAME SmartAPI credentials/`api_key` as `run_daily.py` - Angel One
 issues one key per account, not per app (confirmed live) - tolerated via
@@ -309,10 +348,8 @@ issues one key per account, not per app (confirmed live) - tolerated via
 the pure, unit-tested technical-analysis primitives; `technical_strategy.py`
 combines them into each tier's live signal, backed by
 `research/backtest_technical.py`'s validated logic; `stock_screener.py`
-builds the swing tier's F&O-eligible/volume-filtered stock universe.
-`TECH_DRY_RUN=true`/`TECH_ENABLE_TRADING=false` by default, same kill-switch
-convention as the daily bot. Not yet deployed (Phase 3 of the plan above) -
-built and tested locally first.
+builds the (currently disabled) swing-equity leg's F&O-eligible/volume-
+filtered stock universe.
 
 ## Not built yet
 

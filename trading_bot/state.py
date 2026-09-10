@@ -205,12 +205,15 @@ def log_news_sentiment(record: dict) -> None:
 class OpenTechnicalOption:
     """Scalp or intraday tier position - options only, same-day exit,
     mirrors OpenScalpOption's shape. `tier` distinguishes which one so a
-    shared trade_log entry can be filtered later. `entry_spot`/`stop_price`/
-    `target_price`/`favorable_extreme` are all UNDERLYING prices (not the
-    option's premium) - the ATR-based stop/target/trailing (see
-    technical_strategy.atr_stop_target) are defined as a move in the
-    underlying, matching research/backtest_technical.py's own convention,
-    not a move in premium (a different, much more volatile scale).
+    shared trade_log entry can be filtered later. `entry_spot` is the
+    underlying's price at entry, kept for context/display only. `stop_price`/
+    `target_price` are fixed rupee-per-lot levels converted to a PREMIUM
+    price (see technical_strategy.premium_stop_target) - NOT underlying
+    prices, unlike OpenTechnicalSwingOption's ATR-based fields, and not
+    trailed (a hard stop/target, no trailing-stop mechanism for these two
+    fast tiers - see run_technical.py's entry functions for why: a fixed
+    rupee floor matters more here than letting a small win run further,
+    given real transaction costs can erase a tiny gross gain, see costs.py).
     `stop_orderid`/`target_orderid` are the real exchange order ids for the
     broker-side protective orders once TECH_DRY_RUN=false - empty string in
     dry-run (place_order's stub response has no orderid) or before they've
@@ -223,9 +226,6 @@ class OpenTechnicalOption:
     entry_spot: float
     stop_price: float
     target_price: float
-    atr_value: float
-    favorable_extreme: float  # best underlying price seen since entry - trailing-stop anchor
-    trailing_active: bool
     option: LegFill
     stop_orderid: str = ""
     target_orderid: str = ""
