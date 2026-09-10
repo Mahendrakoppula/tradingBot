@@ -93,6 +93,17 @@ def _dry_run_badge(dry_run: bool) -> str:
     return "\U0001F9EA <i>DRY RUN</i>\n" if dry_run else ""
 
 
+def _format_time(iso_str: str) -> str:
+    """HH:MM:SS from an ISO timestamp (entered_at/ledger['updated_at'] are
+    both now_ist().isoformat() strings) - falls back to the raw string if
+    it doesn't parse, so a notification is never lost over a formatting
+    edge case."""
+    try:
+        return dt.datetime.fromisoformat(iso_str).strftime("%H:%M:%S")
+    except (ValueError, TypeError):
+        return iso_str or "unknown"
+
+
 def _entry_message(dry_run: bool, header: str, underlying: str, tradingsymbol: str, qty: int,
                     entry_price: float, cost: float, reason: str) -> str:
     return (
@@ -103,11 +114,12 @@ def _entry_message(dry_run: bool, header: str, underlying: str, tradingsymbol: s
 
 
 def _exit_message(dry_run: bool, header: str, underlying: str, tradingsymbol: str, pnl: float,
-                   capital: float, entry_reason: str, exit_reason: str) -> str:
+                   capital: float, entry_reason: str, exit_reason: str, entry_time: str, exit_time: str) -> str:
     dot = "\U0001F7E2" if pnl >= 0 else "\U0001F534"
     return (
         f"{_dry_run_badge(dry_run)}{dot} <b>{esc(header)} SOLD</b> {esc(underlying)} {esc(tradingsymbol)}\n"
         f"P&amp;L: Rs.{pnl:.2f} | Capital: Rs.{capital:.2f}\n"
+        f"Entry: {esc(_format_time(entry_time))} | Exit: {esc(_format_time(exit_time))}\n"
         f"<i>Entered because:</i> {esc(entry_reason) or 'unknown'}\n"
         f"<i>Exited because:</i> {esc(exit_reason)}"
     )
@@ -247,7 +259,8 @@ def _settle_close(exit_fn, rest: RestClient, leg: state_mod.LegFill, risk: Daily
     log.info("%s %s closed (%s): gross %.2f - costs %.2f = P&L %.2f, capital now Rs.%.2f",
               header, underlying, reason, gross_pnl, cost, pnl, ledger["current_capital"])
     notify(_exit_message(rest.session.cfg.dry_run, header, underlying, leg.tradingsymbol, pnl,
-                          ledger["current_capital"], extra_fields.get("signal_reason", ""), reason), html=True)
+                          ledger["current_capital"], extra_fields.get("signal_reason", ""), reason,
+                          extra_fields.get("entered_at", ""), ledger["updated_at"]), html=True)
 
 
 # --- scalp tier -----------------------------------------------------------
