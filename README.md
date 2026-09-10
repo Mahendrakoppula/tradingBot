@@ -112,7 +112,14 @@ risk/         (done, ahead of the ML phases since it's rule-based and
               (EV-based targets and ML-probability trailing explicitly
               deferred - they need Models 2/6, not built yet). Portfolio-
               level Greek aggregation now in portfolio/, see below
-execution/    (Phase 17) order execution, reconciliation
+execution/    (done, always simulated - see below) order placement +
+              realistic fill confirmation (polls the broker's order
+              book for a terminal status, never assumes LTP=fill or
+              that placing an order means it filled). place_order() is
+              gated in the client itself: only calls the real broker if
+              environment=="live" AND dry_run=False BOTH agree - codex
+              is nowhere near a live go-live gate, so this always
+              simulates today
 portfolio/    (done) aggregated delta/gamma/vega/theta across NIFTY/
               BANKNIFTY/SENSEX positions, with a concentration check so
               a single instrument can't quietly dominate total exposure
