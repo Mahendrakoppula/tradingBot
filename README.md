@@ -15,8 +15,12 @@ equity-protection capital tiers, position sizing) - done, see risk/
 below. Phase 7: ML models - Model 1/8 (regime classifier) built and
 evaluated against real data; it did NOT beat the naive baseline - see
 models/EXPERIMENTS.md for the honest result and why it wasn't tuned to
-look better). No live trading logic exists yet - nothing here is
-promoted or wired into a live decision.
+look better. Dynamic ATR/structure stops, portfolio Greek aggregation,
+an execution engine (always simulated), and Phase 12's event-driven
+backtester are all done too - see backtesting/BACKTESTS.md for its
+first, deliberately-not-validated smoke-test result). No live trading
+logic exists yet - nothing here is promoted or wired into a live
+decision.
 
 **Infrastructure**: runs on the SAME shared t3.micro EC2 instance as the
 existing `main`-branch bots (not new/dedicated infra) - as a third,
@@ -124,7 +128,13 @@ portfolio/    (done) aggregated delta/gamma/vega/theta across NIFTY/
               BANKNIFTY/SENSEX positions, with a concentration check so
               a single instrument can't quietly dominate total exposure
               even while every individual position looks fine
-backtesting/  (Phase 12-13) event-driven backtester, walk-forward/OOS
+backtesting/  (Phase 12, done) event-driven backtester - processes bars
+              strictly in order, leakage-free (see event_loop.py's
+              docstring for its known first-pass simplifications: daily
+              bars only, one conceptual unit not lot-sized, fixed 7-day
+              expiry, no costs/slippage). backtesting/BACKTESTS.md logs
+              every run honestly - Phase 13 (walk-forward/OOS/Monte
+              Carlo) not started, so nothing here is validated yet
 research/     (Phase 18) autonomous hypothesis generation/validation loop
 dashboard/    (Phase 15) Streamlit
 tests/        test-first, mirrors every module above
