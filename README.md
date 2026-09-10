@@ -1,10 +1,12 @@
 # Codex — Autonomous ML-Driven Index Options Trading System
 
-Status: **Phase 4 of 18** (Phase 1: scaffolding/config/logging/
+Status: **Phase 5 of 18** (Phase 1: scaffolding/config/logging/
 notifications/deploy - done. Phase 2: historical OHLCV data pipeline +
 quality engine - done. Phase 3: pre-indicator market-state engine -
-done. Phase 4: multi-timeframe fusion - done). No trading logic exists
-yet.
+done. Phase 4: multi-timeframe fusion - done. Phase 5: theoretical
+options/Greeks engine - done, spot-proxy only, see features/theoretical_options.py
+for the explicit, permanent limitations of this data source). No trading
+logic exists yet.
 
 **Infrastructure**: runs on the SAME shared t3.micro EC2 instance as the
 existing `main`-branch bots (not new/dedicated infra) - as a third,
@@ -64,6 +66,11 @@ data/         (Phase 2, done) SmartAPI historical OHLCV fetch, quality
               BANKNIFTY/SENSEX), run manually via `python -m data.pull_history`
 features/     (Phase 4, done) multi-timeframe fusion (per-timeframe regime
               from market_state/, alignment/conflict scoring across them)
+              (Phase 5, done) theoretical options/Greeks engine - Black-
+              Scholes driven by real spot data + realized-vol proxy, NOT
+              real market IV (SmartAPI has no historical option premium
+              data - see features/theoretical_options.py for the full,
+              permanent limitations of this)
 market_state/ (Phase 3, done) pre-indicator structure/volatility/
               momentum/liquidity classification (no RSI/MACD - see
               spec's own "don't start with indicators" principle)
