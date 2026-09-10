@@ -632,6 +632,39 @@ def _new_journal(today: dt.date, cfg: TechnicalConfig, ledger: dict) -> dict:
     }
 
 
+def _send_eod_trade_summary(cfg: TechnicalConfig, ledger: dict, today: dt.date, journal: dict) -> None:
+    """Deterministic end-of-day ledger (not an agent-generated summary) -
+    one line per closed trade with instrument, entry/exit time, P&L, real
+    charges paid, and running capital, plus day totals. `journal["starting_capital"]`
+    (set once per day in _new_journal) is today's capital before any of
+    today's trades - the exact, already-tracked value, not back-computed."""
+    trades = state_mod.load_technical_trades_today(today.isoformat())
+    header = f"{_dry_run_badge(cfg.dry_run)}\U0001F4CA <b>TECH DAILY SUMMARY</b> {today.isoformat()}"
+    if not trades:
+        notify(f"{header}\nNo trades today.", html=True)
+        return
+
+    lines = [header]
+    for t in trades:
+        pnl = t.get("realized_pnl", 0.0)
+        dot = "\U0001F7E2" if pnl >= 0 else "\U0001F534"
+        lines.append(
+            f"{dot} {esc(str(t.get('underlying', '?')))} "
+            f"{_format_time(t.get('entered_at', ''))}→{_format_time(t.get('closed_at', ''))}  "
+            f"P&amp;L Rs.{pnl:.2f} (charges Rs.{t.get('costs', 0.0):.2f})  Capital Rs.{t.get('capital_after', 0.0):.2f}"
+        )
+
+    total_net = sum(t.get("realized_pnl", 0.0) for t in trades)
+    total_cost = sum(t.get("costs", 0.0) for t in trades)
+    wins = sum(1 for t in trades if t.get("realized_pnl", 0.0) > 0)
+    losses = sum(1 for t in trades if t.get("realized_pnl", 0.0) < 0)
+    lines.append("")
+    lines.append(f"<b>Totals:</b> {len(trades)} trades ({wins}W/{losses}L)")
+    lines.append(f"Net P&amp;L: Rs.{total_net:.2f} | Charges paid: Rs.{total_cost:.2f}")
+    lines.append(f"Capital: Rs.{journal['starting_capital']:.2f} → Rs.{ledger['current_capital']:.2f}")
+    notify("\n".join(lines), html=True)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="Technical-indicator runner: scalp/intraday/swing tiers off pure TA signals "
@@ -678,12 +711,14 @@ def main() -> None:
 
     today = today_ist()
     entry_time, exit_time = _parse_hhmm(cfg.entry_time), _parse_hhmm(cfg.exit_time)
+    eod_summary_time = _parse_hhmm(cfg.eod_summary_time)
     scalp_trade_counts = state_mod.count_trades_today("technical_scalp", today.isoformat())
     intraday_trade_counts = state_mod.count_trades_today("technical_intraday", today.isoformat())
     scalp_candle_cache: dict = {}
     intraday_candle_cache: dict = {}
     pivots_cache: dict = {}
     swing_scan_done_today = False
+    eod_summary_sent_today = False
 
     journal = _new_journal(today, cfg, ledger)
 
@@ -712,6 +747,7 @@ def main() -> None:
             intraday_candle_cache.clear()
             pivots_cache.clear()
             swing_scan_done_today = False
+            eod_summary_sent_today = False
             journal = _new_journal(today, cfg, ledger)
         now_t = now.time()
 
@@ -889,6 +925,16 @@ def main() -> None:
                     notify(f"URGENT: failed to close TECH SWING EQUITY {underlying} - MANUAL INTERVENTION NEEDED")
                     notify_error(f"Failed to close TECH SWING EQUITY {underlying} - MANUAL INTERVENTION NEEDED - {e}")
             state_mod.save_technical_swing_equity(swing_equity_positions)
+
+        # --- end-of-day trade summary, once per day, 15 min past exit_time
+        # so every same-day exit's trade_log write has landed ---
+        if not eod_summary_sent_today and now_t >= eod_summary_time:
+            try:
+                _send_eod_trade_summary(cfg, ledger, today, journal)
+            except Exception as e:
+                log.exception("TECH EOD trade summary failed")
+                notify_error(f"TECH EOD trade summary failed - {e}")
+            eod_summary_sent_today = True
 
         time.sleep(POLL_SECONDS)
 

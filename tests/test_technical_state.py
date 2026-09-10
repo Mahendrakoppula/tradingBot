@@ -85,3 +85,13 @@ def test_count_trades_today_filters_by_strategy_tag_and_day(tmp_path, monkeypatc
     state_mod.log_trade({"strategy": "technical_scalp", "underlying": "NIFTY", "closed_at": "2026-09-08T10:00:00"})
     counts = state_mod.count_trades_today("technical_scalp", "2026-09-09")
     assert counts == {"NIFTY": 1}
+
+
+def test_load_technical_trades_today_filters_and_sorts(tmp_path, monkeypatch):
+    monkeypatch.setattr(state_mod, "TRADE_LOG_PATH", tmp_path / "trade_log.jsonl")
+    state_mod.log_trade({"strategy": "technical_intraday", "underlying": "SENSEX", "closed_at": "2026-09-09T14:00:00", "realized_pnl": 5.0})
+    state_mod.log_trade({"strategy": "technical_scalp", "underlying": "NIFTY", "closed_at": "2026-09-09T10:00:00", "realized_pnl": -10.0})
+    state_mod.log_trade({"underlying": "NIFTY", "closed_at": "2026-09-09T15:15:00", "realized_pnl": 20.0})  # daily bot, no "strategy" tag
+    state_mod.log_trade({"strategy": "technical_scalp", "underlying": "BANKNIFTY", "closed_at": "2026-09-08T10:00:00", "realized_pnl": 1.0})
+    trades = state_mod.load_technical_trades_today("2026-09-09")
+    assert [t["underlying"] for t in trades] == ["NIFTY", "SENSEX"]  # sorted by closed_at, daily bot's un-tagged record excluded

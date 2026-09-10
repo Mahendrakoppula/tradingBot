@@ -20,6 +20,7 @@ class TechnicalConfig:
 
     entry_time: str = "09:20"  # a few minutes after open, for the first bars to form
     exit_time: str = "15:15"  # same-day close for scalp/intraday, matches run_daily.py
+    eod_summary_time: str = "15:30"  # 15 min after exit_time, so every same-day exit's trade_log write has landed
 
     # --- shared options-tier sizing/risk (scalp + intraday + index swing) ---
     # Raised again 0.20 -> 0.30 (with the three per-tier risk pcts below,
@@ -201,6 +202,7 @@ class TechnicalConfig:
             capital=float(os.environ.get("TECH_CAPITAL", "50000")),
             entry_time=os.environ.get("TECH_ENTRY_TIME", "09:20"),
             exit_time=os.environ.get("TECH_EXIT_TIME", "15:15"),
+            eod_summary_time=os.environ.get("TECH_EOD_SUMMARY_TIME", "15:30"),
             max_capital_pct_per_trade=float(os.environ.get("TECH_MAX_CAPITAL_PCT_PER_TRADE", "0.30")),
             max_lots_per_trade=int(os.environ.get("TECH_MAX_LOTS_PER_TRADE", "1")),
             max_spread_pct=float(os.environ.get("TECH_MAX_SPREAD_PCT", "8.0")),

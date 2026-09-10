@@ -185,6 +185,25 @@ def count_trades_today(strategy_tag: str, today_iso: str) -> dict[str, int]:
     return counts
 
 
+def load_technical_trades_today(today_iso: str) -> list[dict]:
+    """Every technical-bot trade_log record (strategy tag starting
+    "technical_") closed today, oldest first - for the end-of-day trade
+    summary. Same read pattern as count_trades_today, but returns the full
+    records rather than a per-underlying count."""
+    records: list[dict] = []
+    if not TRADE_LOG_PATH.exists():
+        return records
+    for line in TRADE_LOG_PATH.read_text(encoding="utf-8").splitlines():
+        try:
+            rec = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if str(rec.get("strategy", "")).startswith("technical_") and str(rec.get("closed_at", "")).startswith(today_iso):
+            records.append(rec)
+    records.sort(key=lambda r: r.get("closed_at", ""))
+    return records
+
+
 def log_trade(record: dict) -> None:
     """Appends one closed trade's outcome for later strategy review."""
     TRADE_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)

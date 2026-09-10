@@ -186,7 +186,7 @@ def test_required_setting_present(name):
 
 
 @pytest.mark.parametrize("name", ["ENTRY_TIME", "EXIT_TIME", "SCALP_ORB_REF_START", "SCALP_ORB_REF_END",
-                                   "TECH_ENTRY_TIME", "TECH_EXIT_TIME"])
+                                   "TECH_ENTRY_TIME", "TECH_EXIT_TIME", "TECH_EOD_SUMMARY_TIME"])
 def test_time_settings_are_valid_hhmm(name):
     if name not in CONFIG:
         pytest.skip(f"{name} not set in config.env")
@@ -205,6 +205,14 @@ def test_tech_entry_time_is_before_exit_time():
     assert CONFIG["TECH_ENTRY_TIME"] < CONFIG["TECH_EXIT_TIME"], (
         f"TECH_ENTRY_TIME ({CONFIG['TECH_ENTRY_TIME']}) must be before TECH_EXIT_TIME "
         f"({CONFIG['TECH_EXIT_TIME']}) - an inverted pair means the second bot silently never trades."
+    )
+
+
+def test_tech_eod_summary_time_is_at_or_after_exit_time():
+    assert CONFIG["TECH_EOD_SUMMARY_TIME"] >= CONFIG["TECH_EXIT_TIME"], (
+        f"TECH_EOD_SUMMARY_TIME ({CONFIG['TECH_EOD_SUMMARY_TIME']}) must be at/after TECH_EXIT_TIME "
+        f"({CONFIG['TECH_EXIT_TIME']}) - sending the summary before exit_time would miss same-day trades "
+        f"that haven't closed yet."
     )
 
 
