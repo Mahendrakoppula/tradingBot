@@ -17,12 +17,15 @@ evaluated against real data; it did NOT beat the naive baseline - see
 models/EXPERIMENTS.md for the honest result and why it wasn't tuned to
 look better. Dynamic ATR/structure stops, portfolio Greek aggregation,
 an execution engine (always simulated), Phase 12's event-driven
-backtester, and Phase 13's walk-forward validation are all done too -
-see backtesting/BACKTESTS.md: a 5-fold walk-forward across all three
-indices came back inconclusive (3/5 folds profitable, but standard
-deviation of per-fold P&L exceeds the mean in every case - not evidence
-of a validated edge)). No live trading logic exists yet - nothing here
-is promoted or wired into a live decision.
+backtester, and Phase 13's walk-forward + bootstrap/Monte Carlo
+validation are all done too - see backtesting/BACKTESTS.md, including a
+real bug it caught (the daily risk engine never reset between bars,
+silently freezing BANKNIFTY's entire backtest after one early bad
+stretch) and the corrected, genuinely mixed result after fixing it:
+bootstrap confidence intervals exclude zero on all three indices, but
+walk-forward still shows only 3/5 time-blocked folds profitable -
+suggestive, not proof of a validated edge). No live trading logic
+exists yet - nothing here is promoted or wired into a live decision.
 
 **Infrastructure**: runs on the SAME shared t3.micro EC2 instance as the
 existing `main`-branch bots (not new/dedicated infra) - as a third,
@@ -136,11 +139,13 @@ backtesting/  (Phase 12, done) event-driven backtester - processes bars
               bars only, one conceptual unit not lot-sized, fixed 7-day
               expiry, no costs/slippage). (Phase 13, done) walk-forward
               validation (walk_forward.py) - non-overlapping, embargoed
-              folds, each an independent backtest. BACKTESTS.md logs
-              every run honestly, including the walk-forward result
-              coming back inconclusive - no confidence-interval/
-              bootstrap/Monte Carlo validation yet, so nothing here is
-              a validated edge
+              folds, each an independent backtest. monte_carlo.py adds
+              bootstrap total-P&L confidence intervals and trade-
+              sequence-reshuffling drawdown analysis. BACKTESTS.md logs
+              every run honestly, including a real bug it caught (daily
+              risk state never resetting between bars) and the
+              corrected, still-mixed result after fixing it - nothing
+              here is a validated edge
 research/     (Phase 18) autonomous hypothesis generation/validation loop
 dashboard/    (Phase 15) Streamlit
 tests/        test-first, mirrors every module above

@@ -114,6 +114,15 @@ def run_backtest(df: pd.DataFrame, config: BacktestConfig | None = None) -> Back
         history = df.iloc[: t + 1]  # the one and only leakage boundary
         bar = df.iloc[t]
 
+        # Each bar IS one full trading day in this daily-bars-only first
+        # pass (see module docstring) - the daily risk engine's P&L must
+        # reset here every bar, or a bad day early in a multi-year
+        # backtest permanently freezes it for every day after (a real
+        # bug this project caught via Monte Carlo validation surfacing
+        # an implausibly small trade count on BANKNIFTY - see
+        # backtesting/BACKTESTS.md).
+        daily_risk.reset_day()
+
         if open_trade is not None:
             reason = _check_stop_target_hit(open_trade, bar)
             if reason is not None:

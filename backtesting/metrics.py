@@ -1,8 +1,8 @@
 """Basic performance metrics - sample sizes always reported alongside
-any rate/average, per the spec's own requirement. Statistical
-significance (confidence intervals, bootstrap, Monte Carlo) is Phase 13,
-a separate later pass - these are plain descriptive summaries only, not
-a claim of validated skill.
+any rate/average, per the spec's own requirement. These are plain
+descriptive summaries of ONE fixed sequence of trades - statistical
+significance (is this distinguishable from noise?) is
+backtesting/monte_carlo.py's job, not this module's.
 """
 from dataclasses import dataclass
 
@@ -20,6 +20,21 @@ class PerformanceSummary:
     max_drawdown: float
 
 
+def max_drawdown(pnls: list[float]) -> float:
+    """Largest peak-to-trough decline in the CUMULATIVE sum of `pnls`,
+    taken in the given order - reused by backtesting/monte_carlo.py to
+    recompute this same statistic under many reshuffled orderings
+    without duplicating the logic."""
+    cumulative = 0.0
+    peak = 0.0
+    worst = 0.0
+    for pnl in pnls:
+        cumulative += pnl
+        peak = max(peak, cumulative)
+        worst = max(worst, peak - cumulative)
+    return worst
+
+
 def summarize(trades: list[Trade]) -> PerformanceSummary:
     closed = [t for t in trades if t.pnl is not None]
     n_trades = len(closed)
@@ -30,16 +45,8 @@ def summarize(trades: list[Trade]) -> PerformanceSummary:
     n_losses = sum(1 for t in closed if t.pnl <= 0)
     total_pnl = sum(t.pnl for t in closed)
 
-    cumulative = 0.0
-    peak = 0.0
-    max_drawdown = 0.0
-    for t in closed:
-        cumulative += t.pnl
-        peak = max(peak, cumulative)
-        max_drawdown = max(max_drawdown, peak - cumulative)
-
     return PerformanceSummary(
         n_trades=n_trades, n_wins=n_wins, n_losses=n_losses,
         win_rate=n_wins / n_trades, total_pnl=total_pnl,
-        avg_pnl_per_trade=total_pnl / n_trades, max_drawdown=max_drawdown,
+        avg_pnl_per_trade=total_pnl / n_trades, max_drawdown=max_drawdown([t.pnl for t in closed]),
     )
