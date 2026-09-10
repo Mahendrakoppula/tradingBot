@@ -111,9 +111,12 @@ risk/         (done, ahead of the ML phases since it's rule-based and
               dynamic ATR/structure-based stop-loss/target/trailing
               (EV-based targets and ML-probability trailing explicitly
               deferred - they need Models 2/6, not built yet). Portfolio-
-              level Greek aggregation across instruments still pending
+              level Greek aggregation now in portfolio/, see below
 execution/    (Phase 17) order execution, reconciliation
-portfolio/    (Phase 11) aggregated Greeks/exposure across instruments
+portfolio/    (done) aggregated delta/gamma/vega/theta across NIFTY/
+              BANKNIFTY/SENSEX positions, with a concentration check so
+              a single instrument can't quietly dominate total exposure
+              even while every individual position looks fine
 backtesting/  (Phase 12-13) event-driven backtester, walk-forward/OOS
 research/     (Phase 18) autonomous hypothesis generation/validation loop
 dashboard/    (Phase 15) Streamlit
