@@ -56,6 +56,7 @@ from dataclasses import dataclass, field
 
 from research.framework import risk as risk_mod
 from research.framework import strategies as strat
+from research.framework import mtf as mtf_mod
 from research.framework.market_structure import find_structure_events
 from research.framework.regime import Regime, classify_regime
 from research.framework.scoring import ScoreWeights, ScoringInputs
@@ -88,6 +89,19 @@ class BacktestConfig:
     weights: ScoreWeights | None = None  # overrides the strategy's own default weight preset when set
     technical_config: TechnicalConfig = field(default_factory=lambda: TechnicalConfig(dry_run=True, enable_trading=False))
 
+    # --- optional exit/entry refinements, both OFF by default (backward
+    # compatible with every earlier Stage 3/4 result) - added 2026-09-10
+    # after real backtest evidence showed max_hold_bars was cutting many
+    # winners well short of their target (see risk.chandelier_stop/
+    # should_activate_chandelier, built in Stage 2 but never wired in here
+    # until now) and that no run had ever required higher-timeframe
+    # confirmation (research.framework.mtf, built in Stage 1, same story).
+    use_trailing_exit: bool = False  # once price moves trailing_activation_r in favor, trail via chandelier_stop instead of the fixed target
+    trailing_activation_r: float = 1.0
+    trailing_atr_mult: float = 3.0
+    require_mtf_confirmation: bool = False  # entry only allowed if the higher-timeframe regime agrees with the candidate direction
+    mtf_unit: str = "week"  # "week" | "month", passed to mtf.resample_daily
+
 
 @dataclass
 class Position:
@@ -100,6 +114,9 @@ class Position:
     quantity: int
     entry_regime: Regime
     bars_held: int = 0
+    highest_since_entry: float = 0.0
+    lowest_since_entry: float = 0.0
+    trailing_active: bool = False
 
 
 @dataclass
@@ -153,21 +170,23 @@ def _cost_fn(asset_scope: str, cfg: TechnicalConfig):
     )
 
 
-def _check_exit(position: Position, candle: dict) -> tuple[str, float] | None:
+def _check_exit(direction: str, stop_price: float, target_price: float | None, candle: dict) -> tuple[str, float] | None:
     """Stop checked before target when both are touched the same bar - a
     deliberately conservative first-cut convention (this repo has no
     established precedent either way), same caveat class as every other
-    unvalidated first-cut threshold here."""
-    if position.direction == "up":
-        if candle["low"] <= position.stop_price:
-            return "stop", position.stop_price
-        if candle["high"] >= position.target_price:
-            return "target", position.target_price
+    unvalidated first-cut threshold here. `target_price` may be None (once
+    a trailing exit has taken over - see simulate()'s trailing-exit block),
+    in which case only the stop is checked."""
+    if direction == "up":
+        if candle["low"] <= stop_price:
+            return "stop", stop_price
+        if target_price is not None and candle["high"] >= target_price:
+            return "target", target_price
     else:
-        if candle["high"] >= position.stop_price:
-            return "stop", position.stop_price
-        if candle["low"] <= position.target_price:
-            return "target", position.target_price
+        if candle["high"] >= stop_price:
+            return "stop", stop_price
+        if target_price is not None and candle["low"] <= target_price:
+            return "target", target_price
     return None
 
 
@@ -253,6 +272,11 @@ def simulate(
     avg_vol_line = rolling_avg_volume(candles, config.avg_volume_period)
     swings_all = find_swing_points(candles, left=config.structure_left, right=config.structure_right)
 
+    htf_candles, htf_ctx, htf_regime_cache = None, None, {}
+    if config.require_mtf_confirmation:
+        htf_candles = mtf_mod.resample_daily(candles, config.mtf_unit)
+        htf_ctx = mtf_mod.aligned_view(htf_candles, candles)
+
     capital = config.starting_capital
     peak_capital = capital
     portfolio_state = risk_mod.PortfolioRiskState(starting_capital=capital, current_capital=capital, peak_capital=capital)
@@ -267,7 +291,27 @@ def simulate(
 
         if position is not None:
             position.bars_held += 1
-            exit_info = _check_exit(position, candle)
+            position.highest_since_entry = max(position.highest_since_entry, candle["high"])
+            position.lowest_since_entry = min(position.lowest_since_entry, candle["low"])
+
+            effective_stop, effective_target = position.stop_price, position.target_price
+            if config.use_trailing_exit:
+                if not position.trailing_active:
+                    favorable_extreme = position.highest_since_entry if position.direction == "up" else position.lowest_since_entry
+                    position.trailing_active = risk_mod.should_activate_chandelier(
+                        position.direction, position.entry_price, favorable_extreme, position.stop_price,
+                        activation_r_multiple=config.trailing_activation_r,
+                    )
+                if position.trailing_active:
+                    atr_value = position.entry_regime.atr or 0.0
+                    trailing_stop = risk_mod.chandelier_stop(
+                        position.direction, position.highest_since_entry, position.lowest_since_entry,
+                        atr_value, atr_mult=config.trailing_atr_mult,
+                    )
+                    effective_stop = max(effective_stop, trailing_stop) if position.direction == "up" else min(effective_stop, trailing_stop)
+                    effective_target = None  # let it run past the original fixed target while trailing
+
+            exit_info = _check_exit(position.direction, effective_stop, effective_target, candle)
             if exit_info is None and position.bars_held >= config.max_hold_bars:
                 exit_info = ("max_hold", candle["close"])
             if exit_info is None and i == n - 1:
@@ -327,6 +371,27 @@ def simulate(
             decisions.append(DecisionRecord(underlying, i, candle.get("date"), "no_trade", result.reason))
             continue
 
+        if config.require_mtf_confirmation:
+            htf_info = htf_ctx[i]
+            if htf_info.htf_index is None:
+                decisions.append(DecisionRecord(
+                    underlying, i, candle.get("date"), "no_trade",
+                    {"strategy": result.strategy, "direction": result.direction, "rejected_because": "no_confirmed_htf_bar_yet"},
+                ))
+                continue
+            if htf_info.htf_index not in htf_regime_cache:
+                htf_regime_cache[htf_info.htf_index] = classify_regime(htf_candles[: htf_info.htf_index + 1])
+            htf_regime = htf_regime_cache[htf_info.htf_index]
+            if htf_regime.trend_direction != result.direction:
+                decisions.append(DecisionRecord(
+                    underlying, i, candle.get("date"), "no_trade",
+                    {
+                        "strategy": result.strategy, "direction": result.direction, "rejected_because": "mtf_not_confirmed",
+                        "htf_trend_direction": htf_regime.trend_direction,
+                    },
+                ))
+                continue
+
         risk_decision = risk_mod.evaluate_portfolio_risk(portfolio_state)
         if not risk_decision.allowed:
             decisions.append(DecisionRecord(
@@ -360,6 +425,7 @@ def simulate(
         position = Position(
             direction=result.direction, entry_index=i, entry_date=candle.get("date"), entry_price=entry_price,
             stop_price=st.stop_price, target_price=st.target_price, quantity=quantity, entry_regime=regime,
+            highest_since_entry=entry_price, lowest_since_entry=entry_price,
         )
         decisions.append(DecisionRecord(
             underlying, i, candle.get("date"), "signal_entered",

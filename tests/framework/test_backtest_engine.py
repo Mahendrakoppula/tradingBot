@@ -99,3 +99,74 @@ def test_simulate_equity_delivery_cost_model_differs_from_option_cost_model():
     total_option_cost = sum(t.costs for t in option_result.trades)
     total_equity_cost = sum(t.costs for t in equity_result.trades)
     assert total_option_cost != total_equity_cost
+
+
+# --- trailing exit (2026-09-10: real backtest evidence showed max_hold_bars
+# was cutting many winners well short of the fixed target) ---
+
+def _candle_ts(date, o, h, l, c, v=1000):
+    return {"ts": dt.datetime.combine(date, dt.time(0, 0)), "date": date, "open": o, "high": h, "low": l, "close": c, "volume": v}
+
+
+def _long_uptrend_candles_ts(n=400):
+    d0 = dt.date(2020, 1, 1)
+    candles = []
+    price = 100.0
+    for i in range(n):
+        noise = 1.5 if i % 3 == 0 else (-1.0 if i % 3 == 1 else 0.5)
+        price += 0.8
+        base = price + noise
+        candles.append(_candle_ts(d0 + dt.timedelta(days=i), base, base + 2, base - 2, base, 1500))
+    return candles
+
+
+def test_trailing_exit_lets_at_least_one_winner_exceed_the_fixed_target_r():
+    candles = _long_uptrend_candles_ts()
+    cfg = BacktestConfig(min_history_bars=60, lot_size=1, use_trailing_exit=True, max_hold_bars=200, reward_risk_ratio=2.0)
+    result = simulate(candles, "TEST", "equity_delivery", "trend_following", cfg)
+    assert len(result.trades) >= 1
+    # Without trailing, no trade can exceed reward_risk_ratio (2.0R) since
+    # the fixed target caps it there exactly - trailing lets a runner go
+    # further once activated.
+    assert any(t.r_multiple > 2.0 for t in result.trades)
+
+
+def test_trailing_exit_disabled_by_default_caps_wins_at_target_r():
+    candles = _long_uptrend_candles_ts()
+    cfg = BacktestConfig(min_history_bars=60, lot_size=1, max_hold_bars=200, reward_risk_ratio=2.0)
+    result = simulate(candles, "TEST", "equity_delivery", "trend_following", cfg)
+    target_exits = [t for t in result.trades if t.exit_reason == "target"]
+    assert target_exits  # sanity: some trades did hit the fixed target
+    assert all(t.r_multiple <= 2.05 for t in target_exits)  # small slack for cost drag
+
+
+# --- multi-timeframe confirmation (2026-09-10: mtf.py built in Stage 1,
+# never actually required by any backtest until now) ---
+
+def test_mtf_confirmation_blocks_a_daily_up_signal_against_a_weekly_downtrend():
+    # A long secular decline (300 days) followed by a sharp short-lived
+    # rally (30 days): the DAILY regime picks up the recent rally as "up",
+    # but the WEEKLY regime - averaging over the much longer preceding
+    # decline - still reads "down" for most of that window, so the gate
+    # should reject at least some daily "up" signals it would otherwise take.
+    d0 = dt.date(2020, 1, 1)
+    candles = []
+    price = 200.0
+    for i in range(300):
+        price -= 0.5
+        candles.append(_candle_ts(d0 + dt.timedelta(days=i), price, price + 1, price - 1, price, 1000))
+    for i in range(300, 330):
+        price += 3.0
+        candles.append(_candle_ts(d0 + dt.timedelta(days=i), price, price + 3, price - 0.5, price + 2.5, 3000))
+
+    cfg = BacktestConfig(min_history_bars=60, lot_size=1, require_mtf_confirmation=True)
+    result = simulate(candles, "TEST", "equity_delivery", "trend_following", cfg)
+    assert any(d.detail.get("rejected_because") == "mtf_not_confirmed" for d in result.decisions)
+
+
+def test_mtf_confirmation_allows_entries_in_a_real_sustained_uptrend():
+    candles = _long_uptrend_candles_ts(n=400)
+    cfg = BacktestConfig(min_history_bars=60, lot_size=1, require_mtf_confirmation=True)
+    result = simulate(candles, "TEST", "equity_delivery", "trend_following", cfg)
+    assert len(result.trades) >= 1
+    assert all(t.direction == "up" for t in result.trades)
