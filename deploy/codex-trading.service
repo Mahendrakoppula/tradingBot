@@ -1,0 +1,16 @@
+[Unit]
+Description=Codex trading system (Docker Compose stack)
+After=docker.service network-online.target
+Requires=docker.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory=/opt/codex-trading
+ExecStart=/usr/bin/docker compose -f deploy/docker-compose.yml up -d
+ExecStop=/usr/bin/docker compose -f deploy/docker-compose.yml down
+TimeoutStartSec=300
+
+[Install]
+WantedBy=multi-user.target

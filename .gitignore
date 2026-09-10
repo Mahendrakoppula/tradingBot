@@ -1,0 +1,11 @@
+.env
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.cache/
+.state/
+data/raw/
+data/parquet/
+*.log
+deploy/.tmp/
