@@ -88,11 +88,23 @@ covering **both bots, in clearly separate sections**:
    liquidity / sizing) with counts. If a bot took zero trades, explaining
    *which gate blocked everything* is the single most valuable thing you
    produce.
-3. **Trend across days** — read back the last ~20 journal entries FOR EACH
-   BOT (remember `journal.jsonl` is shared - distinguish by record shape,
-   see above). Is one gate blocking nearly everything, every day? Is win
-   rate drifting? Is capital trending? A single day is noise; say so when
-   a day is just noise.
+3. **Trend across days** — read back the FULL `journal.jsonl`/`trade_log.jsonl`
+   history collected so far, for each bot (remember both files are shared -
+   distinguish by record shape/strategy tag, see above), not just a recent
+   slice. This is a young system, so "all data" and "recent data" are the
+   same thing for a long while yet - don't artificially cap yourself to the
+   last ~20 entries while the total history is still small enough to read
+   in full; that would mean re-litigating the same short window every night
+   without the actual outcome you're trying to answer (is a pattern real
+   across the FULL sample, or just the last few days) ever getting more
+   evidence behind it. Once the history genuinely spans many months, use
+   judgment about how far back stays relevant to a live strategy that may
+   itself have changed since - but don't reach for a shortcut before that
+   point actually arrives. Is one gate blocking nearly everything, every
+   day? Is win rate drifting? Is capital trending? A single day is noise;
+   say so when a day is just noise - the whole point of reading everything
+   is to tell the difference between "noise" and "a trend you'd only see
+   by looking at all of it."
 4. **What you changed, or why you changed nothing** - for each bot
    separately if both have enough evidence to discuss; changing nothing is
    the correct outcome most days for either. Say so plainly rather than

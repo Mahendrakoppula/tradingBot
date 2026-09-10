@@ -105,6 +105,23 @@ def _format_time(iso_str: str) -> str:
         return iso_str or "unknown"
 
 
+def _format_entry_time(iso_str: str, today: dt.date) -> str:
+    """Time only if entered today; DD-Mon + time if entered on an earlier
+    day. Scalp/intraday always open and close same-day, but swing
+    (technical_swing_option/technical_swing_equity) can hold for days - the
+    EOD summary's exit time is always today (that's how
+    load_technical_trades_today filters), but the entry could be from
+    several days ago, and showing bare HH:MM:SS in that case would silently
+    imply a same-day trade that never happened."""
+    try:
+        entered = dt.datetime.fromisoformat(iso_str)
+    except (ValueError, TypeError):
+        return iso_str or "unknown"
+    if entered.date() == today:
+        return entered.strftime("%H:%M:%S")
+    return entered.strftime("%d-%b %H:%M:%S")
+
+
 def _entry_message(dry_run: bool, header: str, underlying: str, tradingsymbol: str, qty: int,
                     entry_price: float, cost: float, reason: str) -> str:
     return (
@@ -663,7 +680,7 @@ def _send_eod_trade_summary(cfg: TechnicalConfig, ledger: dict, today: dt.date, 
         dot = "\U0001F7E2" if pnl >= 0 else "\U0001F534"
         lines.append(
             f"{dot} [{esc(_tier_label(t.get('strategy', '')))}] {esc(str(t.get('underlying', '?')))} "
-            f"{_format_time(t.get('entered_at', ''))}→{_format_time(t.get('closed_at', ''))}  "
+            f"{_format_entry_time(t.get('entered_at', ''), today)}→{_format_time(t.get('closed_at', ''))}  "
             f"P&amp;L Rs.{pnl:.2f} (charges Rs.{t.get('costs', 0.0):.2f})  Capital Rs.{t.get('capital_after', 0.0):.2f}"
         )
 
