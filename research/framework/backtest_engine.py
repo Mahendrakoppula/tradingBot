@@ -199,9 +199,26 @@ def _nearest_breakout_trigger(candles_so_far: list[dict], visible_swings: list) 
     return None, False
 
 
+def _rsi_reversal_confirmed(rsi_now: float | None, rsi_prev: float | None) -> bool:
+    """mean_reversion's own entry-trigger: RSI has already started
+    reversing back from the extreme (today's reading below yesterday's
+    while overbought, or above yesterday's while oversold) - the same
+    "mechanically simple, low false-positive" philosophy as breakout's
+    close-based trigger. Hardcodes the 70/30 thresholds to match
+    strategies.mean_reversion's own defaults (not currently
+    caller-configurable from here)."""
+    if rsi_now is None or rsi_prev is None:
+        return False
+    if rsi_now >= 70.0:
+        return rsi_now < rsi_prev
+    if rsi_now <= 30.0:
+        return rsi_now > rsi_prev
+    return False
+
+
 def _decide(
     strategy: str, regime: Regime, inputs: ScoringInputs, candles_so_far: list[dict], visible_swings: list,
-    min_score: float, weights: ScoreWeights | None = None,
+    min_score: float, weights: ScoreWeights | None = None, rsi_prev: float | None = None,
 ):
     kwargs = {"min_score": min_score}
     if weights is not None:
@@ -209,6 +226,7 @@ def _decide(
     if strategy == "trend_following":
         return strat.trend_following(regime, inputs, **kwargs)
     if strategy == "mean_reversion":
+        inputs.entry_trigger_confirmed = _rsi_reversal_confirmed(inputs.rsi, rsi_prev)
         return strat.mean_reversion(regime, inputs, **kwargs)
     if strategy == "momentum":
         candidate = regime.trend_direction if regime.trend_direction != "none" else ("up" if (inputs.rsi or 50.0) >= 50.0 else "down")
@@ -302,7 +320,8 @@ def simulate(
             rsi=rsi_line[i], macd_histogram=macd_hist_line[i], relative_volume=rel_vol,
             recent_structure_events=events, entry_trigger_confirmed=False,
         )
-        result = _decide(strategy, regime, inputs, candles_so_far, visible_swings, config.min_score, config.weights)
+        rsi_prev = rsi_line[i - 1] if i > 0 else None
+        result = _decide(strategy, regime, inputs, candles_so_far, visible_swings, config.min_score, config.weights, rsi_prev)
 
         if not isinstance(result, strat.Signal):
             decisions.append(DecisionRecord(underlying, i, candle.get("date"), "no_trade", result.reason))

@@ -23,7 +23,20 @@ from research.framework.scoring import Score, ScoreWeights, ScoringInputs, score
 
 TREND_FOLLOWING_WEIGHTS = ScoreWeights(trend=35, momentum=25, structure=15, volume=10, volatility=5, entry_confirmation=10)
 BREAKOUT_WEIGHTS = ScoreWeights(trend=15, momentum=15, structure=20, volume=25, volatility=15, entry_confirmation=10)
-MEAN_REVERSION_WEIGHTS = ScoreWeights(trend=5, momentum=30, structure=15, volume=15, volatility=25, entry_confirmation=10)
+MEAN_REVERSION_WEIGHTS = ScoreWeights(trend=5, momentum=10, structure=20, volume=15, volatility=30, entry_confirmation=20)
+# momentum's weight was 30 originally, matching the other 3 presets'
+# emphasis on their own most-relevant sub-score - but for THIS strategy
+# that sub-score is structurally near-impossible to earn: the moment RSI
+# first reaches an extreme, MACD (a lagging indicator) is still almost
+# always confirming the ORIGINAL trend, not the fade direction being
+# scored. Confirmed empirically 2026-09-10 backtesting all 210 cached
+# F&O stocks: with momentum=30, mean_reversion produced ZERO trades on
+# EVERY single symbol over ~5 years each, despite real RSI-extreme setups
+# existing (min_score=0 surfaced 10 on RELIANCE alone) - the 60-point
+# default threshold was structurally unreachable, not a property of the
+# market. Rebalanced toward structure/volatility/entry_confirmation,
+# which the same debugging showed carry real, non-zero signal for this
+# strategy's actual setups.
 MOMENTUM_WEIGHTS = ScoreWeights(trend=15, momentum=35, structure=15, volume=20, volatility=5, entry_confirmation=10)
 
 
