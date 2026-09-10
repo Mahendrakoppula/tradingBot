@@ -662,18 +662,23 @@ def main() -> None:
 
         # --- scalp exit checks: fixed rupee-per-lot stop/target on the
         # OPTION'S OWN premium (not the underlying) - see premium_stop_target's
-        # docstring. No trailing for this tier - target is a hard take-profit. ---
+        # docstring. No trailing for this tier - target is a hard take-profit.
+        # scalp_max_hold_minutes only force-closes a LOSING/flat position -
+        # a currently-profitable trade is allowed to keep running past it
+        # (toward its target, or worst case to the day's exit_time backstop
+        # below, same as intraday already does) rather than being cut off
+        # purely by the clock while it still has a real chance to work. ---
         if scalp_positions:
             for underlying, position in list(scalp_positions.items()):
                 leg = position.option
                 try:
-                    ltp, _pnl = _leg_ltp_and_pnl(rest, leg)
+                    ltp, pnl = _leg_ltp_and_pnl(rest, leg)
                 except Exception as e:
                     log.exception("Could not price TECH SCALP %s for exit check", underlying)
                     notify_error(f"Could not price TECH SCALP {underlying} for exit check - {e}")
                     continue
                 entered_at = dt.datetime.fromisoformat(position.entered_at)
-                if now - entered_at >= dt.timedelta(minutes=cfg.scalp_max_hold_minutes):
+                if now - entered_at >= dt.timedelta(minutes=cfg.scalp_max_hold_minutes) and pnl <= 0:
                     reason = "scalp_time_exit"
                 elif stop_breached("long", position.stop_price, ltp):
                     reason = "stop_loss"
