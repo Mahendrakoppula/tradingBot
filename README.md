@@ -1,12 +1,17 @@
 # Codex — Autonomous ML-Driven Index Options Trading System
 
-Status: **Phase 5 of 18** (Phase 1: scaffolding/config/logging/
+Status: **Phase 6 of 18** (Phase 1: scaffolding/config/logging/
 notifications/deploy - done. Phase 2: historical OHLCV data pipeline +
 quality engine - done. Phase 3: pre-indicator market-state engine -
 done. Phase 4: multi-timeframe fusion - done. Phase 5: theoretical
 options/Greeks engine - done, spot-proxy only, see features/theoretical_options.py
-for the explicit, permanent limitations of this data source). No trading
-logic exists yet.
+for the explicit, permanent limitations of this data source. Phase 6:
+strategy framework - done, 3 of the spec's ~10 strategy types built as a
+starting portfolio, see strategies/ below - more can be added to the
+same framework without a new phase). No live trading logic exists yet -
+Phase 7 (ML models) is blocked on real historical data actually being
+pulled (data/pull_history.py has never been run against live
+credentials - see "Local development" below).
 
 **Infrastructure**: runs on the SAME shared t3.micro EC2 instance as the
 existing `main`-branch bots (not new/dedicated infra) - as a third,
@@ -74,7 +79,12 @@ features/     (Phase 4, done) multi-timeframe fusion (per-timeframe regime
 market_state/ (Phase 3, done) pre-indicator structure/volatility/
               momentum/liquidity classification (no RSI/MACD - see
               spec's own "don't start with indicators" principle)
-strategies/   (Phase 7) strategy portfolio, eligibility-by-regime
+strategies/   (Phase 6, done) strategy portfolio, regime-eligibility
+              gating. 3 of ~10 spec-listed types built so far: trend-
+              following, mean-reversion, opening-range-breakout. More
+              (momentum, VWAP, failed-breakout, volatility-expansion,
+              event-driven, structure-reversal) can extend this same
+              framework later
 models/       (Phase 8-9) ML training, meta-labeling, calibration
 risk/         (Phase 11) position sizing, portfolio risk, hard limits
 execution/    (Phase 17) order execution, reconciliation
