@@ -632,12 +632,25 @@ def _new_journal(today: dt.date, cfg: TechnicalConfig, ledger: dict) -> dict:
     }
 
 
+_TIER_LABELS = {
+    "technical_scalp": "SCALP",
+    "technical_intraday": "INTRADAY",
+    "technical_swing_option": "SWING (option)",
+    "technical_swing_equity": "SWING (equity)",
+}
+
+
+def _tier_label(strategy_tag: str) -> str:
+    return _TIER_LABELS.get(strategy_tag, strategy_tag or "?")
+
+
 def _send_eod_trade_summary(cfg: TechnicalConfig, ledger: dict, today: dt.date, journal: dict) -> None:
     """Deterministic end-of-day ledger (not an agent-generated summary) -
-    one line per closed trade with instrument, entry/exit time, P&L, real
-    charges paid, and running capital, plus day totals. `journal["starting_capital"]`
-    (set once per day in _new_journal) is today's capital before any of
-    today's trades - the exact, already-tracked value, not back-computed."""
+    one line per closed trade with tier, instrument, entry/exit time, P&L,
+    real charges paid, and running capital, plus day totals.
+    `journal["starting_capital"]` (set once per day in _new_journal) is
+    today's capital before any of today's trades - the exact, already-
+    tracked value, not back-computed."""
     trades = state_mod.load_technical_trades_today(today.isoformat())
     header = f"{_dry_run_badge(cfg.dry_run)}\U0001F4CA <b>TECH DAILY SUMMARY</b> {today.isoformat()}"
     if not trades:
@@ -649,7 +662,7 @@ def _send_eod_trade_summary(cfg: TechnicalConfig, ledger: dict, today: dt.date, 
         pnl = t.get("realized_pnl", 0.0)
         dot = "\U0001F7E2" if pnl >= 0 else "\U0001F534"
         lines.append(
-            f"{dot} {esc(str(t.get('underlying', '?')))} "
+            f"{dot} [{esc(_tier_label(t.get('strategy', '')))}] {esc(str(t.get('underlying', '?')))} "
             f"{_format_time(t.get('entered_at', ''))}→{_format_time(t.get('closed_at', ''))}  "
             f"P&amp;L Rs.{pnl:.2f} (charges Rs.{t.get('costs', 0.0):.2f})  Capital Rs.{t.get('capital_after', 0.0):.2f}"
         )

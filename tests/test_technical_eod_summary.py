@@ -53,3 +53,14 @@ def test_send_eod_trade_summary_lists_each_trade_and_totals(tmp_path, monkeypatc
     assert "2 trades" in message
     assert "1W/1L" in message
     assert "-11.35" in message  # net P&L: -363.35 + 352.00
+    assert "[SCALP]" in message
+    assert "[INTRADAY]" in message
+
+
+def test_tier_label_covers_every_technical_strategy_tag():
+    assert rt._tier_label("technical_scalp") == "SCALP"
+    assert rt._tier_label("technical_intraday") == "INTRADAY"
+    assert rt._tier_label("technical_swing_option") == "SWING (option)"
+    assert rt._tier_label("technical_swing_equity") == "SWING (equity)"
+    assert rt._tier_label("something_unexpected") == "something_unexpected"  # falls back to the raw tag, never blank
+    assert rt._tier_label("") == "?"
