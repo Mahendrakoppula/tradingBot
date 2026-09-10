@@ -1,18 +1,22 @@
 # Codex — Autonomous ML-Driven Index Options Trading System
 
-Status: **Phase 6 of 18** (Phase 1: scaffolding/config/logging/
-notifications/deploy - done. Phase 2: historical OHLCV data pipeline +
-quality engine - done. Phase 3: pre-indicator market-state engine -
-done. Phase 4: multi-timeframe fusion - done. Phase 5: theoretical
-options/Greeks engine - done, spot-proxy only, see features/theoretical_options.py
-for the explicit, permanent limitations of this data source. Phase 6:
+Status: **Phase 7 of 18, in progress** (Phase 1: scaffolding/config/
+logging/notifications/deploy - done. Phase 2: historical OHLCV data
+pipeline + quality engine - done, and real data has now actually been
+pulled (data/raw/, gitignored - see "Local development" below to
+refresh it). Phase 3: pre-indicator market-state engine - done. Phase 4:
+multi-timeframe fusion - done. Phase 5: theoretical options/Greeks
+engine - done, spot-proxy only, see features/theoretical_options.py for
+the explicit, permanent limitations of this data source. Phase 6:
 strategy framework - done, 3 of the spec's ~10 strategy types built as a
 starting portfolio, see strategies/ below - more can be added to the
 same framework without a new phase. Risk engine (daily P&L selectivity,
 equity-protection capital tiers, position sizing) - done, see risk/
-below). No live trading logic exists yet - Phase 7 (ML models) needs
-real historical data pulled first (data/pull_history.py, reusing the
-same SmartAPI account the other two bots on this instance already use).
+below. Phase 7: ML models - Model 1/8 (regime classifier) built and
+evaluated against real data; it did NOT beat the naive baseline - see
+models/EXPERIMENTS.md for the honest result and why it wasn't tuned to
+look better). No live trading logic exists yet - nothing here is
+promoted or wired into a live decision.
 
 **Infrastructure**: runs on the SAME shared t3.micro EC2 instance as the
 existing `main`-branch bots (not new/dedicated infra) - as a third,
@@ -51,6 +55,14 @@ research area - real spot data, approximated/skipped option Greeks where
 real history doesn't exist. Not solved here, just carried forward
 honestly.
 
+**Confirmed data limitation (found in this project, Phase 7)**: SmartAPI
+reports index spot volume as 0, always, for all three in-scope indices
+at every interval down to ONE_MINUTE - indices aren't a traded security
+with their own volume the way a stock is. Every volume-derived signal
+(market_state/liquidity.py, any relative-volume ML feature) is
+permanently INSUFFICIENT_DATA/excluded for this reason, not a bug or a
+"not implemented yet".
+
 ## Risk parameters (locked in from the spec)
 
 - Starting capital: Rs.50,000
@@ -86,7 +98,13 @@ strategies/   (Phase 6, done) strategy portfolio, regime-eligibility
               (momentum, VWAP, failed-breakout, volatility-expansion,
               event-driven, structure-reversal) can extend this same
               framework later
-models/       (Phase 8-9) ML training, meta-labeling, calibration
+models/       (Phase 7, in progress) ML training. Model 1/8 (regime
+              classifier) built - see models/EXPERIMENTS.md for its
+              honest result (did not beat baseline, not promoted).
+              models/feature_engineering.py provides vectorized, causal,
+              whole-series equivalents of market_state/'s per-point
+              classifiers, needed to make training-set construction
+              tractable. Meta-labeling/calibration (Phase 8) not started
 risk/         (done, ahead of the ML phases since it's rule-based and
               safety-critical) daily P&L selectivity engine, equity-
               protection capital tiers, risk-based position sizing.

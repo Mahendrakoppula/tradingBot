@@ -1,9 +1,16 @@
 """Liquidity state - relative volume vs. its own trailing rolling
-average. LOW relative volume matters even at the index-option level
-(spot-proxy scope, Phase 2's own known limitation) because it's still a
-proxy for how much conviction is behind the current price move -
-computed from spot volume, not option-contract volume, since only spot
-history exists.
+average.
+
+CONFIRMED DATA LIMITATION (real historical data, all three in-scope
+indices, every interval down to ONE_MINUTE): SmartAPI reports index spot
+volume as 0, always - indices aren't a traded security with their own
+volume the way a stock is. classify_liquidity() already handles this
+correctly (trailing_avg<=0 returns INSUFFICIENT_DATA, never divides by
+zero or crashes), but callers should expect this dimension of
+market_state to be permanently INSUFFICIENT_DATA for NIFTY/BANKNIFTY/
+SENSEX with this data source - not a bug, not "not implemented yet".
+models/feature_engineering.py's build_features() excludes a
+volume-derived feature entirely for exactly this reason.
 """
 from dataclasses import dataclass
 
