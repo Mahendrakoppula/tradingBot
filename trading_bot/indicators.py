@@ -122,6 +122,85 @@ def atr(candles: list[dict], period: int = 14) -> list[float | None]:
     return result
 
 
+def adx(
+    candles: list[dict], period: int = 14
+) -> tuple[list[float | None], list[float | None], list[float | None]]:
+    """Wilder's ADX (Average Directional Index), plus the +DI/-DI lines it's
+    built from - returns (adx_line, plus_di, minus_di), each index-aligned to
+    `candles`. Standard textbook formulation (directional movement -> Wilder
+    smoothing -> DX -> Wilder-smoothed ADX), same convention as `atr`/`rsi`
+    above. Needs more than 2*period candles before the first ADX value
+    (period bars to seed the smoothed +DM/-DM/TR, another period to smooth
+    DX into ADX)."""
+    n = len(candles)
+    none_col: list[float | None] = [None] * n
+    if n <= 2 * period:
+        return none_col, list(none_col), list(none_col)
+
+    plus_dm = [0.0] * n
+    minus_dm = [0.0] * n
+    trs = [0.0] * n
+    for i in range(1, n):
+        up_move = candles[i]["high"] - candles[i - 1]["high"]
+        down_move = candles[i - 1]["low"] - candles[i]["low"]
+        plus_dm[i] = up_move if (up_move > down_move and up_move > 0) else 0.0
+        minus_dm[i] = down_move if (down_move > up_move and down_move > 0) else 0.0
+        h, l, prev_c = candles[i]["high"], candles[i]["low"], candles[i - 1]["close"]
+        trs[i] = max(h - l, abs(h - prev_c), abs(l - prev_c))
+
+    def _wilder_smooth(values: list[float], start: int) -> list[float | None]:
+        result: list[float | None] = [None] * n
+        seed = sum(values[start + 1 : start + 1 + period])
+        idx = start + period
+        result[idx] = seed
+        prev = seed
+        for i in range(idx + 1, n):
+            prev = prev - (prev / period) + values[i]
+            result[i] = prev
+        return result
+
+    smoothed_tr = _wilder_smooth(trs, 0)
+    smoothed_plus_dm = _wilder_smooth(plus_dm, 0)
+    smoothed_minus_dm = _wilder_smooth(minus_dm, 0)
+
+    plus_di: list[float | None] = list(none_col)
+    minus_di: list[float | None] = list(none_col)
+    dx: list[float | None] = list(none_col)
+    for i in range(period, n):
+        tr_i, pdm_i, mdm_i = smoothed_tr[i], smoothed_plus_dm[i], smoothed_minus_dm[i]
+        if tr_i is None or tr_i == 0:
+            continue
+        pdi = 100 * pdm_i / tr_i
+        mdi = 100 * mdm_i / tr_i
+        plus_di[i] = pdi
+        minus_di[i] = mdi
+        denom = pdi + mdi
+        dx[i] = 100 * abs(pdi - mdi) / denom if denom else 0.0
+
+    adx_line = _wilder_smooth_from_partial(dx, period)
+    return adx_line, plus_di, minus_di
+
+
+def _wilder_smooth_from_partial(values: list[float | None], period: int) -> list[float | None]:
+    """Same Wilder recurrence as `_wilder_smooth` inside `adx`, but for a
+    series (DX) that already has leading Nones before `period` and whose
+    seed is an average, not a sum - used only by `adx` for the DX->ADX step."""
+    n = len(values)
+    result: list[float | None] = [None] * n
+    first_valid = next((i for i, v in enumerate(values) if v is not None), None)
+    if first_valid is None or n - first_valid < period:
+        return result
+    window = values[first_valid : first_valid + period]
+    seed = sum(window) / period  # type: ignore[arg-type]
+    idx = first_valid + period - 1
+    result[idx] = seed
+    prev = seed
+    for i in range(idx + 1, n):
+        prev = (prev * (period - 1) + values[i]) / period  # type: ignore[operator]
+        result[i] = prev
+    return result
+
+
 def vwap(candles: list[dict]) -> list[float]:
     """Cumulative (typical price x volume) / cumulative volume from the
     START of the given candle list - this is an INTRADAY-only indicator that

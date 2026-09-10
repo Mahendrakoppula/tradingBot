@@ -1,6 +1,6 @@
 import pytest
 
-from trading_bot.indicators import atr, ema, macd, rolling_avg_volume, rsi, sma, vwap
+from trading_bot.indicators import adx, atr, ema, macd, rolling_avg_volume, rsi, sma, vwap
 
 
 def test_sma_basic():
@@ -66,6 +66,32 @@ def test_vwap_zero_volume_falls_back_to_close():
 def test_rolling_avg_volume():
     candles = [{"volume": v} for v in (10, 20, 30, 40)]
     assert rolling_avg_volume(candles, 2) == [None, 15, 25, 35]
+
+
+def test_adx_not_enough_data_returns_all_none():
+    candles = [{"high": 10, "low": 8, "close": 9}] * 5
+    adx_line, plus_di, minus_di = adx(candles, period=14)
+    assert adx_line == [None] * 5
+    assert plus_di == [None] * 5
+    assert minus_di == [None] * 5
+
+
+def test_adx_strong_uptrend_favors_plus_di_and_produces_high_adx():
+    # Steady, uninterrupted uptrend: every bar's high/low ratchets up by the
+    # same amount, so +DM is constant and positive, -DM is always 0 - +DI
+    # should dominate -DI throughout, and ADX (trend strength) should end up
+    # high since the trend never wavers.
+    period = 14
+    candles = []
+    price = 100.0
+    for _ in range(2 * period + 20):
+        candles.append({"high": price + 2, "low": price, "close": price + 1})
+        price += 2
+    adx_line, plus_di, minus_di = adx(candles, period=period)
+    last = len(candles) - 1
+    assert adx_line[last] is not None
+    assert plus_di[last] > minus_di[last]
+    assert adx_line[last] > 50  # a relentless, unbroken trend should read as strong
 
 
 def test_macd_lengths_and_histogram_consistency():

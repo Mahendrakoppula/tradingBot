@@ -6,7 +6,8 @@ Usage: python research/fetch_historical.py
 
 Three tiers of data, for the technical-indicator strategy's backtest
 (see .claude/plans/goofy-plotting-sedgewick.md):
-- MINUTE_STOCK_SYMBOLS + the two indices: both ONE_MINUTE (9mo) and ONE_DAY
+- MINUTE_STOCK_SYMBOLS + the indices (SYMBOLS, currently NIFTY/BANKNIFTY/
+  SENSEX): both ONE_MINUTE (9mo) and ONE_DAY
   (5yr) - the scalp/intraday tiers need 1-min granularity, but pulling it
   for the full F&O universe is infeasible (confirmed: ~10 calls/stock x
   210 stocks =~42 min and not needed for daily-only swing signals), so
@@ -44,8 +45,14 @@ DATA_DIR.mkdir(parents=True, exist_ok=True)
 SYMBOLS = {
     "NIFTY": "99926000",
     "BANKNIFTY": "99926009",
+    "SENSEX": "99919000",  # BSE, not NSE - see EXCHANGE_OVERRIDES below (confirmed
+                            # live 2026-09-09 when SENSEX was added to the technical
+                            # bot: exch_seg BSE for the spot row, symbol AMXIDX).
 }
 EXCHANGE = "NSE"
+# Per-symbol exchange override for getCandleData - everything above defaults
+# to EXCHANGE (NSE) except SENSEX, which only has spot candle data on BSE.
+EXCHANGE_OVERRIDES = {"SENSEX": "BSE"}
 
 # Small, hand-picked liquid large-caps (all NIFTY50 constituents per
 # breadth.py, all confirmed F&O-eligible) that also get 1-minute data, for
@@ -90,14 +97,16 @@ def _chunk_ranges(start: dt.date, end: dt.date, max_days: int):
         cur = chunk_end + dt.timedelta(days=1)
 
 
-def _fetch_chunked(client: RestClient, symboltoken: str, interval: str, start: dt.date, end: dt.date, max_days: int) -> list:
+def _fetch_chunked(
+    client: RestClient, symboltoken: str, interval: str, start: dt.date, end: dt.date, max_days: int, exchange: str = EXCHANGE
+) -> list:
     rows = []
     for chunk_start, chunk_end in _chunk_ranges(start, end, max_days):
         fromdate = f"{chunk_start.isoformat()} 09:00"
         todate = f"{chunk_end.isoformat()} 15:30"
         for attempt in range(6):
             try:
-                data = client.get_candle_data(EXCHANGE, symboltoken, interval, fromdate, todate)
+                data = client.get_candle_data(exchange, symboltoken, interval, fromdate, todate)
                 break
             except (ApiError, ValueError, requests.exceptions.RequestException) as e:
                 # ValueError covers requests' JSONDecodeError - the rate
@@ -126,22 +135,22 @@ def _write_csv(path: Path, rows: list) -> None:
     log.info("wrote %d rows -> %s", len(rows), path)
 
 
-def _pull_minute_and_daily(client: RestClient, name: str, token: str, today: dt.date) -> None:
-    log.info("=== %s (token %s): 1-min + daily ===", name, token)
+def _pull_minute_and_daily(client: RestClient, name: str, token: str, today: dt.date, exchange: str = EXCHANGE) -> None:
+    log.info("=== %s (token %s, exchange %s): 1-min + daily ===", name, token, exchange)
     minute_start = today - dt.timedelta(days=9 * 30)
     log.info("fetching ONE_MINUTE %s -> %s", minute_start, today)
-    minute_rows = _fetch_chunked(client, token, "ONE_MINUTE", minute_start, today, ONE_MINUTE_MAX_DAYS)
+    minute_rows = _fetch_chunked(client, token, "ONE_MINUTE", minute_start, today, ONE_MINUTE_MAX_DAYS, exchange)
     _write_csv(DATA_DIR / f"{name}_1min.csv", minute_rows)
 
     daily_start = today - dt.timedelta(days=5 * 365)
     log.info("fetching ONE_DAY %s -> %s", daily_start, today)
-    daily_rows = _fetch_chunked(client, token, "ONE_DAY", daily_start, today, ONE_DAY_MAX_DAYS)
+    daily_rows = _fetch_chunked(client, token, "ONE_DAY", daily_start, today, ONE_DAY_MAX_DAYS, exchange)
     _write_csv(DATA_DIR / f"{name}_1day.csv", daily_rows)
 
 
-def _pull_daily_only(client: RestClient, name: str, token: str, today: dt.date) -> None:
+def _pull_daily_only(client: RestClient, name: str, token: str, today: dt.date, exchange: str = EXCHANGE) -> None:
     daily_start = today - dt.timedelta(days=5 * 365)
-    daily_rows = _fetch_chunked(client, token, "ONE_DAY", daily_start, today, ONE_DAY_MAX_DAYS)
+    daily_rows = _fetch_chunked(client, token, "ONE_DAY", daily_start, today, ONE_DAY_MAX_DAYS, exchange)
     _write_csv(DATA_DIR / f"{name}_1day.csv", daily_rows)
 
 
@@ -175,7 +184,7 @@ def main():
             except LookupError:
                 log.warning("No equity spot instrument found for %s - skipping from minute tier", name)
         for name, token in minute_tier.items():
-            _pull_minute_and_daily(client, name, token, today)
+            _pull_minute_and_daily(client, name, token, today, EXCHANGE_OVERRIDES.get(name, EXCHANGE))
 
         # Tier 2: the rest of the F&O-eligible stock universe - daily only.
         fo_tokens = resolve_fo_stock_tokens(instruments.instruments)
