@@ -1,10 +1,12 @@
 """Phase 1 entry point: the health-check skeleton every later phase
 builds on. Deliberately does nothing trading-related yet - loads config,
-sets up logging, confirms the database is reachable, sends a startup
+sets up logging, optionally confirms the database is reachable (skipped
+while settings.database_enabled is False - Phase 1 runs on the existing
+shared instance with no database yet, see README.md), sends a startup
 Telegram notification, and idles. This is the concrete, observable proof
-the whole chain (config -> secrets -> Docker -> network -> Telegram/DB)
-actually works before any trading logic exists to obscure a plumbing
-failure - see the Phase 1 plan's own Verification section.
+the whole chain (config -> secrets -> network -> Telegram) actually works
+before any trading logic exists to obscure a plumbing failure - see the
+Phase 1 plan's own Verification section.
 """
 import logging
 import time
@@ -43,8 +45,11 @@ def main() -> None:
         settings.environment, settings.dry_run, settings.instruments,
     )
 
-    db_ok = check_database(settings.database_url)
-    status = "reachable" if db_ok else "UNREACHABLE"
+    if settings.database_enabled:
+        db_ok = check_database(settings.database_url)
+        status = "reachable" if db_ok else "UNREACHABLE"
+    else:
+        status = "disabled (Phase 1 - no database provisioned yet)"
     log.info("Database status: %s", status)
 
     notify(
@@ -55,8 +60,11 @@ def main() -> None:
 
     while True:
         time.sleep(HEALTH_CHECK_INTERVAL_SECONDS)
-        db_ok = check_database(settings.database_url)
-        log.info("Health check: database %s", "ok" if db_ok else "FAILED")
+        if settings.database_enabled:
+            db_ok = check_database(settings.database_url)
+            log.info("Health check: database %s", "ok" if db_ok else "FAILED")
+        else:
+            log.info("Health check: alive (database disabled)")
 
 
 if __name__ == "__main__":

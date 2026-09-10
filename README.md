@@ -1,8 +1,18 @@
 # Codex — Autonomous ML-Driven Index Options Trading System
 
 Status: **Phase 1 of 18** (project scaffolding, config, logging,
-notifications, and the AWS/Docker infrastructure to run it). No trading
-logic exists yet.
+notifications, and the deploy infrastructure to run it). No trading logic
+exists yet.
+
+**Infrastructure**: runs on the SAME shared t3.micro EC2 instance as the
+existing `main`-branch bots (not new/dedicated infra) - as a third,
+independent systemd service (`codex-trading.service`) in its own
+`/opt/codex-trading` directory and Python venv, no Docker/database on
+this box. That instance has only 1GB RAM and runs two other bots with
+real money live on it, so Phase 1 deliberately has no database
+dependency (`database_enabled=False` by default) until a later phase
+actually needs persistent storage, at which point instance sizing gets
+reassessed.
 
 This branch (`codex-bot-main`) is a deliberately separate root - no
 shared history with `main`, which holds the existing `run_daily.py`/
@@ -59,7 +69,7 @@ backtesting/  (Phase 12-13) event-driven backtester, walk-forward/OOS
 research/     (Phase 18) autonomous hypothesis generation/validation loop
 dashboard/    (Phase 15) Streamlit
 tests/        test-first, mirrors every module above
-deploy/       Dockerfile, docker-compose.yml, systemd unit, CI
+deploy/       systemd unit, CI (deploys to the shared instance via SSM)
 ```
 
 ## Local development
@@ -67,7 +77,6 @@ deploy/       Dockerfile, docker-compose.yml, systemd unit, CI
 ```
 python -m venv .venv
 .venv/Scripts/pip install -r requirements.txt -r requirements-dev.txt
-docker compose -f deploy/docker-compose.yml up -d timescaledb
 python -m pytest -q
 python -m app.main   # starts the Phase 1 health-check skeleton
 ```

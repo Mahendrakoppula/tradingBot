@@ -59,10 +59,17 @@ class Settings(BaseSettings):
     environment: str = Field(default="dry_run", description="'dry_run' | 'paper' | 'live' - see Section 58-60's gated rollout")
     dry_run: bool = Field(default=True, description="No orders placed, no live data commitments required yet (Phase 1)")
 
-    # --- database (self-hosted TimescaleDB per the plan's infra section) ---
+    # --- database (deferred - see README.md) ---
+    # Phase 1 runs on the existing shared t3.micro instance alongside two
+    # live trading bots, not new provisioned infra - a Dockerized
+    # TimescaleDB there risks memory pressure on that box. Disabled by
+    # default; app/main.py skips the DB health check entirely unless this
+    # is explicitly turned on once a real database exists (Phase 2+, on
+    # right-sized infra).
+    database_enabled: bool = Field(default=False, description="Whether app/main.py should attempt a DB health check")
     database_url: str = Field(
         default="postgresql://codex:codex@localhost:5432/codex",
-        description="TimescaleDB (Postgres + Timescale extension) connection string",
+        description="TimescaleDB (Postgres + Timescale extension) connection string - unused while database_enabled=False",
     )
 
     # --- Telegram notifications - same shape as trading_bot/notifier.py on

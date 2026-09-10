@@ -12,6 +12,7 @@ def test_settings_loads_with_defaults(monkeypatch):
     assert s.profit_selectivity_level == 1_000.0
     assert s.instruments == ("NIFTY", "BANKNIFTY", "SENSEX")
     assert s.dry_run is True
+    assert s.database_enabled is False
 
 
 def test_settings_reads_environment_overrides(monkeypatch):
