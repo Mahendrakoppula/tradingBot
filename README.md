@@ -8,10 +8,11 @@ options/Greeks engine - done, spot-proxy only, see features/theoretical_options.
 for the explicit, permanent limitations of this data source. Phase 6:
 strategy framework - done, 3 of the spec's ~10 strategy types built as a
 starting portfolio, see strategies/ below - more can be added to the
-same framework without a new phase). No live trading logic exists yet -
-Phase 7 (ML models) is blocked on real historical data actually being
-pulled (data/pull_history.py has never been run against live
-credentials - see "Local development" below).
+same framework without a new phase. Risk engine (daily P&L selectivity,
+equity-protection capital tiers, position sizing) - done, see risk/
+below). No live trading logic exists yet - Phase 7 (ML models) needs
+real historical data pulled first (data/pull_history.py, reusing the
+same SmartAPI account the other two bots on this instance already use).
 
 **Infrastructure**: runs on the SAME shared t3.micro EC2 instance as the
 existing `main`-branch bots (not new/dedicated infra) - as a third,
@@ -86,7 +87,11 @@ strategies/   (Phase 6, done) strategy portfolio, regime-eligibility
               event-driven, structure-reversal) can extend this same
               framework later
 models/       (Phase 8-9) ML training, meta-labeling, calibration
-risk/         (Phase 11) position sizing, portfolio risk, hard limits
+risk/         (done, ahead of the ML phases since it's rule-based and
+              safety-critical) daily P&L selectivity engine, equity-
+              protection capital tiers, risk-based position sizing.
+              Portfolio-level Greek aggregation across instruments still
+              pending a later pass
 execution/    (Phase 17) order execution, reconciliation
 portfolio/    (Phase 11) aggregated Greeks/exposure across instruments
 backtesting/  (Phase 12-13) event-driven backtester, walk-forward/OOS
