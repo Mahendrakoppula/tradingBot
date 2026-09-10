@@ -154,8 +154,11 @@ jobs:
               'cp /opt/trading-bot/deploy/trading-bot-technical.service /etc/systemd/system/trading-bot-technical.service',
               'cp /opt/trading-bot/deploy/trading-bot-s3-sync.service /etc/systemd/system/trading-bot-s3-sync.service',
               'cp /opt/trading-bot/deploy/trading-bot-s3-sync.timer /etc/systemd/system/trading-bot-s3-sync.timer',
+              'if [ -f /opt/trading-bot/deploy/trading-bot-review.service ]; then cp /opt/trading-bot/deploy/trading-bot-review.service /etc/systemd/system/trading-bot-review.service; fi',
+              'if [ -f /opt/trading-bot/deploy/trading-bot-review.timer ]; then cp /opt/trading-bot/deploy/trading-bot-review.timer /etc/systemd/system/trading-bot-review.timer; fi',
               'systemctl daemon-reload',
               'systemctl enable --now trading-bot-s3-sync.timer',
+              'if [ -f /etc/systemd/system/trading-bot-review.timer ]; then systemctl enable --now trading-bot-review.timer; fi',
               'systemctl start trading-bot.service',
               'systemctl enable --now trading-bot-technical.service'
             ]" \

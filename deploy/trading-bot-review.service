@@ -8,6 +8,21 @@ Type=oneshot
 User=tradingbot
 WorkingDirectory=/opt/trading-bot/trading-bot-agent
 EnvironmentFile=/opt/trading-bot/.agent-env
+# Also load the bootstrap-assembled .env (config.env + all SSM secrets,
+# same file trading-bot.service/trading-bot-technical.service use) -
+# without this, TELEGRAM_BOT_TOKEN/TELEGRAM_CHAT_ID/TECH_TELEGRAM_* are
+# absent from this service's environment, so the notify() calls the review
+# prompt documents (`from trading_bot.notifier import notify`) silently
+# no-op (notifier.py reads os.environ at import time with no fallback, and
+# a missing token just logs-and-returns, never raises) - confirmed live
+# 2026-09-10: the agent reported "Telegram summaries sent" but nothing
+# arrived, because this file was the only EnvironmentFile= and it never
+# had these vars in the first place. Doesn't grant new access - the agent
+# already runs as the same `tradingbot` user that owns and can read
+# /opt/trading-bot/.env directly; this just makes the DOCUMENTED notify()
+# command in the prompt actually work instead of needing the agent to
+# improvise a workaround each run.
+EnvironmentFile=/opt/trading-bot/.env
 
 # The bot process on this box matters more than the agent does. t3.micro has
 # 1GB total and trading-bot.service is already running in it, so cap the
