@@ -88,9 +88,13 @@ NUMERIC_BOUNDS = {
     "TECH_SCALP_DAILY_LOSS_CAP_PCT": (0.005, 0.10),
     "TECH_SCALP_MAX_HOLD_MINUTES": (1, 120),
     "TECH_SCALP_MAX_TRADES_PER_DAY": (1, 20),
+    "TECH_SCALP_STOP_RUPEES_PER_LOT": (100, 3000),
+    "TECH_SCALP_TARGET_RUPEES_PER_LOT": (100, 3000),
     "TECH_INTRADAY_RISK_PER_TRADE_PCT": (0.005, 0.35),
     "TECH_INTRADAY_DAILY_LOSS_CAP_PCT": (0.005, 0.10),
     "TECH_INTRADAY_MAX_TRADES_PER_DAY": (1, 10),
+    "TECH_INTRADAY_STOP_RUPEES_PER_LOT": (100, 3000),
+    "TECH_INTRADAY_TARGET_RUPEES_PER_LOT": (100, 3000),
     "TECH_SWING_RISK_PER_TRADE_PCT": (0.005, 0.35),
     "TECH_SWING_DAILY_LOSS_CAP_PCT": (0.01, 0.15),
     "TECH_SWING_MIN_VOLUME": (0, 50_000_000),
@@ -109,6 +113,20 @@ NUMERIC_BOUNDS = {
 PINNED = {
     "DRY_RUN": "true",
     "TECH_DRY_RUN": "true",
+    # Statutory tax rates / broker-plan facts (added 2026-09-09), not
+    # strategy parameters - there's no valid "tuning" rationale for an
+    # autonomous agent to change a tax rate based on backtested
+    # performance. Only a human updating these to match a real contract
+    # note / rate change should touch them.
+    "TECH_COST_BROKERAGE_PER_ORDER": "20.0",
+    "TECH_COST_STT_SELL_PCT": "0.1",
+    "TECH_COST_EXCHANGE_TXN_PCT": "0.035",
+    "TECH_COST_SEBI_FEE_PCT": "0.0001",
+    "TECH_COST_STAMP_DUTY_PCT": "0.003",
+    "TECH_COST_GST_PCT": "18.0",
+    "TECH_COST_EQUITY_BROKERAGE_PER_ORDER": "0.0",
+    "TECH_COST_EQUITY_STT_PCT": "0.1",
+    "TECH_COST_EQUITY_STAMP_DUTY_PCT": "0.015",
 }
 
 REQUIRED_PRESENT = ["ENABLE_TRADING", "WATCHLIST", "ENTRY_TIME", "EXIT_TIME",

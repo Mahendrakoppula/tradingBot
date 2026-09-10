@@ -277,6 +277,23 @@ def test_trailing_stop_price_short_trails_above_extreme():
     assert ts.trailing_stop_price("short", favorable_extreme=90.0, atr_value=2.0, trail_mult=1.0) == pytest.approx(92.0)
 
 
+# --- premium_stop_target ---
+
+
+def test_premium_stop_target_basic():
+    stop_price, target_price = ts.premium_stop_target(entry_premium=20.0, lotsize=65, stop_rupees_per_lot=600, target_rupees_per_lot=700)
+    assert stop_price == pytest.approx(20.0 - 600 / 65)
+    assert target_price == pytest.approx(20.0 + 700 / 65)
+    assert stop_price < 20.0 < target_price
+
+
+def test_premium_stop_target_scales_with_lotsize():
+    # a bigger lotsize means a smaller premium move needed for the same rupee amount
+    small_lot_stop, _ = ts.premium_stop_target(20.0, lotsize=20, stop_rupees_per_lot=600, target_rupees_per_lot=700)
+    big_lot_stop, _ = ts.premium_stop_target(20.0, lotsize=700, stop_rupees_per_lot=600, target_rupees_per_lot=700)
+    assert (20.0 - small_lot_stop) > (20.0 - big_lot_stop)
+
+
 # --- stop_breached / target_reached / update_trailing_stop ---
 
 
