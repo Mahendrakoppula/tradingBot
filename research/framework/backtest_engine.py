@@ -58,7 +58,7 @@ from research.framework import risk as risk_mod
 from research.framework import strategies as strat
 from research.framework.market_structure import find_structure_events
 from research.framework.regime import Regime, classify_regime
-from research.framework.scoring import ScoringInputs
+from research.framework.scoring import ScoreWeights, ScoringInputs
 from trading_bot import costs as costs_mod
 from trading_bot.chart_patterns import detect_breakout
 from trading_bot.indicators import macd as calc_macd
@@ -85,6 +85,7 @@ class BacktestConfig:
     structure_left: int = 3
     structure_right: int = 3
     avg_volume_period: int = 20
+    weights: ScoreWeights | None = None  # overrides the strategy's own default weight preset when set
     technical_config: TechnicalConfig = field(default_factory=lambda: TechnicalConfig(dry_run=True, enable_trading=False))
 
 
@@ -198,18 +199,24 @@ def _nearest_breakout_trigger(candles_so_far: list[dict], visible_swings: list) 
     return None, False
 
 
-def _decide(strategy: str, regime: Regime, inputs: ScoringInputs, candles_so_far: list[dict], visible_swings: list, min_score: float):
+def _decide(
+    strategy: str, regime: Regime, inputs: ScoringInputs, candles_so_far: list[dict], visible_swings: list,
+    min_score: float, weights: ScoreWeights | None = None,
+):
+    kwargs = {"min_score": min_score}
+    if weights is not None:
+        kwargs["weights"] = weights
     if strategy == "trend_following":
-        return strat.trend_following(regime, inputs, min_score=min_score)
+        return strat.trend_following(regime, inputs, **kwargs)
     if strategy == "mean_reversion":
-        return strat.mean_reversion(regime, inputs, min_score=min_score)
+        return strat.mean_reversion(regime, inputs, **kwargs)
     if strategy == "momentum":
         candidate = regime.trend_direction if regime.trend_direction != "none" else ("up" if (inputs.rsi or 50.0) >= 50.0 else "down")
-        return strat.momentum(regime, inputs, candidate, min_score=min_score)
+        return strat.momentum(regime, inputs, candidate, **kwargs)
     if strategy == "breakout":
         direction, triggered = _nearest_breakout_trigger(candles_so_far, visible_swings)
         inputs.entry_trigger_confirmed = triggered
-        return strat.breakout(regime, inputs, direction or "up", min_score=min_score)
+        return strat.breakout(regime, inputs, direction or "up", **kwargs)
     raise ValueError(f"unknown strategy {strategy!r}, expected one of {STRATEGIES}")
 
 
@@ -295,7 +302,7 @@ def simulate(
             rsi=rsi_line[i], macd_histogram=macd_hist_line[i], relative_volume=rel_vol,
             recent_structure_events=events, entry_trigger_confirmed=False,
         )
-        result = _decide(strategy, regime, inputs, candles_so_far, visible_swings, config.min_score)
+        result = _decide(strategy, regime, inputs, candles_so_far, visible_swings, config.min_score, config.weights)
 
         if not isinstance(result, strat.Signal):
             decisions.append(DecisionRecord(underlying, i, candle.get("date"), "no_trade", result.reason))
