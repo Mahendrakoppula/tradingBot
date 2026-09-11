@@ -98,3 +98,50 @@ feature set at this horizon - a genuinely different experiment (new
 features, a different horizon, or a different target entirely, per the
 directions listed under Experiment 001) is needed before spending more
 effort on Model 1's regime-classification task.
+
+---
+
+## Experiment 003 - Regime classifier, horizon sweep
+
+**Date**: 2026-09-11
+**Hypothesis**: 5 bars (Experiments 001/002) was an arbitrary first
+choice for the prediction horizon - a different horizon might show real
+skill even though 5 bars didn't. Same features/model, just varying
+`horizon_bars`, per the "possible directions" list Experiment 001 itself
+recorded.
+**Method**: walk_forward_evaluate(), 8 folds, horizons 1/3/10/20 bars,
+each result run through research/promotion_gate.py's objective
+criteria (>=60% of folds beating baseline) rather than eyeballed.
+**Result**: 12 horizon-instrument combinations, ALL rejected by the gate.
+
+| Horizon | NIFTY | BANKNIFTY | SENSEX |
+|---|---|---|---|
+| 1 bar | 0/8 (0%) | 0/8 (0%) | 0/8 (0%) |
+| 3 bars | 0/8 (0%) | 0/8 (0%) | 0/8 (0%) |
+| 10 bars | 4/8 (50%) | 2/8 (25%) | 4/8 (50%) |
+| 20 bars | 1/8 (12%) | 3/8 (38%) | 2/8 (25%) |
+
+**Verdict: REJECTED at every horizon tried.** Short horizons (1, 3 bars)
+fail outright because the persistence baseline itself becomes very
+strong at short range (regimes rarely flip day-to-day) - 0/8 everywhere,
+not close. The 10-bar horizon is the closest to parity (NIFTY/SENSEX
+reach 50%, and their mean model accuracy slightly exceeds mean baseline
+accuracy despite winning fewer than half the folds individually,
+meaning winning folds have a larger margin than losing ones) - genuinely
+the most interesting result in this sweep, but still well under the 60%
+promotion threshold and BANKNIFTY doesn't follow the same pattern (25%).
+20 bars degrades further as the feature set's short-horizon signals
+(ATR/ROC over 10-14 bars) stop being relevant that far out. Not tuned
+toward a better number - every horizon's promotion decision came
+straight from research/promotion_gate.py's fixed criteria, none were
+adjusted after seeing a result.
+**Conclusion for future work**: the 10-bar result is the one direction
+in this sweep worth a real follow-up (e.g. features tuned to that
+horizon specifically, like a 10-bar-lookback ATR/ROC instead of the
+current 14/10-bar defaults chosen for a 5-bar target) - everything else
+tried so far (Experiments 001-003) points at the same conclusion: this
+feature set has essentially no signal at short-to-medium horizons, and
+a materially different feature set (MTF alignment, theoretical Greeks)
+or a different target entirely (Model 2's direction-probability) is
+needed before this regime-classification task is worth more direct
+iteration.
