@@ -57,3 +57,44 @@ each of these would be Experiment 002+, run once, recorded honestly):
   training rows per unit of wall-clock history.
 - A fundamentally different target (e.g. Model 2's direction-probability
   from the spec's 8-model list) rather than iterating on this one.
+
+---
+
+## Experiment 002 - Regime classifier, multi-fold walk-forward validation
+
+**Date**: 2026-09-11
+**Purpose**: Experiment 001 only used a SINGLE 80/20 split - a single
+train/test boundary can look bad (or good) by chance. Apply the same
+walk-forward rigor already used for the strategy backtester (Phase 13)
+to Model 1 itself: does "doesn't beat baseline" hold up across many
+independent folds, or was that one split unlucky?
+**Method**: models/regime_classifier.py's new walk_forward_evaluate() -
+expanding-window walk-forward (fold i trains on ALL data up to a purged
+cutoff, tests on the next held-out window, matching how a real
+periodic-retrain system would behave), 8 folds, same features/model/
+horizon as Experiment 001, minimum 10 rows per side per fold (smaller
+folds silently skipped rather than reported - a "100% accuracy" from
+one lucky guess is worse than no result).
+**Result**: 24 total fold-instrument evaluations (8 folds x 3
+instruments).
+
+| Instrument | Folds beating baseline | Mean model accuracy | Mean baseline accuracy |
+|---|---|---|---|
+| NIFTY | 1/8 | 0.490 | 0.593 |
+| BANKNIFTY | 1/8 | 0.453 | 0.569 |
+| SENSEX | 0/8 | 0.490 | 0.594 |
+
+**Verdict: CONFIRMED FAILED, much more conclusively than Experiment 001.**
+The model beat the persistence baseline in only 2 of 24 total fold
+evaluations (8.3%) - not a borderline or ambiguous result, a consistent
+loss across nearly every independent time window on all three
+instruments. This is strong evidence the current feature set (ATR/ROC/
+momentum only) genuinely lacks predictive power for 5-bar-ahead regime
+forecasting, not that Experiment 001's single split happened to be
+unlucky. Per this file's own rule, NOT tuned toward a better number -
+hyperparameters were left exactly as Experiment 001 set them.
+**Conclusion for future work**: don't keep iterating on this exact
+feature set at this horizon - a genuinely different experiment (new
+features, a different horizon, or a different target entirely, per the
+directions listed under Experiment 001) is needed before spending more
+effort on Model 1's regime-classification task.

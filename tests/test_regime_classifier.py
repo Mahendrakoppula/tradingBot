@@ -6,7 +6,7 @@ import pandas as pd
 import pytest
 
 from data.storage import load_ohlcv
-from models.regime_classifier import build_dataset, time_ordered_split, train_and_evaluate
+from models.regime_classifier import build_dataset, time_ordered_split, train_and_evaluate, walk_forward_evaluate
 
 NIFTY_DAILY = load_ohlcv("NIFTY", "ONE_DAY")
 requires_real_data = pytest.mark.skipif(len(NIFTY_DAILY) == 0, reason="real NIFTY daily data not pulled locally")
@@ -46,6 +46,27 @@ def test_train_and_evaluate_runs_end_to_end_on_real_data():
     assert 0.0 <= result.model_accuracy <= 1.0
     assert 0.0 <= result.baseline_accuracy <= 1.0
     assert isinstance(result.report, str) and len(result.report) > 0
+
+
+@requires_real_data
+def test_walk_forward_evaluate_produces_multiple_folds_with_expanding_training_sets():
+    results = walk_forward_evaluate(NIFTY_DAILY, horizon_bars=5, n_folds=5)
+    assert len(results) >= 2  # at least a couple of folds have enough data
+    for a, b in zip(results, results[1:]):
+        assert b.n_train > a.n_train  # expanding window: each fold trains on more than the last
+    for r in results:
+        assert 0.0 <= r.model_accuracy <= 1.0
+        assert 0.0 <= r.baseline_accuracy <= 1.0
+        assert r.n_test > 0
+
+
+@requires_real_data
+def test_walk_forward_evaluate_raises_when_not_enough_rows_for_the_fold_count():
+    tiny_df = NIFTY_DAILY.iloc[: min(50, len(NIFTY_DAILY))]
+    # n_folds this aggressive relative to the dataset drives fold_size to
+    # zero outright (32 usable rows // 101 requested folds+1 == 0).
+    with pytest.raises(ValueError):
+        walk_forward_evaluate(tiny_df, horizon_bars=5, n_folds=100)
 
 
 def test_build_dataset_on_synthetic_data_with_no_real_structure_still_runs():

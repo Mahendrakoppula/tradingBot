@@ -13,9 +13,11 @@ starting portfolio, see strategies/ below - more can be added to the
 same framework without a new phase. Risk engine (daily P&L selectivity,
 equity-protection capital tiers, position sizing) - done, see risk/
 below. Phase 7: ML models - Model 1/8 (regime classifier) built and
-evaluated against real data; it did NOT beat the naive baseline - see
-models/EXPERIMENTS.md for the honest result and why it wasn't tuned to
-look better. Dynamic ATR/structure stops, portfolio Greek aggregation,
+evaluated against real data; it did NOT beat the naive baseline, and a
+subsequent 8-fold walk-forward validation confirmed this much more
+conclusively (beat baseline in only 2 of 24 fold-instrument evaluations) -
+see models/EXPERIMENTS.md for both honest results and why neither was
+tuned to look better. Dynamic ATR/structure stops, portfolio Greek aggregation,
 an execution engine (always simulated), Phase 12's event-driven
 backtester, and Phase 13's walk-forward + bootstrap/Monte Carlo
 validation are all done too - see backtesting/BACKTESTS.md, including a

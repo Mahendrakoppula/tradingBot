@@ -78,6 +78,28 @@ class EvaluationResult:
     report: str
 
 
+def _make_model() -> RandomForestClassifier:
+    return RandomForestClassifier(n_estimators=200, max_depth=6, min_samples_leaf=20, random_state=42, class_weight="balanced")
+
+
+def _fit_and_evaluate(df: pd.DataFrame, X_train: pd.DataFrame, y_train: pd.Series, X_test: pd.DataFrame, y_test: pd.Series) -> EvaluationResult:
+    model = _make_model()
+    model.fit(X_train, y_train)
+    predictions = model.predict(X_test)
+    model_accuracy = accuracy_score(y_test, predictions)
+
+    # Persistence baseline: "the regime won't change" - the naive
+    # forecast every real model here must beat to be worth anything.
+    current_regime = batch_regime_labels(df).reindex(X_test.index)
+    baseline_accuracy = accuracy_score(y_test, current_regime)
+
+    report = classification_report(y_test, predictions, zero_division=0)
+    return EvaluationResult(
+        model_accuracy=model_accuracy, baseline_accuracy=baseline_accuracy,
+        n_train=len(X_train), n_test=len(X_test), report=report,
+    )
+
+
 def train_and_evaluate(
     df: pd.DataFrame,
     horizon_bars: int = 5,
@@ -87,21 +109,52 @@ def train_and_evaluate(
     purge_bars = horizon_bars if purge_bars is None else purge_bars
     X, y = build_dataset(df, horizon_bars)
     split = time_ordered_split(X, y, test_fraction, purge_bars)
+    return _fit_and_evaluate(df, split.X_train, split.y_train, split.X_test, split.y_test)
 
-    model = RandomForestClassifier(
-        n_estimators=200, max_depth=6, min_samples_leaf=20, random_state=42, class_weight="balanced",
-    )
-    model.fit(split.X_train, split.y_train)
-    predictions = model.predict(split.X_test)
-    model_accuracy = accuracy_score(split.y_test, predictions)
 
-    # Persistence baseline: "the regime won't change" - the naive
-    # forecast every real model here must beat to be worth anything.
-    current_regime = batch_regime_labels(df).reindex(split.X_test.index)
-    baseline_accuracy = accuracy_score(split.y_test, current_regime)
+MIN_FOLD_SIZE = 10  # below this, a fold's "accuracy" is a handful of coin flips, not a meaningful measurement
 
-    report = classification_report(split.y_test, predictions, zero_division=0)
-    return EvaluationResult(
-        model_accuracy=model_accuracy, baseline_accuracy=baseline_accuracy,
-        n_train=len(split.X_train), n_test=len(split.X_test), report=report,
-    )
+
+def walk_forward_evaluate(
+    df: pd.DataFrame,
+    horizon_bars: int = 5,
+    n_folds: int = 5,
+    purge_bars: int | None = None,
+    min_fold_size: int = MIN_FOLD_SIZE,
+) -> list[EvaluationResult]:
+    """Expanding-window walk-forward: fold i trains on ALL data up to
+    (minus a purge gap) the start of fold i's own held-out test window,
+    then tests on that window - unlike backtesting/walk_forward.py's
+    independent, non-overlapping folds (which suit strategies that
+    aren't fit to data at all), a model genuinely needs to be retrained
+    per fold, and an expanding window matches how a real periodic-
+    retrain system would behave (train on everything available so far).
+
+    Returns one EvaluationResult per fold with at least `min_fold_size`
+    rows in both train and test - smaller folds are silently skipped
+    rather than reported, since e.g. "100% accuracy" from one lucky
+    guess on a 1-row fold is worse than no result at all."""
+    purge_bars = horizon_bars if purge_bars is None else purge_bars
+    X, y = build_dataset(df, horizon_bars)
+    n = len(X)
+    fold_size = n // (n_folds + 1)  # first slice is reserved purely for initial training
+    if fold_size <= 0:
+        raise ValueError(f"Not enough rows ({n}) for {n_folds} folds")
+
+    results = []
+    for fold in range(1, n_folds + 1):
+        train_end = fold * fold_size - purge_bars
+        test_start = fold * fold_size
+        test_end = min((fold + 1) * fold_size, n)
+        if train_end < min_fold_size or test_end - test_start < min_fold_size:
+            continue
+        X_train, y_train = X.iloc[:train_end], y.iloc[:train_end]
+        X_test, y_test = X.iloc[test_start:test_end], y.iloc[test_start:test_end]
+        results.append(_fit_and_evaluate(df, X_train, y_train, X_test, y_test))
+
+    if not results:
+        raise ValueError(
+            f"No usable folds: {n} rows is not enough for {n_folds} folds "
+            f"with purge_bars={purge_bars} and min_fold_size={min_fold_size}"
+        )
+    return results
