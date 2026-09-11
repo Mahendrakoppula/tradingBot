@@ -41,7 +41,9 @@ from market_state.classifier import classify_market_state
 from market_state.volatility import atr as compute_atr
 from risk.daily_risk_engine import DailyRiskEngine
 from risk.dynamic_stops import compute_stop_and_target, update_trailing_stop
+from strategies.contract_selection import select_contract
 from strategies.portfolio import generate_candidate_signals
+from strategies.ranking import select_best_signal
 
 DEFAULT_WARMUP_BARS = 30
 
@@ -59,6 +61,13 @@ class BacktestConfig:
     profit_selectivity_level: float = 1000.0
     warmup_bars: int = DEFAULT_WARMUP_BARS
     strategies: list | None = None  # None = strategies.portfolio.DEFAULT_STRATEGIES
+    # Default False preserves the exact ATM-only behavior every number in
+    # backtesting/BACKTESTS.md was produced with - flip to True only as a
+    # deliberate, separately-logged A/B experiment (spec Phase 9's
+    # contract selector), never as a silent default change that would
+    # invalidate already-logged results without a new entry explaining why.
+    use_contract_selector: bool = False
+    contract_selector_offsets: tuple[int, ...] = (-2, -1, 0, 1, 2)
 
 
 @dataclass
@@ -150,9 +159,9 @@ def run_backtest(df: pd.DataFrame, config: BacktestConfig | None = None) -> Back
         market_state = classify_market_state(history)
         signals = generate_candidate_signals(history, market_state, mtf=None, strategies=config.strategies)
         qualified = [s for s in signals if s.confidence >= decision.min_confidence_required]
-        if not qualified:
+        best = select_best_signal(qualified)
+        if best is None:
             continue
-        best = max(qualified, key=lambda s: s.confidence)
 
         try:
             levels = compute_stop_and_target(history, t, best.direction, **stop_kwargs)
@@ -160,12 +169,22 @@ def run_backtest(df: pd.DataFrame, config: BacktestConfig | None = None) -> Back
             continue
 
         entry_price = float(bar["close"])
-        strike = round(entry_price / config.strike_increment) * config.strike_increment
         entry_date = bar["timestamp"].date() if hasattr(bar["timestamp"], "date") else bar["timestamp"]
         expiry = entry_date + dt.timedelta(days=config.days_to_expiry)
-        entry_snapshot = theoretical_option_snapshot(history, t, strike, expiry, best.direction, config.risk_free_rate)
-        if entry_snapshot is None:
-            continue
+
+        if config.use_contract_selector:
+            candidate = select_contract(
+                history, t, best.direction, expiry, config.risk_free_rate,
+                config.strike_increment, strike_offsets=config.contract_selector_offsets,
+            )
+            if candidate is None:
+                continue
+            strike, entry_snapshot = candidate.strike, candidate.snapshot
+        else:
+            strike = round(entry_price / config.strike_increment) * config.strike_increment
+            entry_snapshot = theoretical_option_snapshot(history, t, strike, expiry, best.direction, config.risk_free_rate)
+            if entry_snapshot is None:
+                continue
 
         open_trade = Trade(
             strategy_name=best.strategy_name, direction=best.direction, entry_index=t,

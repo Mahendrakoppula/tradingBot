@@ -115,7 +115,13 @@ strategies/   (Phase 6, done) strategy portfolio, regime-eligibility
               following, mean-reversion, opening-range-breakout. More
               (momentum, VWAP, failed-breakout, volatility-expansion,
               event-driven, structure-reversal) can extend this same
-              framework later
+              framework later. (Phase 9, done) ranking.py picks among
+              multiple candidate signals by confidence; contract_selection.py
+              evaluates 5 strikes by capital efficiency (delta/premium -
+              an honest heuristic, NOT real risk-adjusted EV, which
+              needs a probability model that doesn't exist yet) instead
+              of always trading ATM - opt-in in the backtester
+              (BACKTESTS.md's Run 004), off by default
 models/       (Phase 7, in progress) ML training. Model 1/8 (regime
               classifier) built - see models/EXPERIMENTS.md for its
               honest result (did not beat baseline, not promoted).

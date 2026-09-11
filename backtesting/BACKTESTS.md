@@ -259,3 +259,43 @@ divergence filter, or leaning on Model 2's eventual direction-
 probability once it exists) is real future work, but it would need
 validation on a DIFFERENT reversal event than this one to mean anything
 - this dataset only contains one clear example of the phenomenon.
+
+---
+
+## Run 004 - Contract selector A/B test (strategies/contract_selection.py)
+
+**Date**: 2026-09-11
+**Purpose**: Phase 9's contract selector evaluates 5 strikes (ATM +/-2
+increments) by capital efficiency (|delta|/premium - an honest
+directional-leverage heuristic, NOT real risk-adjusted EV, since that
+needs a probability model that doesn't exist - see the module's own
+docstring) instead of always trading ATM. Tested as an explicit,
+separately-logged A/B comparison against the existing ATM-only
+baseline, config flag defaults to False specifically so this never
+silently changes an already-logged result.
+**Result** (full-history, same config as Run 001R otherwise):
+
+| Instrument | n_trades | total_pnl (ATM-only, Run 001R) | total_pnl (selector) | max_dd (ATM-only) | max_dd (selector) |
+|---|---|---|---|---|---|
+| NIFTY | 94 | 5,688.3 | 6,512.4 | 1,196.8 | 802.5 |
+| BANKNIFTY | 97 | 14,859.4 | 15,907.5 | 6,414.4 | 5,648.5 |
+| SENSEX | 92 | 24,596.2 | 24,939.0 | 3,687.5 | 3,469.4 |
+
+Same trade count on all three (strike choice doesn't affect WHEN/WHETHER
+a trade fires, only which contract). A modest improvement in both total
+P&L (+1% to +14%) and max drawdown on all three - re-ran the walk-forward
+(002R) with the selector too: still exactly 3/5 folds profitable on all
+three indices, same high variance relative to the mean. Confirms this
+strike-selection change doesn't touch the DIRECTION/TIMING mechanism
+Investigation 001 found (the trend-following-whipsaw-at-a-reversal
+problem) - it wasn't expected to, since that's an entry-timing issue,
+not a strike-selection one.
+
+**Verdict: a plausible, mechanistically-sensible small improvement, not
+a validated one.** Built before seeing this result (not tuned toward
+it), and the effect size is modest relative to the bootstrap CI's own
+width from Run 003 - not something to declare victory over. Config
+still defaults to the ATM-only baseline; switching the default would
+need its own out-of-sample validation, not a single in-sample A/B
+comparison on the same history everything else in this log was checked
+against.
