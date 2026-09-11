@@ -76,7 +76,7 @@ jobs:
       - name: Build deploy package (code + deploy scripts, no secrets)
         run: |
           zip -r deploy_package.zip \
-            app config monitoring data market_state features strategies risk models portfolio execution backtesting \
+            app config monitoring data market_state features strategies risk models portfolio execution backtesting paper_trading \
             requirements.txt \
             deploy/codex-trading.service
 

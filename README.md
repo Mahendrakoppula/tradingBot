@@ -1,6 +1,6 @@
 # Codex — Autonomous ML-Driven Index Options Trading System
 
-Status: **Phase 9 and 15 done, Phase 7 in progress** (of 18) (Phase 1: scaffolding/config/
+Status: **Phase 9, 14, and 15 done, Phase 7 in progress** (of 18) (Phase 1: scaffolding/config/
 logging/notifications/deploy - done. Phase 2: historical OHLCV data
 pipeline + quality engine - done, and real data has now actually been
 pulled (data/raw/, gitignored - see "Local development" below to
@@ -27,7 +27,16 @@ walk-forward still shows only 3/5 time-blocked folds profitable -
 suggestive, not proof of a validated edge. Phase 9 (trade ranking +
 contract selection) and Phase 15 (Streamlit dashboard) are also done -
 see strategies/ranking.py, strategies/contract_selection.py, and
-dashboard/ below). No live trading logic exists yet - nothing here is
+dashboard/ below. Phase 14 (paper trading) is code-complete and tested
+(paper_trading/) - a once-daily loop, run near market close, that
+reuses backtesting/event_loop.py's exact process_bar() logic against
+live-refreshed data and persists state/sends Telegram notifications for
+PAPER trades only (the module never even imports execution/order_client.py -
+structurally incapable of a real order, not just gated by a flag). NOT
+yet scheduled to run automatically anywhere - deploying the systemd
+timer that would actually start it running daily is a deliberate,
+separate decision, not made yet). No live trading logic exists yet -
+nothing here is
 promoted or wired into a live decision.
 
 **Follow-up investigation** (backtesting/attribution.py, BACKTESTS.md's
@@ -164,6 +173,12 @@ backtesting/  (Phase 12, done) event-driven backtester - processes bars
               risk state never resetting between bars) and the
               corrected, still-mixed result after fixing it - nothing
               here is a validated edge
+paper_trading/ (Phase 14, code done - not yet scheduled to run) once-
+              daily loop reusing backtesting/event_loop.py's exact
+              process_bar() (never a divergent live reimplementation),
+              persisted per-instrument state, Telegram entry/exit
+              notifications. Never imports execution/order_client.py -
+              structurally cannot place a real order
 research/     (Phase 18) autonomous hypothesis generation/validation loop
 dashboard/    (Phase 15, done) Streamlit - Data Health, current Market
               State + regime timeline, and an on-demand Backtest viewer.
