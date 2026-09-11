@@ -103,12 +103,40 @@ def _close_trade(trade: Trade, df: pd.DataFrame, exit_index: int, reason: str, r
     trade.pnl = trade.exit_premium - trade.entry_premium
 
 
-def run_backtest(df: pd.DataFrame, config: BacktestConfig | None = None) -> BacktestResult:
-    config = config or BacktestConfig()
-    n = len(df)
-    trades: list[Trade] = []
-    open_trade: Trade | None = None
-    daily_risk = DailyRiskEngine(config.max_daily_loss, config.profit_protection_level, config.profit_selectivity_level)
+def process_bar(
+    df: pd.DataFrame,
+    t: int,
+    open_trade: Trade | None,
+    daily_risk: DailyRiskEngine,
+    config: BacktestConfig,
+    is_last_bar: bool = False,
+) -> tuple[Trade | None, Trade | None]:
+    """Processes exactly ONE bar (one full trading day, in this
+    daily-bars-only scope) of decision-making. Shared by run_backtest()
+    below and paper_trading/'s live daily loop, so both use IDENTICAL
+    decision logic rather than a hand-copied reimplementation that could
+    silently drift from the validated backtester - the classic
+    backtest/live logic divergence bug class this refactor exists to
+    rule out structurally, not just by discipline.
+
+    Returns (new_open_trade, closed_trade) - closed_trade is non-None
+    only on the bar a position actually closed this call.
+
+    `is_last_bar`: True only for the backtester's final bar (nothing
+    left to ever manage a position opened there - see the last-bar edge
+    case fixed in this project's history). Always False for live use,
+    where there is no "last bar" until the process itself stops.
+    """
+    history = df.iloc[: t + 1]  # the one and only leakage boundary
+    bar = df.iloc[t]
+
+    # Each call IS one full trading day in this daily-bars-only first
+    # pass (see module docstring) - the daily risk engine's P&L must
+    # reset here every call, or a bad day early in a long run
+    # permanently freezes it for every day after (a real bug this
+    # project caught via Monte Carlo validation surfacing an implausibly
+    # small trade count on BANKNIFTY - see backtesting/BACKTESTS.md).
+    daily_risk.reset_day()
 
     stop_kwargs = {}
     if config.stop_atr_multiplier is not None:
@@ -119,79 +147,78 @@ def run_backtest(df: pd.DataFrame, config: BacktestConfig | None = None) -> Back
     if config.trail_atr_multiplier is not None:
         trail_multiplier_kwargs["trail_atr_multiplier"] = config.trail_atr_multiplier
 
-    for t in range(config.warmup_bars, n):
-        history = df.iloc[: t + 1]  # the one and only leakage boundary
-        bar = df.iloc[t]
-
-        # Each bar IS one full trading day in this daily-bars-only first
-        # pass (see module docstring) - the daily risk engine's P&L must
-        # reset here every bar, or a bad day early in a multi-year
-        # backtest permanently freezes it for every day after (a real
-        # bug this project caught via Monte Carlo validation surfacing
-        # an implausibly small trade count on BANKNIFTY - see
-        # backtesting/BACKTESTS.md).
-        daily_risk.reset_day()
-
-        if open_trade is not None:
-            reason = _check_stop_target_hit(open_trade, bar)
-            if reason is not None:
-                _close_trade(open_trade, history, t, reason, config.risk_free_rate)
-                daily_risk.record_realized_pnl(open_trade.pnl)
-                trades.append(open_trade)
-                open_trade = None
-            else:
-                atr_series = compute_atr(history)
-                atr_value = atr_series.iloc[-1] if len(atr_series) else float("nan")
-                if pd.notna(atr_value) and atr_value > 0:
-                    open_trade.stop_price = update_trailing_stop(
-                        open_trade.direction, open_trade.stop_price, float(bar["close"]),
-                        atr_value=float(atr_value), **trail_multiplier_kwargs,
-                    )
-            continue
-
-        if t == n - 1:
-            continue  # no bars left to ever manage a position opened here - not a real trade opportunity
-
-        decision = daily_risk.evaluate()
-        if not decision.allow_new_trades:
-            continue
-
-        market_state = classify_market_state(history)
-        signals = generate_candidate_signals(history, market_state, mtf=None, strategies=config.strategies)
-        qualified = [s for s in signals if s.confidence >= decision.min_confidence_required]
-        best = select_best_signal(qualified)
-        if best is None:
-            continue
-
-        try:
-            levels = compute_stop_and_target(history, t, best.direction, **stop_kwargs)
-        except ValueError:
-            continue
-
-        entry_price = float(bar["close"])
-        entry_date = bar["timestamp"].date() if hasattr(bar["timestamp"], "date") else bar["timestamp"]
-        expiry = entry_date + dt.timedelta(days=config.days_to_expiry)
-
-        if config.use_contract_selector:
-            candidate = select_contract(
-                history, t, best.direction, expiry, config.risk_free_rate,
-                config.strike_increment, strike_offsets=config.contract_selector_offsets,
+    if open_trade is not None:
+        reason = _check_stop_target_hit(open_trade, bar)
+        if reason is not None:
+            _close_trade(open_trade, history, t, reason, config.risk_free_rate)
+            daily_risk.record_realized_pnl(open_trade.pnl)
+            return None, open_trade
+        atr_series = compute_atr(history)
+        atr_value = atr_series.iloc[-1] if len(atr_series) else float("nan")
+        if pd.notna(atr_value) and atr_value > 0:
+            open_trade.stop_price = update_trailing_stop(
+                open_trade.direction, open_trade.stop_price, float(bar["close"]),
+                atr_value=float(atr_value), **trail_multiplier_kwargs,
             )
-            if candidate is None:
-                continue
-            strike, entry_snapshot = candidate.strike, candidate.snapshot
-        else:
-            strike = round(entry_price / config.strike_increment) * config.strike_increment
-            entry_snapshot = theoretical_option_snapshot(history, t, strike, expiry, best.direction, config.risk_free_rate)
-            if entry_snapshot is None:
-                continue
+        return open_trade, None
 
-        open_trade = Trade(
-            strategy_name=best.strategy_name, direction=best.direction, entry_index=t,
-            entry_timestamp=bar["timestamp"], entry_spot=entry_price, entry_premium=entry_snapshot.price,
-            strike=strike, expiry=expiry, stop_price=levels.stop_price, target_price=levels.target_price,
-            entry_regime=market_state.regime,
+    if is_last_bar:
+        return None, None  # no bars left to ever manage a position opened here - not a real trade opportunity
+
+    decision = daily_risk.evaluate()
+    if not decision.allow_new_trades:
+        return None, None
+
+    market_state = classify_market_state(history)
+    signals = generate_candidate_signals(history, market_state, mtf=None, strategies=config.strategies)
+    qualified = [s for s in signals if s.confidence >= decision.min_confidence_required]
+    best = select_best_signal(qualified)
+    if best is None:
+        return None, None
+
+    try:
+        levels = compute_stop_and_target(history, t, best.direction, **stop_kwargs)
+    except ValueError:
+        return None, None
+
+    entry_price = float(bar["close"])
+    entry_date = bar["timestamp"].date() if hasattr(bar["timestamp"], "date") else bar["timestamp"]
+    expiry = entry_date + dt.timedelta(days=config.days_to_expiry)
+
+    if config.use_contract_selector:
+        candidate = select_contract(
+            history, t, best.direction, expiry, config.risk_free_rate,
+            config.strike_increment, strike_offsets=config.contract_selector_offsets,
         )
+        if candidate is None:
+            return None, None
+        strike, entry_snapshot = candidate.strike, candidate.snapshot
+    else:
+        strike = round(entry_price / config.strike_increment) * config.strike_increment
+        entry_snapshot = theoretical_option_snapshot(history, t, strike, expiry, best.direction, config.risk_free_rate)
+        if entry_snapshot is None:
+            return None, None
+
+    new_trade = Trade(
+        strategy_name=best.strategy_name, direction=best.direction, entry_index=t,
+        entry_timestamp=bar["timestamp"], entry_spot=entry_price, entry_premium=entry_snapshot.price,
+        strike=strike, expiry=expiry, stop_price=levels.stop_price, target_price=levels.target_price,
+        entry_regime=market_state.regime,
+    )
+    return new_trade, None
+
+
+def run_backtest(df: pd.DataFrame, config: BacktestConfig | None = None) -> BacktestResult:
+    config = config or BacktestConfig()
+    n = len(df)
+    trades: list[Trade] = []
+    open_trade: Trade | None = None
+    daily_risk = DailyRiskEngine(config.max_daily_loss, config.profit_protection_level, config.profit_selectivity_level)
+
+    for t in range(config.warmup_bars, n):
+        open_trade, closed = process_bar(df, t, open_trade, daily_risk, config, is_last_bar=(t == n - 1))
+        if closed is not None:
+            trades.append(closed)
 
     if open_trade is not None:
         _close_trade(open_trade, df, n - 1, "end_of_data", config.risk_free_rate)
