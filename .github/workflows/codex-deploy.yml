@@ -78,7 +78,7 @@ jobs:
           zip -r deploy_package.zip \
             app config monitoring data market_state features strategies risk models portfolio execution backtesting paper_trading \
             requirements.txt \
-            deploy/codex-trading.service
+            deploy/codex-trading.service deploy/codex-paper-trading.service deploy/codex-paper-trading.timer
 
       - name: Upload to S3
         run: aws s3 cp deploy_package.zip "s3://${{ vars.DEPLOY_BUCKET }}/trading-bot/codex/app.zip"
@@ -127,8 +127,11 @@ jobs:
               '/opt/codex-trading/.venv/bin/pip install --quiet -r /opt/codex-trading/requirements.txt',
               'chown -R tradingbot:tradingbot /opt/codex-trading',
               'cp /opt/codex-trading/deploy/codex-trading.service /etc/systemd/system/codex-trading.service',
+              'if [ -f /opt/codex-trading/deploy/codex-paper-trading.service ]; then cp /opt/codex-trading/deploy/codex-paper-trading.service /etc/systemd/system/codex-paper-trading.service; fi',
+              'if [ -f /opt/codex-trading/deploy/codex-paper-trading.timer ]; then cp /opt/codex-trading/deploy/codex-paper-trading.timer /etc/systemd/system/codex-paper-trading.timer; fi',
               'systemctl daemon-reload',
-              'systemctl enable --now codex-trading.service'
+              'systemctl enable --now codex-trading.service',
+              'if [ -f /etc/systemd/system/codex-paper-trading.timer ]; then systemctl enable --now codex-paper-trading.timer; fi'
             ]" \
             --query "Command.CommandId" --output text)
           aws ssm wait command-executed --command-id "$COMMAND_ID" --instance-id "${{ vars.INSTANCE_ID }}" || true

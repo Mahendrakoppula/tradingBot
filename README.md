@@ -32,11 +32,11 @@ dashboard/ below. Phase 14 (paper trading) is code-complete and tested
 reuses backtesting/event_loop.py's exact process_bar() logic against
 live-refreshed data and persists state/sends Telegram notifications for
 PAPER trades only (the module never even imports execution/order_client.py -
-structurally incapable of a real order, not just gated by a flag). NOT
-yet scheduled to run automatically anywhere - deploying the systemd
-timer that would actually start it running daily is a deliberate,
-separate decision, not made yet). No live trading logic exists yet -
-nothing here is
+structurally incapable of a real order, not just gated by a flag).
+Scheduled via deploy/codex-paper-trading.service+.timer, Mon-Fri 15:45
+IST (15 min after market close) - refreshes data then runs the decision
+loop, on the same shared instance as the other two bots.). No live
+trading logic exists yet - nothing here is
 promoted or wired into a live decision.
 
 **Follow-up investigation** (backtesting/attribution.py, BACKTESTS.md's

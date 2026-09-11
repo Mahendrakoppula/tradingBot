@@ -1,0 +1,23 @@
+[Unit]
+Description=Codex paper trading: refresh data then run the daily decision loop
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=tradingbot
+Group=tradingbot
+WorkingDirectory=/opt/codex-trading
+EnvironmentFile=/opt/codex-trading/.env
+# Two ExecStart lines run in order for a oneshot service - refresh the
+# day's data first, then make the (paper) trading decision from it.
+# data.pull_history does a full backfill every run (not an incremental
+# fetch) - a known, accepted inefficiency for a once-daily job, not a
+# bug; a lighter incremental fetch is future work if this ever becomes
+# a real cost/time problem.
+ExecStart=/opt/codex-trading/.venv/bin/python -m data.pull_history
+ExecStart=/opt/codex-trading/.venv/bin/python -m paper_trading.daily_loop
+TimeoutStartSec=600
+
+[Install]
+WantedBy=multi-user.target

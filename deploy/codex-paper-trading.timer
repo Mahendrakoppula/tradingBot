@@ -1,0 +1,24 @@
+[Unit]
+Description=Run codex paper trading (data refresh + decision loop) after market close
+
+[Timer]
+# ******* THE INSTANCE CLOCK IS UTC, NOT IST *******
+# Same gotcha this project has already been bitten by once (see
+# trading_bot/timeutil.py and deploy/trading-bot-review.timer's own
+# comment). Verify with `timedatectl` before changing this line.
+#
+#   10:15 UTC = 15:45 IST
+#
+# Market closes 15:30 IST - this gives a 15-minute buffer before
+# data.pull_history's full backfill (a few minutes) plus
+# paper_trading.daily_loop run, comfortably finishing before the
+# existing review agent's 16:00 IST run (deploy/trading-bot-review.timer)
+# and well within the instance's 18:00 IST EventBridge stop.
+OnCalendar=Mon-Fri *-*-* 10:15:00 UTC
+
+# If the instance was down at 10:15 (a holiday start, a failed boot), run
+# once on the next start rather than silently skipping the day entirely.
+Persistent=true
+
+[Install]
+WantedBy=timers.target
