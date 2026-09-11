@@ -1,6 +1,6 @@
 # Codex — Autonomous ML-Driven Index Options Trading System
 
-Status: **Phase 7 of 18, in progress** (Phase 1: scaffolding/config/
+Status: **Phase 9 and 15 done, Phase 7 in progress** (of 18) (Phase 1: scaffolding/config/
 logging/notifications/deploy - done. Phase 2: historical OHLCV data
 pipeline + quality engine - done, and real data has now actually been
 pulled (data/raw/, gitignored - see "Local development" below to
@@ -24,8 +24,11 @@ silently freezing BANKNIFTY's entire backtest after one early bad
 stretch) and the corrected, genuinely mixed result after fixing it:
 bootstrap confidence intervals exclude zero on all three indices, but
 walk-forward still shows only 3/5 time-blocked folds profitable -
-suggestive, not proof of a validated edge). No live trading logic
-exists yet - nothing here is promoted or wired into a live decision.
+suggestive, not proof of a validated edge. Phase 9 (trade ranking +
+contract selection) and Phase 15 (Streamlit dashboard) are also done -
+see strategies/ranking.py, strategies/contract_selection.py, and
+dashboard/ below). No live trading logic exists yet - nothing here is
+promoted or wired into a live decision.
 
 **Follow-up investigation** (backtesting/attribution.py, BACKTESTS.md's
 Investigation 001): traced the walk-forward inconsistency to a specific,
@@ -162,7 +165,16 @@ backtesting/  (Phase 12, done) event-driven backtester - processes bars
               corrected, still-mixed result after fixing it - nothing
               here is a validated edge
 research/     (Phase 18) autonomous hypothesis generation/validation loop
-dashboard/    (Phase 15) Streamlit
+dashboard/    (Phase 15, done) Streamlit - Data Health, current Market
+              State + regime timeline, and an on-demand Backtest viewer.
+              Read-only, informational only. Run: `streamlit run
+              dashboard/app.py`. dashboard/queries.py + backtest_data.py
+              hold the testable logic; app.py is a thin rendering layer.
+              A real bug was caught only by actually running this in a
+              browser (not just importing it in tests): a same-named
+              dashboard/data.py module collided with the top-level
+              data/ package once Streamlit put dashboard/ on sys.path -
+              renamed to queries.py to fix it properly
 tests/        test-first, mirrors every module above
 deploy/       systemd unit, CI (deploys to the shared instance via SSM)
 ```
@@ -174,6 +186,12 @@ python -m venv .venv
 .venv/Scripts/pip install -r requirements.txt -r requirements-dev.txt
 python -m pytest -q
 python -m app.main   # starts the Phase 1 health-check skeleton
+python -m data.pull_history   # backfill real historical data into data/raw/ (gitignored)
+
+# Dashboard - separate requirements file (streamlit is heavy and never
+# needed by the live service - see requirements-dashboard.txt)
+.venv/Scripts/pip install -r requirements-dashboard.txt
+streamlit run dashboard/app.py
 ```
 
 Required environment variables are validated at startup by
