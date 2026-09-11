@@ -1,6 +1,6 @@
 # Codex — Autonomous ML-Driven Index Options Trading System
 
-Status: **Phase 9, 14, and 15 done, Phase 7 in progress** (of 18) (Phase 1: scaffolding/config/
+Status: **Phase 9, 14, and 15 done, Phase 17/18 structural backbone done, Phase 7 in progress** (of 18) (Phase 1: scaffolding/config/
 logging/notifications/deploy - done. Phase 2: historical OHLCV data
 pipeline + quality engine - done, and real data has now actually been
 pulled (data/raw/, gitignored - see "Local development" below to
@@ -175,13 +175,24 @@ backtesting/  (Phase 12, done) event-driven backtester - processes bars
               risk state never resetting between bars) and the
               corrected, still-mixed result after fixing it - nothing
               here is a validated edge
+research/     (Phase 17/18, structural backbone only) experiment_log.py -
+              a durable, queryable JSONL ledger of every experiment run
+              (research/experiment_log.jsonl, backfilled with tonight's
+              real results from models/EXPERIMENTS.md and
+              backtesting/BACKTESTS.md), plus has_been_tried() to avoid
+              blindly repeating an already-tried hypothesis.
+              promotion_gate.py encodes "promote only if justified
+              against a real baseline" as actual code (default: beat
+              baseline in >=60% of >=5 folds), not just written
+              discipline. NOT a claim of real autonomy - hypothesis
+              generation is still done by a human/Claude reading the
+              data, not by this code
 paper_trading/ (Phase 14, code done - not yet scheduled to run) once-
               daily loop reusing backtesting/event_loop.py's exact
               process_bar() (never a divergent live reimplementation),
               persisted per-instrument state, Telegram entry/exit
               notifications. Never imports execution/order_client.py -
               structurally cannot place a real order
-research/     (Phase 18) autonomous hypothesis generation/validation loop
 dashboard/    (Phase 15, done) Streamlit - Data Health, current Market
               State + regime timeline, and an on-demand Backtest viewer.
               Read-only, informational only. Run: `streamlit run
