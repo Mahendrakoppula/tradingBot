@@ -204,9 +204,12 @@ portfolio/    (done) aggregated delta/gamma/vega/theta across NIFTY/
               even while every individual position looks fine
 backtesting/  (Phase 12, done) event-driven backtester - processes bars
               strictly in order, leakage-free (see event_loop.py's
-              docstring for its known first-pass simplifications: daily
-              bars only, one conceptual unit not lot-sized, fixed 7-day
-              expiry, no costs/slippage). (Phase 13, done) walk-forward
+              docstring for its remaining first-pass simplifications:
+              one conceptual unit not lot-sized, fixed 7-day expiry, no
+              costs/slippage - the "daily bars only" simplification is
+              resolved as of Run 011, see below: process_bar() now takes
+              a real calendar-day-aware is_new_day flag instead of
+              assuming every call is a new day). (Phase 13, done) walk-forward
               validation (walk_forward.py) - non-overlapping, embargoed
               folds, each an independent backtest. monte_carlo.py adds
               bootstrap total-P&L confidence intervals and trade-
@@ -268,7 +271,25 @@ backtesting/  (Phase 12, done) event-driven backtester - processes bars
               crossed) - a legitimate but previously undocumented
               distinction: most stops are premium-decay exits, not
               wrong-way-move exits, for far-OTM contracts specifically.
-              BACKTESTS.md logs every run honestly, including a real bug
+              Run 011 closes the "daily bars only" gap disclosed since
+              Run 001: event_loop.py's process_bar() unconditionally
+              reset the daily-loss kill switch on every call, correct
+              only because every prior run used daily bars - fixed via
+              a real is_new_day flag computed from actual calendar-day
+              boundaries (new _bar_date() helper), not bar count; 4 new
+              tests, full existing suite unchanged. First-ever intraday
+              (5-minute bar) backtest on real data (~4 months,
+              NIFTY/BANKNIFTY/SENSEX) is the cleanest positive result in
+              this whole log - 12/12 walk-forward folds profitable,
+              bootstrap 90% CIs excluding zero on all three, survives
+              realistic transaction costs (8-11% of gross, vs Run 005's
+              1.4-1.8% at daily trade frequency) - but explicitly NOT
+              claimed as a validated edge: only ~4 months of data (vs 5
+              years elsewhere in this log) and every ATR/lookback
+              parameter was tuned against daily-bar semantics, now
+              running ~100x faster than validated for - a promising
+              first look, not yet on the same footing as the daily-bar
+              findings. BACKTESTS.md logs every run honestly, including a real bug
               it caught (daily risk state never resetting between bars)
               and the corrected, still-mixed result after fixing it -
               nothing here is a validated edge

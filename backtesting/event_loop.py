@@ -10,11 +10,21 @@ automated check, not just a docstring claim.
 Deliberately scoped for this first pass - real, honest simplifications,
 not hidden ones:
 
-  - Runs on ONE_DAY bars only. This makes "a new trading day" trivial
-    (every bar IS one day - no intraday session-boundary detection
-    needed), at the cost of not yet testing the intraday cadence the
-    live system is actually meant to run at. A true intraday event loop
-    is a natural extension of this same engine, not built here.
+  - Originally ONE_DAY bars only, where "a new trading day" was trivial
+    (every bar IS one day). process_bar() now takes an explicit
+    `is_new_day` flag (default True, preserving that exact original
+    behavior for existing callers) so run_backtest() can also drive it
+    off REAL calendar-day boundaries computed from each bar's own
+    timestamp - this is what makes intraday bars (5-minute, hourly,
+    etc.) safe to feed in at all. Before this, calling process_bar()
+    once per 5-minute bar would have reset the daily-loss kill switch
+    every 5 minutes instead of once per real day, silently defeating it -
+    a real bug caught while building this intraday support, not a
+    hypothetical one (see backtesting/BACKTESTS.md). Warmup windows,
+    ATR periods, and every strategy's own lookback parameters were only
+    ever tuned/validated against DAILY-bar semantics though - running
+    intraday with the same numeric parameters is an honest first look,
+    not a separately validated intraday configuration.
   - P&L is in OPTION PREMIUM terms via the spot-proxy theoretical
     Black-Scholes engine (features/theoretical_options.py), ONE
     conceptual unit - not lot-size-multiplied. Real position sizing
@@ -110,14 +120,15 @@ def process_bar(
     daily_risk: DailyRiskEngine,
     config: BacktestConfig,
     is_last_bar: bool = False,
+    is_new_day: bool = True,
 ) -> tuple[Trade | None, Trade | None]:
-    """Processes exactly ONE bar (one full trading day, in this
-    daily-bars-only scope) of decision-making. Shared by run_backtest()
-    below and paper_trading/'s live daily loop, so both use IDENTICAL
-    decision logic rather than a hand-copied reimplementation that could
-    silently drift from the validated backtester - the classic
-    backtest/live logic divergence bug class this refactor exists to
-    rule out structurally, not just by discipline.
+    """Processes exactly ONE bar of decision-making. Shared by
+    run_backtest() below and paper_trading/'s live daily loop, so both
+    use IDENTICAL decision logic rather than a hand-copied
+    reimplementation that could silently drift from the validated
+    backtester - the classic backtest/live logic divergence bug class
+    this refactor exists to rule out structurally, not just by
+    discipline.
 
     Returns (new_open_trade, closed_trade) - closed_trade is non-None
     only on the bar a position actually closed this call.
@@ -126,17 +137,27 @@ def process_bar(
     left to ever manage a position opened there - see the last-bar edge
     case fixed in this project's history). Always False for live use,
     where there is no "last bar" until the process itself stops.
+
+    `is_new_day`: True (default) means this call's bar starts a new
+    real trading day and the daily risk engine's P&L resets here -
+    correct unconditionally for daily bars (every bar IS a new day,
+    the original, only-ever-used behavior) and for paper_trading/'s
+    once-daily call (a fresh DailyRiskEngine is constructed each call
+    there anyway, so the reset is a no-op either way). For INTRADAY
+    bars, run_backtest() computes this from real calendar-day
+    boundaries and passes False for every bar after the first one on a
+    given day - without this, a bad early-day loss would get wiped out
+    by the very next 5-minute bar instead of persisting for the rest of
+    that real day, defeating the daily-loss kill switch. (A previous,
+    different-direction version of this same bug - the reset never
+    firing AT ALL - was caught via Monte Carlo validation; see
+    backtesting/BACKTESTS.md.)
     """
     history = df.iloc[: t + 1]  # the one and only leakage boundary
     bar = df.iloc[t]
 
-    # Each call IS one full trading day in this daily-bars-only first
-    # pass (see module docstring) - the daily risk engine's P&L must
-    # reset here every call, or a bad day early in a long run
-    # permanently freezes it for every day after (a real bug this
-    # project caught via Monte Carlo validation surfacing an implausibly
-    # small trade count on BANKNIFTY - see backtesting/BACKTESTS.md).
-    daily_risk.reset_day()
+    if is_new_day:
+        daily_risk.reset_day()
 
     stop_kwargs = {}
     if config.stop_atr_multiplier is not None:
@@ -208,15 +229,26 @@ def process_bar(
     return new_trade, None
 
 
+def _bar_date(df: pd.DataFrame, t: int) -> dt.date:
+    ts = df.iloc[t]["timestamp"]
+    return ts.date() if hasattr(ts, "date") else ts
+
+
 def run_backtest(df: pd.DataFrame, config: BacktestConfig | None = None) -> BacktestResult:
     config = config or BacktestConfig()
     n = len(df)
     trades: list[Trade] = []
     open_trade: Trade | None = None
     daily_risk = DailyRiskEngine(config.max_daily_loss, config.profit_protection_level, config.profit_selectivity_level)
+    previous_date: dt.date | None = None
 
     for t in range(config.warmup_bars, n):
-        open_trade, closed = process_bar(df, t, open_trade, daily_risk, config, is_last_bar=(t == n - 1))
+        bar_date = _bar_date(df, t)
+        is_new_day = previous_date is None or bar_date != previous_date
+        previous_date = bar_date
+        open_trade, closed = process_bar(
+            df, t, open_trade, daily_risk, config, is_last_bar=(t == n - 1), is_new_day=is_new_day,
+        )
         if closed is not None:
             trades.append(closed)
 

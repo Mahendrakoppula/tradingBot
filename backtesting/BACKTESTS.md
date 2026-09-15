@@ -740,3 +740,159 @@ a far-OTM bought option versus a near-ATM one. Not itself flagged as
 broken - just noted as a real mechanism difference worth being aware of
 if `risk/dynamic_stops.py`'s thresholds are ever tuned specifically for
 far-OTM contracts in the future.
+
+---
+
+## Run 011 - First intraday (5-minute bar) backtest, and a real bug found building it
+
+**Date**: 2026-09-15
+**Purpose**: Closes a gap disclosed in event_loop.py's own module
+docstring since Run 001: "Runs on ONE_DAY bars only... a true intraday
+event loop is a natural extension of this same engine, not built here."
+Every single result in this log through Run 010 has used ONE_DAY bars
+exclusively, despite the live system's spec targeting intraday
+decision-making, and despite 5-minute/hourly OHLCV already being pulled
+locally for all three indices (data/raw/*/FIVE_MINUTE.parquet etc.) and
+simply never used.
+
+**A real bug found and fixed before any intraday result could be
+trusted**: `process_bar()` called `daily_risk.reset_day()`
+unconditionally on every call, correct only because "each call IS one
+full trading day" held for every backtest run so far. Feeding 5-minute
+bars into the unmodified function would have reset the daily-loss kill
+switch every 5 minutes instead of once per real day - silently
+defeating it (the same bug CLASS, opposite direction, as the
+daily-risk-never-resetting bug this log already caught via Monte Carlo
+validation). **Fix**: `process_bar()` now takes an explicit
+`is_new_day` flag (default `True`, preserving the exact original
+behavior for every existing caller/test unchanged), and `run_backtest()`
+now computes it from each bar's REAL calendar date via a new
+`_bar_date()` helper, resetting only on an actual day boundary. Four
+new tests added (`tests/test_event_loop.py`) proving the flag gates the
+reset correctly and that `run_backtest()`'s own loop derives it from
+real dates, not bar position. Full existing suite (394 tests, all of
+Runs 001-010) still passes unchanged - this is a pure extension, not a
+behavior change for daily bars.
+
+**Honest caveat carried into every number below, stated once here
+rather than repeated per line**: `market_state/volatility.py`'s
+ATR period (14) and volatility-percentile lookback (100) - along with
+every strategy's own lookback parameters - were tuned/validated
+exclusively against DAILY-bar semantics (ATR(14) = 14 trading days,
+lookback(100) = ~5 months). Run unchanged on 5-minute bars, the SAME
+numbers mean ATR(14) = ~70 minutes and lookback(100) = ~8 hours - a
+completely different, much noisier real-world volatility measure. This
+run is an honest FIRST LOOK at what the existing rule set does at
+intraday cadence, not a separately-tuned or separately-validated
+intraday strategy. The spot-proxy Black-Scholes options-pricing
+limitation (features/theoretical_options.py, unchanged since Run 001)
+also applies, and matters more here: real intraday bid-ask microstructure
+and execution friction at near-scalping trade frequency isn't modeled
+beyond the same round-trip cost formula used for the much-lower-frequency
+daily backtests.
+
+**Data**: ~4 months of real 5-minute OHLCV (2026-05-13 to 2026-09-10,
+85 trading days, ~6,325 bars/index) for all three indices - a much
+shorter window than the 5-year daily dataset every other run in this
+log uses; the sample-size/robustness caveat below is a direct
+consequence of this.
+
+**Result - same window, 5-minute bars vs. daily bars, one-conceptual-unit
+P&L, zero cost** (fair comparison: the daily side is DAILY bars
+restricted to the exact same May-Sep 2026 window, not the usual 5-year
+history):
+
+| Instrument | Bars | n trades | Win rate | Total P&L (pts) | Exit reasons |
+|---|---|---|---|---|---|
+| NIFTY | 5-min | 466 | 33.9% | +3,241.0 | target 126, stop 340 |
+| NIFTY | daily | 6 | 33.3% | -231.8 | stop 4, target 1, eod 1 |
+| BANKNIFTY | 5-min | 468 | 32.7% | +9,528.8 | target 118, stop 350 |
+| BANKNIFTY | daily | 4 | 50.0% | -726.3 | stop 3, eod 1 |
+| SENSEX | 5-min | 467 | 36.2% | +12,194.8 | target 138, stop 329 |
+| SENSEX | daily | 5 | 20.0% | -742.2 | stop 4, target 1 |
+
+**Per-trade mechanism check (NIFTY 5-min, before trusting the total)**:
+mean win Rs.41.10 (n=158) vs. mean loss Rs.-10.56 (n=308) - a real,
+asymmetric payoff (small losses cut quickly by tight ATR-based stops,
+larger occasional wins), not an artifact of one outlier: the single
+largest trade is 9.6% of total P&L, and the top 5 trades together are
+33.6% - concentrated but not degenerate. Trade durations: median 7 bars
+(35 min), max 35 bars (~3 hours) - genuinely intraday holds, consistent
+with the much-shorter effective ATR window. Entry/exit premiums sampled
+by hand are sane, real option-premium magnitudes (Rs.25-58 near-ATM),
+not a numerical artifact.
+
+**Cost-adjusted (real lot sizes: NIFTY 65, BANKNIFTY 30, SENSEX 20,
+live-verified 2026-09-15)** - the critical check, since trade count
+exploded roughly 80x vs. the daily comparison and Run 005 found costs
+were only a minor 1.4-1.8% drag at low trade counts:
+
+| Instrument | Gross P&L (Rs.) | Net P&L (Rs.) | Total cost (Rs.) | Cost as % of gross |
+|---|---|---|---|---|
+| NIFTY | 210,667.6 | 187,277.8 | 23,389.8 | 11.1% |
+| BANKNIFTY | 285,862.9 | 262,047.2 | 23,815.7 | 8.3% |
+| SENSEX | 243,896.0 | 220,326.3 | 23,569.7 | 9.7% |
+
+Costs are meaningfully higher as a share of gross than Run 005's daily
+result (8-11% vs 1.4-1.8%), exactly as expected with far more trades -
+but the result survives comfortably, still strongly net positive on
+all three.
+
+**Walk-forward (4 non-overlapping folds within the 85-day window,
+~1 trading day embargo)**:
+
+| Instrument | Fold 0 | Fold 1 | Fold 2 | Fold 3 | Folds profitable |
+|---|---|---|---|---|---|
+| NIFTY | +1,751.2 | +267.7 | +338.5 | +275.4 | 4/4 |
+| BANKNIFTY | +3,029.9 | +2,805.8 | +2,473.8 | +13.0 | 4/4 |
+| SENSEX | +5,445.7 | +1,821.3 | +1,892.7 | +1,400.8 | 4/4 |
+
+**Bootstrap (10,000 resamples, full 85-day sample, one-conceptual-unit
+P&L)**:
+
+| Instrument | Observed | 90% CI | Fraction of resamples profitable |
+|---|---|---|---|
+| NIFTY | 3,241.0 | [1,972.4, 4,584.1] | 100.0% |
+| BANKNIFTY | 9,528.8 | [5,818.0, 13,285.5] | 100.0% |
+| SENSEX | 12,194.8 | [7,631.5, 17,014.1] | 100.0% |
+
+**This is the cleanest, most consistent positive result in this entire
+log** - 12/12 walk-forward folds profitable (no single fold or single
+trade dominating), bootstrap confidence intervals comfortably excluding
+zero on all three indices, and the result survives realistic
+transaction costs at the real trade frequency. That is a genuinely
+different character from every other run here, which has consistently
+been mixed or marginal (Runs 001-010's daily-bar walk-forward results
+were never better than 4/5 folds on any single index). **This must NOT
+be read as "intraday is a validated edge" without the caveats already
+stated above carrying real weight**:
+1. Only ~4 months / 85 trading days of data - a much thinner evidentiary
+   base than the 5-year, 5-fold daily walk-forward used throughout this
+   log. Four ~3-week folds is a far weaker out-of-sample claim than five
+   ~1-year folds.
+2. Every parameter (ATR period, volatility lookback, strategy-specific
+   lookbacks) is running at a real-world timescale roughly 100x shorter
+   than what it was tuned/validated against on daily bars - this result
+   describes what the EXISTING rule set happens to do at 5-minute
+   cadence, not a strategy anyone deliberately designed or validated for
+   that cadence.
+3. Spot-proxy theoretical options pricing (no real historical intraday
+   premium/bid-ask data) is a bigger leap at near-scalping trade
+   frequency than at the daily cadence every other run in this log used
+   it at.
+4. This is one continuous window studied once, not a fresh out-of-sample
+   period distinct from where the parameters themselves originated (the
+   daily-bar strategies were tuned/tested on 2021-2026 daily data that
+   overlaps this same May-Sep 2026 span) - a formal look-ahead risk this
+   analysis does not fully rule out.
+
+**Verdict**: real, working, correctness-verified intraday backtesting
+capability now exists (the day-boundary bug fix is the durable
+deliverable), and the FIRST look through it is unusually positive and
+survives every honesty check applied so far (per-trade mechanism, real
+transaction costs, walk-forward, bootstrap). Reported exactly as found,
+not undersold - but the short window and daily-tuned parameters mean
+this is a promising lead to investigate further (a longer intraday
+history, and/or an intraday-specific parameter pass, both separately
+logged and neither done here), not yet a validated edge on the same
+footing as this log's 5-year daily-bar findings.
