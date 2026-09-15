@@ -299,3 +299,57 @@ still defaults to the ATM-only baseline; switching the default would
 need its own out-of-sample validation, not a single in-sample A/B
 comparison on the same history everything else in this log was checked
 against.
+
+---
+
+## Run 005 - Realistic transaction costs (execution/transaction_costs.py)
+
+**Date**: 2026-09-15
+**Purpose**: Every prior run in this log has been logged with the same
+caveat: "zero transaction costs, slippage, and bid-ask spread on the
+option leg (currently zero)." Closes that specific gap directly - does
+Run 001R/002R's positive P&L survive realistic Indian F&O round-trip
+costs (brokerage, STT, exchange transaction charges, SEBI turnover fee,
+stamp duty, GST), rather than being a pure artifact of a zero-cost
+assumption?
+**Method**: backtesting/cost_adjustment.py scales Run 001R's per-unit
+premiums up to a REAL lot size (data/lot_size.py, verified live
+2026-09-15 against the actual scrip master: NIFTY=65, BANKNIFTY=30,
+SENSEX=20) and applies `main`'s own real, structurally-validated cost
+formula (execution/transaction_costs.py, adapted from
+trading_bot/costs.py) at its default, publicly-known-structure rates.
+Re-ran BOTH the full-history result (001R) and the 5-fold walk-forward
+(002R) with costs applied.
+**Result** (full-history):
+
+| Instrument | Gross total P&L | Net total P&L (after costs) | Total cost | Cost as % of gross | Wins flipped to losses |
+|---|---|---|---|---|---|
+| NIFTY | 369,739 | 363,140 | 6,599 | 1.8% | 0 / 31 |
+| BANKNIFTY | 445,782 | 438,609 | 7,173 | 1.6% | 0 / 28 |
+| SENSEX | 491,923 | 485,259 | 6,664 | 1.4% | 0 / 32 |
+
+**Result** (walk-forward, 5 folds x 3 instruments = 15 evaluations):
+profitable folds gross = 3/5 on all three indices; profitable folds net
+(after costs) = 3/5 on all three indices - **zero sign flips at the
+fold level either**, across all 15 fold-instrument combinations.
+
+**Verdict: costs are a real but genuinely minor drag in this specific
+backtest's parameter regime - they do NOT explain away the observed
+P&L, and they do NOT change Run 002R's fold-level conclusion.** This is
+NOT the same finding as `main`'s own costs.py motivation (small Rs.20-50/
+lot scalp trades that real costs could plausibly wipe out) - this
+backtester's ATR-based dynamic stop/target sizing (2:1 default reward:
+risk on real index volatility) produces meaningfully larger per-trade
+P&L swings than a tight scalp, so turnover-proportional costs end up a
+small fraction of it by construction, not because costs are inherently
+small for this instrument class. A tighter-stop/shorter-hold strategy
+variant would likely show a much larger cost impact - not tested here.
+**Important limitation carried over from data/lot_size.py's own
+caveat**: this uses TODAY's live lot size/rates uniformly across 5 years
+of historical trades - an illustrative "what would this look like at
+today's real-world costs" analysis, not a historically-precise
+reconstruction (lot sizes and cost rates have both changed multiple
+times within this backtest's own window). Does not change the overall
+Run 002R/003 verdict (inconclusive, suggestive-not-proof) - this run
+only rules out "the observed P&L is just an artifact of ignoring
+costs," it does not newly validate anything.

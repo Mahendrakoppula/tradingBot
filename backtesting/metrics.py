@@ -35,18 +35,26 @@ def max_drawdown(pnls: list[float]) -> float:
     return worst
 
 
-def summarize(trades: list[Trade]) -> PerformanceSummary:
-    closed = [t for t in trades if t.pnl is not None]
-    n_trades = len(closed)
+def summarize_pnls(pnls: list[float]) -> PerformanceSummary:
+    """Same computation as summarize(), taking a plain P&L sequence
+    directly - lets a caller recompute win/loss/drawdown stats over a
+    TRANSFORMED P&L series (e.g. backtesting/cost_adjustment.py's
+    post-cost numbers) without needing to mutate or fake Trade objects."""
+    n_trades = len(pnls)
     if n_trades == 0:
         return PerformanceSummary(0, 0, 0, None, 0.0, None, 0.0)
 
-    n_wins = sum(1 for t in closed if t.pnl > 0)
-    n_losses = sum(1 for t in closed if t.pnl <= 0)
-    total_pnl = sum(t.pnl for t in closed)
+    n_wins = sum(1 for p in pnls if p > 0)
+    n_losses = sum(1 for p in pnls if p <= 0)
+    total_pnl = sum(pnls)
 
     return PerformanceSummary(
         n_trades=n_trades, n_wins=n_wins, n_losses=n_losses,
         win_rate=n_wins / n_trades, total_pnl=total_pnl,
-        avg_pnl_per_trade=total_pnl / n_trades, max_drawdown=max_drawdown([t.pnl for t in closed]),
+        avg_pnl_per_trade=total_pnl / n_trades, max_drawdown=max_drawdown(pnls),
     )
+
+
+def summarize(trades: list[Trade]) -> PerformanceSummary:
+    closed = [t for t in trades if t.pnl is not None]
+    return summarize_pnls([t.pnl for t in closed])

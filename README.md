@@ -124,7 +124,10 @@ data/         (Phase 2, done) SmartAPI historical OHLCV fetch, quality
               since NIFTY's own real expiry-day convention changed
               WITHIN the backtester's multi-year window, so no single
               fixed assumption is correct there; wiring this into live
-              paper trading is separate future work of its own
+              paper trading is separate future work of its own.
+              lot_size.py (done) - same live-verified-not-hardcoded
+              approach for lot size (NIFTY=65, BANKNIFTY=30, SENSEX=20
+              as of 2026-09-15) - used by backtesting/cost_adjustment.py
 features/     (Phase 4, done) multi-timeframe fusion (per-timeframe regime
               from market_state/, alignment/conflict scoring across them)
               (Phase 5, done) theoretical options/Greeks engine - Black-
@@ -187,7 +190,10 @@ execution/    (done, always simulated - see below) order placement +
               gated in the client itself: only calls the real broker if
               environment=="live" AND dry_run=False BOTH agree - codex
               is nowhere near a live go-live gate, so this always
-              simulates today
+              simulates today. transaction_costs.py (done) - centralized
+              real Indian F&O round-trip cost model (brokerage/STT/
+              exchange charges/SEBI fee/stamp duty/GST), adapted from
+              `main`'s own validated trading_bot/costs.py
 portfolio/    (done) aggregated delta/gamma/vega/theta across NIFTY/
               BANKNIFTY/SENSEX positions, with a concentration check so
               a single instrument can't quietly dominate total exposure
@@ -200,11 +206,17 @@ backtesting/  (Phase 12, done) event-driven backtester - processes bars
               validation (walk_forward.py) - non-overlapping, embargoed
               folds, each an independent backtest. monte_carlo.py adds
               bootstrap total-P&L confidence intervals and trade-
-              sequence-reshuffling drawdown analysis. BACKTESTS.md logs
-              every run honestly, including a real bug it caught (daily
-              risk state never resetting between bars) and the
-              corrected, still-mixed result after fixing it - nothing
-              here is a validated edge
+              sequence-reshuffling drawdown analysis. cost_adjustment.py
+              (done) closes the "no costs" gap as a post-hoc analysis
+              (scales to a real, live-verified lot size via
+              data/lot_size.py, applies execution/transaction_costs.py) -
+              Run 005 found costs are real but a minor drag (~1.4-1.8%
+              of gross P&L) in this backtest's parameter regime, no
+              trades or folds flip sign. BACKTESTS.md logs every run
+              honestly, including a real bug it caught (daily risk state
+              never resetting between bars) and the corrected,
+              still-mixed result after fixing it - nothing here is a
+              validated edge
 research/     (Phase 17/18, structural backbone only) experiment_log.py -
               a durable, queryable JSONL ledger of every experiment run
               (research/experiment_log.jsonl, backfilled with tonight's
