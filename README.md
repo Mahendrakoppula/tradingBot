@@ -212,7 +212,12 @@ backtesting/  (Phase 12, done) event-driven backtester - processes bars
               data/lot_size.py, applies execution/transaction_costs.py) -
               Run 005 found costs are real but a minor drag (~1.4-1.8%
               of gross P&L) in this backtest's parameter regime, no
-              trades or folds flip sign. BACKTESTS.md logs every run
+              trades or folds flip sign. slippage_sensitivity.py (done)
+              sweeps assumed slippage (0-5%, since no real historical
+              spread data exists to derive one number from - a
+              deliberate sweep, not a fabricated point estimate) - Run
+              006 found the P&L conclusion robust across the whole
+              range, zero fold flips. BACKTESTS.md logs every run
               honestly, including a real bug it caught (daily risk state
               never resetting between bars) and the corrected,
               still-mixed result after fixing it - nothing here is a

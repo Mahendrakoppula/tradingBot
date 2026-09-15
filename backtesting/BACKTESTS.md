@@ -353,3 +353,56 @@ times within this backtest's own window). Does not change the overall
 Run 002R/003 verdict (inconclusive, suggestive-not-proof) - this run
 only rules out "the observed P&L is just an artifact of ignoring
 costs," it does not newly validate anything.
+
+---
+
+## Run 006 - Slippage/spread sensitivity sweep (backtesting/slippage_sensitivity.py)
+
+**Date**: 2026-09-15
+**Purpose**: Run 005 closed transaction costs with real, verifiable
+statutory rates. Slippage/bid-ask spread is the other half of that same
+gap - but unlike costs, there is NO real historical spread data to
+derive a validated number from (SmartAPI never exposes historical
+order-book depth; `main`'s own liquidity.py needs a LIVE quote).
+Fabricating a single "the real slippage is X%" number would violate
+this project's own discipline. Instead: a SENSITIVITY SWEEP across a
+range of assumed round-trip slippage percentages (0%, 0.5%, 1%, 2%,
+5% - split as a half-spread on each leg), combined with Run 005's real
+transaction costs, answering "how much would the slippage assumption
+have to be wrong before the conclusion changes" rather than pretending
+to know the true number.
+**Method**: backtesting/slippage_sensitivity.py's slippage_sensitivity_sweep(),
+applied to both the full-history result (001R) and the 5-fold
+walk-forward (002R), same real lot sizes as Run 005.
+**Result** (full-history total P&L across the sweep):
+
+| Instrument | 0% | 0.5% | 1% | 2% | 5% |
+|---|---|---|---|---|---|
+| NIFTY | 363,140 | 357,804 | 352,469 | 341,797 | 309,784 |
+| BANKNIFTY | 438,609 | 432,211 | 425,812 | 413,015 | 374,624 |
+| SENSEX | 485,259 | 479,654 | 474,049 | 462,838 | 429,207 |
+
+Total P&L stays positive across the ENTIRE 0-5% sweep on all three
+indices - even at an aggressive 5% assumed round-trip slippage, none
+flip negative.
+
+**Result** (walk-forward, 5 folds x 3 instruments x 5 slippage levels =
+75 evaluations): the "3/5 profitable folds" finding from Run 002R holds
+EXACTLY - zero fold flips sign at any slippage level tested, on any of
+the three indices. The already-losing folds get modestly more negative
+and the already-winning folds modestly less positive, but nothing
+crosses zero across the whole tested range.
+
+**Verdict: the P&L conclusion (both full-history and fold-level) is
+robust to this entire plausible slippage range - it is NOT a fragile
+result that a small execution-cost assumption would overturn.** This is
+real, useful evidence, but it answers a narrower question than "is the
+edge real": it only rules out "a plausible slippage assumption would
+flip the conclusion." It does NOT change Run 002R/003's own verdict
+(inconclusive - the bootstrap CI and the walk-forward fold-level
+inconsistency are still in tension, for reasons unrelated to execution
+costs). A materially worse slippage assumption than 5% (e.g. very
+illiquid strikes, or a market-impact scenario beyond a simple spread
+proxy) was not tested and could tell a different story - this sweep's
+upper bound (5%) was a judgment call, not a validated ceiling on real
+options slippage.
