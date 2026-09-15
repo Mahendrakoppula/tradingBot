@@ -42,6 +42,7 @@ from dataclasses import dataclass, field
 
 import pandas as pd
 
+from backtesting.tick_slippage import tick_slippage_cost
 from backtesting.trade_record import Trade
 from execution.transaction_costs import TransactionCostRates, option_round_trip_cost
 from features.theoretical_options import theoretical_option_snapshot
@@ -143,6 +144,7 @@ def simulate_equity_curve_with_affordable_contracts(
     max_otm_steps: int = DEFAULT_MAX_OTM_STEPS,
     max_lots: int | None = None,
     rates: TransactionCostRates = TransactionCostRates(),
+    tick_spread: float = 0.0,
 ) -> EquitySimulationResult:
     """Same account-equity mechanics as simulate_equity_curve(), but
     re-prices each trade at an AFFORDABILITY-AWARE strike
@@ -161,7 +163,16 @@ def simulate_equity_curve_with_affordable_contracts(
     A trade the affordability search can't find ANY contract for
     (nothing within max_otm_steps, even far OTM, or not enough realized-
     vol history at entry/exit to price one at all) is skipped, same as
-    an unaffordable trade in simulate_equity_curve()."""
+    an unaffordable trade in simulate_equity_curve().
+
+    tick_spread: assumed round-trip slippage in exchange ticks (see
+    backtesting/tick_slippage.py - default 0, preserving prior
+    behavior). Applied INSIDE this loop, not as a post-hoc transform
+    like backtesting/slippage_sensitivity.py's stateless sweep, because
+    the realized cost of each trade changes the CAPITAL available to
+    size every subsequent trade - a stress test of this compounding
+    curve has to re-run the whole sequence per tick level, it can't just
+    reprice a fixed trade list after the fact."""
     closed = sorted((t for t in trades if t.pnl is not None), key=lambda t: t.entry_index)
 
     capital = starting_capital
@@ -204,7 +215,9 @@ def simulate_equity_curve_with_affordable_contracts(
 
         quantity = lots * lot_size
         gross_pnl = (exit_premium - entry_premium) * quantity
-        cost = option_round_trip_cost(entry_premium, exit_premium, quantity, rates)
+        txn_cost = option_round_trip_cost(entry_premium, exit_premium, quantity, rates)
+        slippage_cost = tick_slippage_cost(tick_spread, quantity)
+        cost = txn_cost + slippage_cost
         net_pnl = gross_pnl - cost
 
         capital_before = capital

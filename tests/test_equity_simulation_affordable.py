@@ -93,3 +93,31 @@ def test_affordable_simulation_returns_empty_result_for_no_trades():
     )
     assert result.simulated_trades == []
     assert result.ending_capital == result.starting_capital
+
+
+@requires_real_data
+def test_affordable_simulation_default_tick_spread_is_a_no_op():
+    bt = run_backtest(NIFTY_DAILY, BacktestConfig(warmup_bars=30))
+    default = simulate_equity_curve_with_affordable_contracts(
+        bt.trades, NIFTY_DAILY, lot_size=65, starting_capital=50_000, risk_free_rate=0.07,
+        strike_increment=50, base_risk_pct=0.01, rates=ZERO_COST_RATES,
+    )
+    explicit_zero = simulate_equity_curve_with_affordable_contracts(
+        bt.trades, NIFTY_DAILY, lot_size=65, starting_capital=50_000, risk_free_rate=0.07,
+        strike_increment=50, base_risk_pct=0.01, rates=ZERO_COST_RATES, tick_spread=0.0,
+    )
+    assert default.ending_capital == pytest.approx(explicit_zero.ending_capital)
+
+
+@requires_real_data
+def test_affordable_simulation_higher_tick_spread_reduces_ending_capital():
+    bt = run_backtest(NIFTY_DAILY, BacktestConfig(warmup_bars=30))
+    low = simulate_equity_curve_with_affordable_contracts(
+        bt.trades, NIFTY_DAILY, lot_size=65, starting_capital=50_000, risk_free_rate=0.07,
+        strike_increment=50, base_risk_pct=0.01, rates=ZERO_COST_RATES, tick_spread=0.0,
+    )
+    high = simulate_equity_curve_with_affordable_contracts(
+        bt.trades, NIFTY_DAILY, lot_size=65, starting_capital=50_000, risk_free_rate=0.07,
+        strike_increment=50, base_risk_pct=0.01, rates=ZERO_COST_RATES, tick_spread=20.0,
+    )
+    assert high.ending_capital < low.ending_capital

@@ -248,10 +248,17 @@ backtesting/  (Phase 12, done) event-driven backtester - processes bars
               ever withdrawn. The honest, walk-forward (independent-
               fold) view is mixed - 4/5, 2/5, 3/5 folds profitable,
               similar inconclusive character to every other result here -
-              and two real risks (ATM-calibrated slippage assumptions
-              likely understating cost for far-OTM contracts; the
-              entry-timing-reuse assumption never validated for far-OTM
-              convexity specifically) are flagged, not resolved.
+              and two real risks were flagged. tick_slippage.py (done) +
+              a new tick_spread parameter on the equity simulation close
+              the FIRST one (Run 009): premium-scale-aware, tick-based
+              slippage (verified real tick size Rs.0.05, NOT the raw
+              scrip-master field's misleading "5.000000" - that schema
+              scales price fields by 100, confirmed via the strike
+              field) leaves the fold-level picture essentially unchanged
+              up to Rs.5/unit round-trip, with a real sharp breakdown
+              threshold only far out (~Rs.20/unit). The SECOND risk
+              (validating entry-timing-reuse for far-OTM convexity, not
+              just Run 004's near-ATM finding) remains open.
               BACKTESTS.md logs every run honestly, including a real bug
               it caught (daily risk state never resetting between bars)
               and the corrected, still-mixed result after fixing it -

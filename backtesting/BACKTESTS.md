@@ -567,3 +567,93 @@ reusing Run 006's ATM-calibrated range), and separately validating the
 entry-timing-reuse assumption specifically for far-OTM convexity rather
 than assuming Run 004's near-ATM finding extends that far. Neither done
 here - reported as found, not oversold.
+
+---
+
+## Run 009 - Tick-based slippage for far-OTM contracts (first of Run 008's two flagged risks)
+
+**Date**: 2026-09-15
+**Purpose**: Directly closes the first of Run 008's two explicitly
+flagged, unaddressed risks: Run 006's slippage sweep (0-5% of premium)
+was calibrated against ATM-level premiums (Rs.60-1,200) and likely
+understates real cost for the much smaller far-OTM premiums (Rs.5-15)
+Run 008's affordability-aware selection actually trades. A real bid-ask
+spread on an illiquid contract is better modeled as a roughly fixed
+number of exchange TICKS (an absolute rupee amount) than a fixed
+fraction of premium - a few ticks is trivial for an expensive ATM
+option and can be most of the premium for a cheap far-OTM one.
+
+**A data-interpretation catch worth recording on its own**: the live
+scrip master's own `tick_size` field reads "5.000000" for every
+NIFTY/BANKNIFTY/SENSEX option. Taken literally that's an absurd Rs.5
+minimum tick for options trading as low as Rs.0.01-0.05 (confirmed
+earlier this session). This schema scales OTHER price-like fields by
+100 - directly confirmed via the `strike` field, whose raw value
+"2300000.000000" matches a real 23000 strike embedded in that same
+row's own tradingsymbol text. Applying the same convention to
+tick_size gives the real value: Rs.0.05, not Rs.5 - a 100x error that
+would have made every number in this run meaningless if taken at face
+value. execution/transaction_costs.py-style "verify against real data,
+don't assume" discipline caught this before it became a bug.
+
+**Method**: backtesting/tick_slippage.py (stateless sweep, Run 005/006
+style, for a fixed lot size) and a new `tick_spread` parameter added
+directly to equity_simulation.py's compounding affordable-contract
+simulation (Run 007/008 style) - the compounding case has to re-run the
+WHOLE trade sequence per tick level, since realized cost changes the
+capital available to size every subsequent trade, unlike a stateless
+post-hoc reprice.
+
+**Result (full-history, NIFTY, 1% risk)** - swept far beyond a
+"plausible" range specifically to find where (if anywhere) this
+actually breaks the Run 008 result, not just to confirm it survives a
+token check:
+
+| Ticks (round-trip) | Rupees/unit | Trades simulated | Ending capital |
+|---|---|---|---|
+| 0 | 0.00 | 94 | +666.6% |
+| 20 | 1.00 | 94 | +654.9% |
+| 100 | 5.00 | 94 | +596.4% |
+| 200 | 10.00 | 94 | +516.2% |
+| 350 | 17.50 | 93 | +255.8% |
+| **400** | **20.00** | **12** | **-17.2%** |
+| 800 | 40.00 | 4 | -16.2% |
+
+**There is a real, sharp THRESHOLD, not a gradual decay**: results stay
+strongly positive all the way through Rs.17.50 round-trip (already
+100%+ of the affordable contract's own premium), then between Rs.17.50
+and Rs.20.00 the number of trades the account can even afford collapses
+from 93 to 12 and the result flips to a loss. This is a real, useful
+finding about the FRAGILITY of the compounding mechanism itself once
+costs get large enough to choke off position sizing early, not just
+"returns get a bit worse" - qualitatively different behavior above vs.
+below the threshold. Whether a real Rs.20/unit round-trip spread
+(133-400% of a Rs.5-15 premium) is a plausible worst case or an
+unrealistically extreme one for actual NSE far-OTM index-option
+liquidity is NOT something this project can verify (no real historical
+spread data exists - see backtesting/slippage_sensitivity.py's own
+docstring) - reported as a real threshold that exists, not as evidence
+either way about whether it would be reached in practice.
+
+**Result (walk-forward, more decision-relevant than the full-history
+number per Run 008's own warning)** - profitable folds out of 5, same
+windows as every other walk-forward result in this log:
+
+| Instrument | 0 ticks | 20 ticks (Rs.1) | 50 ticks (Rs.2.50) | 100 ticks (Rs.5) |
+|---|---|---|---|---|
+| NIFTY | 4/5 | 4/5 | 4/5 | 3/5 |
+| BANKNIFTY | 2/5 | 2/5 | 2/5 | 2/5 |
+| SENSEX | 3/5 | 3/5 | 3/5 | 3/5 |
+
+**Verdict: the fold-level, decision-relevant picture is essentially
+UNCHANGED across a substantial, realistic-to-aggressive tick-slippage
+range (up to Rs.5/unit, a third to half of the affordable contract's
+own premium) - only NIFTY loses one fold at the highest level tested.**
+This closes Run 008's first flagged risk with a genuine, not-assumed
+answer: tick-based (premium-scale-aware) slippage does NOT change the
+mixed, inconclusive walk-forward conclusion within a plausible range,
+though a real, sharp breakdown threshold does exist far out at the
+full-history level if costs get extreme enough. Run 008's SECOND
+flagged risk (validating the entry-timing-reuse assumption specifically
+for far-OTM convexity, not just Run 004's near-ATM finding) remains
+open, not addressed here.
