@@ -113,7 +113,18 @@ monitoring/   structured logging, Telegram notifications, health checks
 app/          entry point(s) - currently a health-check skeleton only
 data/         (Phase 2, done) SmartAPI historical OHLCV fetch, quality
               engine, Parquet storage - index spot data only (NIFTY/
-              BANKNIFTY/SENSEX), run manually via `python -m data.pull_history`
+              BANKNIFTY/SENSEX), run manually via `python -m data.pull_history`.
+              expiry_calendar.py (done) resolves the REAL nearest listed
+              option expiry from the live scrip master - verified live
+              (2026-09-15) that NIFTY's actual expiry weekday is Tuesday
+              (NSE changed this from Thursday in a 2025 rule change),
+              SENSEX is Thursday, BANKNIFTY is monthly-only. LIVE-ONLY
+              (no historical expiry archive exists) - deliberately NOT
+              wired into backtesting/event_loop.py's shared process_bar()
+              since NIFTY's own real expiry-day convention changed
+              WITHIN the backtester's multi-year window, so no single
+              fixed assumption is correct there; wiring this into live
+              paper trading is separate future work of its own
 features/     (Phase 4, done) multi-timeframe fusion (per-timeframe regime
               from market_state/, alignment/conflict scoring across them)
               (Phase 5, done) theoretical options/Greeks engine - Black-
