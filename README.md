@@ -194,15 +194,20 @@ paper_trading/ (Phase 14, code done - not yet scheduled to run) once-
               notifications. Never imports execution/order_client.py -
               structurally cannot place a real order
 dashboard/    (Phase 15, done) Streamlit - Data Health, current Market
-              State + regime timeline, and an on-demand Backtest viewer.
-              Read-only, informational only. Run: `streamlit run
+              State + regime timeline, an on-demand Backtest viewer, and
+              a Paper Trading tab (reads the SAME persisted state
+              paper_trading/daily_loop.py writes - sync
+              .state/paper_trading/ down from the instance to review its
+              live history locally, same pattern as data/raw/). Read-
+              only, informational only. Run: `streamlit run
               dashboard/app.py`. dashboard/queries.py + backtest_data.py
-              hold the testable logic; app.py is a thin rendering layer.
-              A real bug was caught only by actually running this in a
-              browser (not just importing it in tests): a same-named
-              dashboard/data.py module collided with the top-level
-              data/ package once Streamlit put dashboard/ on sys.path -
-              renamed to queries.py to fix it properly
+              + paper_trading_queries.py hold the testable logic; app.py
+              is a thin rendering layer. A real bug was caught only by
+              actually running this in a browser (not just importing it
+              in tests): a same-named dashboard/data.py module collided
+              with the top-level data/ package once Streamlit put
+              dashboard/ on sys.path - renamed to queries.py to fix it
+              properly
 tests/        test-first, mirrors every module above
 deploy/       systemd unit, CI (deploys to the shared instance via SSM)
 ```
