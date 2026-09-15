@@ -161,3 +161,54 @@ class HistoricalDataClient:
         if not payload.get("status"):
             raise ApiError(payload.get("message", "request failed"), payload.get("errorcode", ""))
         return payload["data"]
+
+
+class LiveMarketDataClient:
+    """Read-only SmartAPI market-data endpoints beyond historical candles:
+    LTP (for India VIX), PCR, OI buildup. Session-error auto-relogin, same
+    as HistoricalDataClient - safe to retry since these are all read-only.
+
+    Rate-limit note (verified live on `main`, docs/smartapi-reference.md):
+    PCR/OIBuildup are NOT covered by the documented rate-limit table -
+    hitting them back-to-back gets HTTP 403 "exceeding access rate" on
+    most calls. A caller looping over OI buildup's 4 datatypes must pace
+    calls - see features/market_context.py's use of this client.
+    """
+
+    def __init__(self, session: Session):
+        self.session = session
+
+    def get_ltp(self, exchange: str, tradingsymbol: str, symboltoken: str) -> dict:
+        return self._call(
+            "POST", "/rest/secure/angelbroking/order/v1/getLtpData",
+            json={"exchange": exchange, "tradingsymbol": tradingsymbol, "symboltoken": symboltoken},
+        )
+
+    def get_pcr(self) -> list:
+        return self._call("GET", "/rest/secure/angelbroking/marketData/v1/putCallRatio")
+
+    def get_oi_buildup(self, expirytype: str, datatype: str) -> list:
+        return self._call(
+            "POST", "/rest/secure/angelbroking/marketData/v1/OIBuildup",
+            json={"expirytype": expirytype, "datatype": datatype},
+        )
+
+    def _call(self, method: str, path: str, **kwargs):
+        try:
+            return self._call_once(method, path, **kwargs)
+        except ApiError as e:
+            if e.errorcode not in SESSION_ERROR_CODES:
+                raise
+            log.warning("Session error (%s) - re-logging in and retrying once", e.errorcode)
+            self.session.login()
+            return self._call_once(method, path, **kwargs)
+
+    def _call_once(self, method: str, path: str, **kwargs):
+        resp = requests.request(
+            method, f"{self.session.cfg.root_url}{path}", headers=self.session.headers(authenticated=True),
+            timeout=10, **kwargs,
+        )
+        payload = resp.json()
+        if not payload.get("status"):
+            raise ApiError(payload.get("message", "request failed"), payload.get("errorcode", ""))
+        return payload.get("data")

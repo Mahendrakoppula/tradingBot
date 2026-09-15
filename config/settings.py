@@ -88,6 +88,11 @@ class Settings(BaseSettings):
     smartapi_pin: str = Field(default="")
     smartapi_totp_secret: str = Field(default="")
 
+    # --- economic-events calendar (finnhub.io free tier - user is
+    # obtaining a key; gracefully skipped, same as main's own
+    # trading_bot/market_context.py, if this stays empty) ---
+    finnhub_api_key: str = Field(default="", description="finnhub.io API key for the economic-events calendar - optional, feature skips gracefully if unset")
+
 
 def get_settings() -> Settings:
     """Fresh Settings() each call rather than a cached singleton - cheap to

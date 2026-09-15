@@ -2,7 +2,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from data.broker_client import ApiError, BrokerConfig, HistoricalDataClient, Session
+from data.broker_client import ApiError, BrokerConfig, HistoricalDataClient, LiveMarketDataClient, Session
 
 
 def _cfg() -> BrokerConfig:
@@ -76,3 +76,69 @@ def test_get_candle_data_raises_non_session_api_errors():
     with patch("data.broker_client.requests.post", return_value=mock_resp):
         with pytest.raises(ApiError):
             client.get_candle_data("NSE", "99926000", "ONE_DAY", "2026-01-01 09:00", "2026-01-01 15:30")
+
+
+def test_live_market_data_client_get_ltp_returns_data():
+    session = Session(_cfg())
+    session.jwt_token = "jwt"
+    client = LiveMarketDataClient(session)
+    mock_resp = MagicMock()
+    mock_resp.json.return_value = {"status": True, "data": {"ltp": "15.5"}}
+    with patch("data.broker_client.requests.request", return_value=mock_resp) as mock_request:
+        data = client.get_ltp("NSE", "India VIX", "99926017")
+    assert data == {"ltp": "15.5"}
+    mock_request.assert_called_once()
+    assert mock_request.call_args.args[0] == "POST"
+
+
+def test_live_market_data_client_get_pcr_returns_data():
+    session = Session(_cfg())
+    session.jwt_token = "jwt"
+    client = LiveMarketDataClient(session)
+    mock_resp = MagicMock()
+    mock_resp.json.return_value = {"status": True, "data": [{"symbol": "NIFTY", "pcr": 0.9}]}
+    with patch("data.broker_client.requests.request", return_value=mock_resp):
+        data = client.get_pcr()
+    assert data == [{"symbol": "NIFTY", "pcr": 0.9}]
+
+
+def test_live_market_data_client_get_oi_buildup_returns_data():
+    session = Session(_cfg())
+    session.jwt_token = "jwt"
+    client = LiveMarketDataClient(session)
+    mock_resp = MagicMock()
+    mock_resp.json.return_value = {"status": True, "data": [{"symbol": "NIFTY"}]}
+    with patch("data.broker_client.requests.request", return_value=mock_resp):
+        data = client.get_oi_buildup(expirytype="NEAR", datatype="Long Built Up")
+    assert data == [{"symbol": "NIFTY"}]
+
+
+def test_live_market_data_client_relogs_in_once_on_session_error():
+    session = Session(_cfg())
+    session.jwt_token = "stale"
+    client = LiveMarketDataClient(session)
+
+    session_error_resp = MagicMock()
+    session_error_resp.json.return_value = {"status": False, "message": "session expired", "errorcode": "AB1011"}
+    login_resp = MagicMock()
+    login_resp.json.return_value = {"status": True, "data": {"jwtToken": "fresh", "refreshToken": "r", "feedToken": "f"}}
+    success_resp = MagicMock()
+    success_resp.json.return_value = {"status": True, "data": {"ltp": "15.5"}}
+
+    with patch("data.broker_client.requests.request", side_effect=[session_error_resp, success_resp]), \
+         patch("data.broker_client.requests.post", return_value=login_resp):
+        data = client.get_ltp("NSE", "India VIX", "99926017")
+
+    assert data == {"ltp": "15.5"}
+    assert session.jwt_token == "fresh"
+
+
+def test_live_market_data_client_raises_non_session_api_errors():
+    session = Session(_cfg())
+    session.jwt_token = "jwt"
+    client = LiveMarketDataClient(session)
+    mock_resp = MagicMock()
+    mock_resp.json.return_value = {"status": False, "message": "bad request", "errorcode": "AB2000"}
+    with patch("data.broker_client.requests.request", return_value=mock_resp):
+        with pytest.raises(ApiError):
+            client.get_pcr()

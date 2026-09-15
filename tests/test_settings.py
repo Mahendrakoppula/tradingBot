@@ -51,3 +51,11 @@ def test_telegram_and_broker_credentials_default_empty_not_missing():
     s = Settings(_env_file=None)
     assert s.codex_telegram_bot_token == ""
     assert s.codex_telegram_chat_id == ""
+
+
+def test_finnhub_api_key_defaults_empty_not_missing():
+    """Same reasoning as Telegram/broker credentials above -
+    features/economic_calendar.py gracefully skips when this is unset,
+    never a hard startup failure."""
+    s = Settings(_env_file=None)
+    assert s.finnhub_api_key == ""

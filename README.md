@@ -1,6 +1,6 @@
 # Codex — Autonomous ML-Driven Index Options Trading System
 
-Status: **Phase 9, 14, and 15 done, Phase 17/18 structural backbone done, Phase 7 in progress** (of 18) (Phase 1: scaffolding/config/
+Status: **Phase 9, 14, and 15 done, Phase 17/18 structural backbone done, global/derivatives/news context engines done, Phase 7 in progress** (of 18) (Phase 1: scaffolding/config/
 logging/notifications/deploy - done. Phase 2: historical OHLCV data
 pipeline + quality engine - done, and real data has now actually been
 pulled (data/raw/, gitignored - see "Local development" below to
@@ -120,7 +120,26 @@ features/     (Phase 4, done) multi-timeframe fusion (per-timeframe regime
               Scholes driven by real spot data + realized-vol proxy, NOT
               real market IV (SmartAPI has no historical option premium
               data - see features/theoretical_options.py for the full,
-              permanent limitations of this)
+              permanent limitations of this). (Global/derivatives/news
+              context, done) market_context.py (India VIX/PCR/OI buildup
+              - SmartAPI, reuses the existing broker session, zero new
+              credentials), global_context.py (S&P500/Dow/Nasdaq/Crude
+              WTI/USD-INR via a keyless-but-unofficial Yahoo endpoint,
+              plus World Bank macro indicators), news_sentiment.py
+              (keyless RSS + VADER w/ a finance lexicon extension),
+              economic_calendar.py (finnhub.io, optional free key -
+              gracefully skips if unset). ALL of this is LIVE-ONLY and
+              informational only - no historical series exists for any
+              of it, so none of it is backtestable, and none of it is
+              wired into any trading decision - same "collect and log
+              first, gate later once proven" discipline `main`'s own
+              premarket_bias.py established for this exact data.
+              Adapted from `main`'s already-proven trading_bot/market_context.py
+              + news_sentiment.py rather than re-derived from scratch.
+              Market breadth (NIFTY50/BANKNIFTY constituent advance/
+              decline) deliberately NOT built this pass - meaningfully
+              more complex (per-symbol live quotes across dozens of
+              constituents), left for a future increment
 market_state/ (Phase 3, done) pre-indicator structure/volatility/
               momentum/liquidity classification (no RSI/MACD - see
               spec's own "don't start with indicators" principle)
