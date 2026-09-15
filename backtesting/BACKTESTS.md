@@ -483,3 +483,87 @@ well-scoped future improvement this finding directly motivates), or (c)
 defined-risk multi-leg structures (spreads) instead of naked long
 options, which the spec's own contract-selector section calls for and
 this project hasn't built yet. Not resolved here - reported as found.
+
+---
+
+## Run 008 - Affordability-aware strike selection (follow-up to Run 007)
+
+**Date**: 2026-09-15
+**Purpose**: Direct follow-up to Run 007's own recommended next step.
+strategies/contract_selection.py's new select_affordable_contract()
+walks strikes outward from ATM, strictly in the OTM direction, and
+returns the first (least-far-OTM) contract whose real premium fits a
+given risk budget - reusing each trade's ORIGINAL entry timing/
+direction/expiry (Investigation 001 and Run 004 established strike
+choice is orthogonal to entry timing FOR NEAR-ATM STRIKES - see the
+important caveat on that below), only re-pricing at a different strike.
+**Method**: backtesting/equity_simulation.py's new
+simulate_equity_curve_with_affordable_contracts(), same real lot sizes
+and transaction costs as Run 007.
+
+**Headline result (full 5-year history, one continuously-compounding
+run)**: at a CONSERVATIVE 1% risk-per-trade, all three indices now size
+and take nearly every trade (94/94 NIFTY, 94/97 BANKNIFTY, 91/92 SENSEX -
+vs. 0/94, 0/97, 0/92 in Run 007). Ending capital: NIFTY +667%, BANKNIFTY
++584%, SENSEX +896% over the full period.
+
+**These full-history percentages are NOT the right number to trust or
+quote** - they compound continuously across the ENTIRE 5-year backtest
+with no capital ever withdrawn, so a handful of large early gains get
+multiplicatively amplified all the way through. The more honest view:
+independent walk-forward folds, each starting FRESH at Rs.50,000 (no
+cross-fold compounding) - same 5-fold windows as Run 002R/006:
+
+| Instrument | Folds profitable | Fold returns (range) | Max drawdown (range) |
+|---|---|---|---|
+| NIFTY | 4/5 | -8.1% to +112.2% | 2.4% to 8.1% |
+| BANKNIFTY | 2/5 | -12.0% to +119.6% | 2.6% to 13.0% |
+| SENSEX | 3/5 | -8.7% to +132.4% | 1.9% to 8.7% |
+
+This is a much more moderate, believable picture - directionally mixed
+(4/5, 2/5, 3/5), similar "suggestive not proof" character as Run 002R's
+own original ATM-based finding, not a uniform win.
+
+**Traced one large winning trade in full detail (NIFTY, entry_index=83)
+to understand the mechanism, not just trust the number**: a PUT bought
+~3.8% out of the money (strike 17,400 vs spot 18,056), premium Rs.5.57,
+delta -0.036. Spot then moved -5% and crossed straight through the
+strike; by exit the option was solidly in the money and its premium
+had risen to Rs.250.90 - confirmed as genuine, correctly-priced
+intrinsic value (matches Black-Scholes-near-expiry math exactly), NOT a
+bug. This is a real, legitimate options payoff - but it also means the
+aggregate return is disproportionately driven by a small number of such
+"far-OTM-to-ITM" hits, a well-known high-variance/fat-tail
+characteristic of buying cheap OTM options, not a steady, broad-based
+edge.
+
+**Two important, unaddressed risks - explicitly flagged, not resolved**:
+1. Run 006's slippage sensitivity sweep (0-5%) was built and calibrated
+   against ATM-level premiums (Rs.60-1,200 range, per Run 005's table).
+   The trades in THIS run are priced at far smaller premiums (Rs.5-15 at
+   entry) where real bid-ask spreads, as a PERCENTAGE of premium, are
+   typically much worse for illiquid far-OTM contracts in real markets -
+   this has not been tested for this specific, much-lower-premium
+   contract profile, and Run 006's assumed range may understate real
+   execution cost here materially.
+2. Investigation 001/Run 004's "strike selection doesn't affect entry
+   timing" finding was established comparing NEAR-ATM strikes (+/-2
+   increments, similar delta/convexity). Extending that same assumption
+   all the way to FAR-OTM strikes (5-9+ increments out, delta ~0.03-0.13,
+   fundamentally different convexity) has NOT been separately validated -
+   reusing the same spot-price-based stop/target framework (calibrated
+   implicitly around near-ATM sensitivity) for a very different payoff
+   shape is an unverified assumption, not a proven equivalence.
+
+**Verdict: directionally real progress on Run 007's literal problem
+(Rs.50,000 CAN now participate, at a genuinely conservative risk
+level), but the exciting-looking headline numbers must not be trusted
+or quoted as validated returns.** The fold-level walk-forward view is
+the right number to look at, and it shows a mixed, inconclusive picture -
+consistent with everything else in this log, not a breakthrough. Real
+next steps before this means anything further: a slippage/liquidity
+model appropriate to illiquid, low-premium far-OTM contracts (not
+reusing Run 006's ATM-calibrated range), and separately validating the
+entry-timing-reuse assumption specifically for far-OTM convexity rather
+than assuming Run 004's near-ATM finding extends that far. Neither done
+here - reported as found, not oversold.

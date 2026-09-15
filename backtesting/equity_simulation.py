@@ -40,10 +40,14 @@ honestly via skipped_trades, not hidden.
 import math
 from dataclasses import dataclass, field
 
+import pandas as pd
+
 from backtesting.trade_record import Trade
 from execution.transaction_costs import TransactionCostRates, option_round_trip_cost
+from features.theoretical_options import theoretical_option_snapshot
 from risk.equity_protection import classify_equity_tier
 from risk.position_sizing import capital_at_risk_for_trade
+from strategies.contract_selection import DEFAULT_MAX_OTM_STEPS, select_affordable_contract
 
 DEFAULT_BASE_RISK_PCT = 0.01  # 1% of current capital per trade - a common, conservative default; not itself validated
 
@@ -107,6 +111,100 @@ def simulate_equity_curve(
         quantity = lots * lot_size
         gross_pnl = (trade.exit_premium - trade.entry_premium) * quantity
         cost = option_round_trip_cost(trade.entry_premium, trade.exit_premium, quantity, rates)
+        net_pnl = gross_pnl - cost
+
+        capital_before = capital
+        capital += net_pnl
+        peak = max(peak, capital)
+        max_dd_rupees = max(max_dd_rupees, peak - capital)
+
+        simulated.append(SimulatedTrade(
+            trade=trade, lots=lots, quantity=quantity, capital_before=capital_before,
+            capital_at_risk=risk_budget, equity_tier=tier.tier, gross_pnl=gross_pnl,
+            cost=cost, net_pnl=net_pnl, capital_after=capital,
+        ))
+
+    return EquitySimulationResult(
+        starting_capital=starting_capital, ending_capital=capital, simulated_trades=simulated,
+        skipped_trades=skipped, peak_capital=peak, max_drawdown_rupees=max_dd_rupees,
+        max_drawdown_pct=(max_dd_rupees / peak * 100) if peak > 0 else 0.0,
+    )
+
+
+def simulate_equity_curve_with_affordable_contracts(
+    trades: list[Trade],
+    ohlcv: pd.DataFrame,
+    lot_size: int,
+    starting_capital: float,
+    risk_free_rate: float,
+    strike_increment: float,
+    base_risk_pct: float = DEFAULT_BASE_RISK_PCT,
+    vol_window: int = 20,
+    max_otm_steps: int = DEFAULT_MAX_OTM_STEPS,
+    max_lots: int | None = None,
+    rates: TransactionCostRates = TransactionCostRates(),
+) -> EquitySimulationResult:
+    """Same account-equity mechanics as simulate_equity_curve(), but
+    re-prices each trade at an AFFORDABILITY-AWARE strike
+    (strategies/contract_selection.select_affordable_contract) instead
+    of reusing the original backtest's ATM-based entry/exit premiums -
+    directly closes the loop on backtesting/BACKTESTS.md's Run 007
+    finding and its own recommended next step.
+
+    Reuses the SAME entry timing/direction/expiry decisions the original
+    backtest already made for each trade (entry_index, direction,
+    expiry) - Investigation 001 and Run 004 already established that
+    strike choice is orthogonal to entry timing/direction, so this is
+    not a new decision, only a different STRIKE for an already-decided
+    trade, and therefore a different actual premium paid/realized.
+
+    A trade the affordability search can't find ANY contract for
+    (nothing within max_otm_steps, even far OTM, or not enough realized-
+    vol history at entry/exit to price one at all) is skipped, same as
+    an unaffordable trade in simulate_equity_curve()."""
+    closed = sorted((t for t in trades if t.pnl is not None), key=lambda t: t.entry_index)
+
+    capital = starting_capital
+    peak = starting_capital
+    max_dd_rupees = 0.0
+    simulated: list[SimulatedTrade] = []
+    skipped: list[Trade] = []
+
+    for trade in closed:
+        tier = classify_equity_tier(capital, starting_capital)
+        if not tier.allow_new_trades:
+            skipped.append(trade)
+            continue
+
+        risk_budget = capital_at_risk_for_trade(capital, base_risk_pct, tier.size_multiplier)
+        candidate = select_affordable_contract(
+            ohlcv, trade.entry_index, trade.direction, trade.expiry, risk_free_rate,
+            strike_increment, risk_budget, lot_size, vol_window, max_otm_steps,
+        )
+        if candidate is None:
+            skipped.append(trade)
+            continue
+
+        exit_snapshot = theoretical_option_snapshot(
+            ohlcv, trade.exit_index, candidate.strike, trade.expiry, trade.direction, risk_free_rate, vol_window,
+        )
+        if exit_snapshot is None:
+            skipped.append(trade)
+            continue
+
+        entry_premium = candidate.snapshot.price
+        exit_premium = exit_snapshot.price
+        max_loss_per_lot = entry_premium * lot_size
+        lots = math.floor(risk_budget / max_loss_per_lot) if max_loss_per_lot > 0 else 0
+        if max_lots is not None:
+            lots = min(lots, max_lots)
+        if lots <= 0:
+            skipped.append(trade)
+            continue
+
+        quantity = lots * lot_size
+        gross_pnl = (exit_premium - entry_premium) * quantity
+        cost = option_round_trip_cost(entry_premium, exit_premium, quantity, rates)
         net_pnl = gross_pnl - cost
 
         capital_before = capital

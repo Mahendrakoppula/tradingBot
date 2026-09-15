@@ -1,6 +1,6 @@
 # Codex — Autonomous ML-Driven Index Options Trading System
 
-Status: **Phase 9, 14, and 15 done, Phase 17/18 structural backbone done, global/derivatives/news context engines done, Phase 7 in progress** (of 18). **IMPORTANT: Run 007 (backtesting/BACKTESTS.md) found the spec's own Rs.50,000 capital cannot afford even one lot of NIFTY/BANKNIFTY/SENSEX options at a conservative risk-per-trade percentage, given real current lot sizes/premiums - read that entry before assuming this capital figure is workable as stated.** (Phase 1: scaffolding/config/
+Status: **Phase 9, 14, and 15 done, Phase 17/18 structural backbone done, global/derivatives/news context engines done, Phase 7 in progress** (of 18). **IMPORTANT: Run 007 (backtesting/BACKTESTS.md) found the spec's own Rs.50,000 capital cannot afford even one lot of NIFTY/BANKNIFTY/SENSEX options at ATM at a conservative risk-per-trade percentage, given real current lot sizes/premiums. Run 008's affordability-aware strike selection is a genuine partial fix (Rs.50,000 CAN now participate, far-OTM), but its own headline returns are explicitly flagged as untrustworthy (inflated by continuous compounding) - read both entries before assuming this capital figure is workable as stated.** (Phase 1: scaffolding/config/
 logging/notifications/deploy - done. Phase 2: historical OHLCV data
 pipeline + quality engine - done, and real data has now actually been
 pulled (data/raw/, gitignored - see "Local development" below to
@@ -168,7 +168,11 @@ strategies/   (Phase 6, done) strategy portfolio, regime-eligibility
               an honest heuristic, NOT real risk-adjusted EV, which
               needs a probability model that doesn't exist yet) instead
               of always trading ATM - opt-in in the backtester
-              (BACKTESTS.md's Run 004), off by default
+              (BACKTESTS.md's Run 004), off by default.
+              select_affordable_contract() (done) walks strikes outward
+              until finding one that fits a real rupee risk budget -
+              motivated directly by Run 007/008's capital-adequacy
+              finding, see backtesting/ below
 models/       (Phase 7, in progress) ML training. Model 1/8 (regime
               classifier) built - see models/EXPERIMENTS.md for its
               honest result (did not beat baseline, not promoted).
@@ -232,11 +236,26 @@ backtesting/  (Phase 12, done) event-driven backtester - processes bars
               of undercapitalization). Directly motivates future work:
               either revisit the capital assumption, build affordability-
               aware strike selection, or move to defined-risk spreads
-              instead of naked long options. BACKTESTS.md logs every run
-              honestly, including a real bug it caught (daily risk state
-              never resetting between bars) and the corrected,
-              still-mixed result after fixing it - nothing here is a
-              validated edge
+              instead of naked long options. strategies/contract_selection.py's
+              new select_affordable_contract() (done) + a matching
+              simulate_equity_curve_with_affordable_contracts() directly
+              follow up on this (Run 008): affordability-aware strike
+              selection DOES let Rs.50,000 participate at a conservative
+              1% risk-per-trade (94/94, 94/97, 91/92 trades sized vs 0
+              before) - but the exciting-looking headline compounded
+              returns (+583% to +2144%) are NOT to be trusted, they're
+              inflated by continuous 5-year compounding with no capital
+              ever withdrawn. The honest, walk-forward (independent-
+              fold) view is mixed - 4/5, 2/5, 3/5 folds profitable,
+              similar inconclusive character to every other result here -
+              and two real risks (ATM-calibrated slippage assumptions
+              likely understating cost for far-OTM contracts; the
+              entry-timing-reuse assumption never validated for far-OTM
+              convexity specifically) are flagged, not resolved.
+              BACKTESTS.md logs every run honestly, including a real bug
+              it caught (daily risk state never resetting between bars)
+              and the corrected, still-mixed result after fixing it -
+              nothing here is a validated edge
 research/     (Phase 17/18, structural backbone only) experiment_log.py -
               a durable, queryable JSONL ledger of every experiment run
               (research/experiment_log.jsonl, backfilled with tonight's
