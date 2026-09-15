@@ -65,6 +65,17 @@ class SimulatedTrade:
     cost: float
     net_pnl: float
     capital_after: float
+    # The ACTUAL strike/premiums this simulation priced the trade at -
+    # for simulate_equity_curve() these just mirror trade.strike/
+    # entry_premium/exit_premium (no re-pricing happens there); for
+    # simulate_equity_curve_with_affordable_contracts() these are the
+    # REAL affordability-selected values, which can differ substantially
+    # from the original ATM-based trade.strike. Exposed explicitly so
+    # downstream analysis (e.g. backtesting/moneyness_analysis.py) can
+    # audit what was actually traded, not just P&L.
+    strike: float = 0.0
+    entry_premium: float = 0.0
+    exit_premium: float = 0.0
 
 
 @dataclass
@@ -123,6 +134,7 @@ def simulate_equity_curve(
             trade=trade, lots=lots, quantity=quantity, capital_before=capital_before,
             capital_at_risk=risk_budget, equity_tier=tier.tier, gross_pnl=gross_pnl,
             cost=cost, net_pnl=net_pnl, capital_after=capital,
+            strike=trade.strike, entry_premium=trade.entry_premium, exit_premium=trade.exit_premium,
         ))
 
     return EquitySimulationResult(
@@ -229,6 +241,7 @@ def simulate_equity_curve_with_affordable_contracts(
             trade=trade, lots=lots, quantity=quantity, capital_before=capital_before,
             capital_at_risk=risk_budget, equity_tier=tier.tier, gross_pnl=gross_pnl,
             cost=cost, net_pnl=net_pnl, capital_after=capital,
+            strike=candidate.strike, entry_premium=entry_premium, exit_premium=exit_premium,
         ))
 
     return EquitySimulationResult(

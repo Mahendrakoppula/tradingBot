@@ -657,3 +657,86 @@ full-history level if costs get extreme enough. Run 008's SECOND
 flagged risk (validating the entry-timing-reuse assumption specifically
 for far-OTM convexity, not just Run 004's near-ATM finding) remains
 open, not addressed here.
+
+---
+
+## Run 010 - Moneyness-path analysis for far-OTM exits (second of Run 008's two flagged risks)
+
+**Date**: 2026-09-15
+**Purpose**: Closes Run 008's second flagged risk. Investigation
+001/Run 004 established that changing STRIKE SELECTION doesn't affect
+ENTRY TIMING - but on reflection that's true by construction in this
+codebase (`strategies/*.process_bar()` decides entry/exit purely from
+spot price action; it never looks at premium or strike at all), so it
+was never really the open question. The real question: does reusing
+the SAME spot-price-based stop/target EXIT framework
+(`risk/dynamic_stops.py`, built and implicitly calibrated around
+near-ATM sensitivity, before strike selection existed at all) produce a
+MEANINGFUL exit for a FAR-OTM contract, whose premium only moves
+substantially once spot actually approaches or crosses that contract's
+own, much more distant strike? If "target" exits are dominated by
+trades where spot never got anywhere near the selected strike, that
+would be real evidence the exit framework's "target hit" label doesn't
+mean what it's implicitly assumed to mean for far-OTM contracts.
+
+**Method**: new `backtesting/moneyness_analysis.py`. For every
+affordability-priced simulated trade (Run 008's
+`simulate_equity_curve_with_affordable_contracts()`), scans the FULL
+hold window's bar-by-bar high/low (not just the entry/exit snapshot -
+a mid-hold spike that reverses by exit would be invisible to an
+endpoint-only check) for the closest spot ever came to the
+affordability-selected strike, and records whether spot actually
+crossed it. Results grouped by the ORIGINAL backtest's `exit_reason`
+(stop/target/end_of_data, decided purely in spot terms) to see whether
+"target hit" trades are the ones where the selected strike was
+genuinely approached/crossed. `SimulatedTrade` extended with
+`strike`/`entry_premium`/`exit_premium` fields (the actual
+affordability-selected values, not the original ATM-based
+`trade.strike`) to make this auditable; backward-compatible, confirmed
+via the existing 18-test `test_equity_simulation*.py` suite.
+
+**Result** (same trades as Run 008/009, 1% risk, full history):
+
+| Instrument | Exit reason | n | Crossed strike | Mean closest moneyness |
+|---|---|---|---|---|
+| NIFTY | stop | 65 | 19 (29.2%) | +0.81% (still OTM) |
+| NIFTY | target | 28 | 28 (100.0%) | -1.66% (ITM) |
+| NIFTY | end_of_data | 1 | 1 (100.0%) | -0.09% |
+| BANKNIFTY | stop | 70 | 14 (20.0%) | +1.30% (still OTM) |
+| BANKNIFTY | target | 23 | 17 (73.9%) | -1.40% (ITM) |
+| BANKNIFTY | end_of_data | 1 | 1 (100.0%) | -0.83% |
+| SENSEX | stop | 62 | 23 (37.1%) | +0.34% (still OTM) |
+| SENSEX | target | 29 | 29 (100.0%) | -1.98% (ITM) |
+
+**A clear, consistent pattern across all three indices**: "target"
+exits are overwhelmingly real - spot genuinely crossed the far-OTM
+strike during the hold in 74-100% of target-exit trades, with the mean
+closest approach solidly ITM (-1.4% to -2.0%), not a coincidental
+label. This is the opposite of what the flagged risk worried about:
+the far-OTM contract's own convexity mechanism (spot actually reaching
+the strike) IS what's driving "target hit" trades, not an artifact of
+reusing a near-ATM-calibrated framework. **"Stop" exits tell a
+different story**: only 20-37% of stop-exit trades ever saw spot
+approach the selected strike at all, and the mean closest approach
+stayed clearly OTM (+0.3% to +1.3%) - most stop-outs are NOT convexity
+events in the underlying at all. That's expected and not itself a bug
+(a bought option's premium can erode past a stop threshold from pure
+theta decay or a small vol move with spot going nowhere near the
+strike - that's a real, distinct loss mechanism from "wrong-way move");
+it does mean the spot-based stop threshold is, for most of these
+trades, effectively a decay/small-move filter rather than a
+directional-conviction check tied to the contract's own strike.
+
+**Verdict: Run 008's second flagged risk is resolved, and resolved
+favorably for the "target" side of the framework specifically** - the
+far-OTM exit-timing-reuse concern does not materialize for target hits;
+they are real, strike-crossing convexity events, consistently across
+NIFTY/BANKNIFTY/SENSEX. The finding does surface a separate, smaller,
+newly-noticed nuance (not one of the original two flagged risks, and
+not investigated further here): most "stop" exits are premium-decay
+events rather than strike-approach events, which is a legitimate but
+previously undocumented distinction in what "stop" actually means for
+a far-OTM bought option versus a near-ATM one. Not itself flagged as
+broken - just noted as a real mechanism difference worth being aware of
+if `risk/dynamic_stops.py`'s thresholds are ever tuned specifically for
+far-OTM contracts in the future.

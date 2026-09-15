@@ -256,9 +256,18 @@ backtesting/  (Phase 12, done) event-driven backtester - processes bars
               scales price fields by 100, confirmed via the strike
               field) leaves the fold-level picture essentially unchanged
               up to Rs.5/unit round-trip, with a real sharp breakdown
-              threshold only far out (~Rs.20/unit). The SECOND risk
-              (validating entry-timing-reuse for far-OTM convexity, not
-              just Run 004's near-ATM finding) remains open.
+              threshold only far out (~Rs.20/unit). moneyness_analysis.py
+              (done) closes the SECOND risk (Run 010): scans each trade's
+              full hold-period high/low (not just entry/exit) for whether
+              spot ever crossed the affordability-selected far-OTM
+              strike. "Target" exits are real, strike-crossing convexity
+              events (74-100% crossed across NIFTY/BANKNIFTY/SENSEX, mean
+              closest approach -1.4% to -2.0% ITM) - the far-OTM
+              exit-timing-reuse concern does not materialize. "Stop"
+              exits are mostly NOT strike-approach events (only 20-37%
+              crossed) - a legitimate but previously undocumented
+              distinction: most stops are premium-decay exits, not
+              wrong-way-move exits, for far-OTM contracts specifically.
               BACKTESTS.md logs every run honestly, including a real bug
               it caught (daily risk state never resetting between bars)
               and the corrected, still-mixed result after fixing it -
