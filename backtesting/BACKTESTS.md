@@ -896,3 +896,91 @@ this is a promising lead to investigate further (a longer intraday
 history, and/or an intraday-specific parameter pass, both separately
 logged and neither done here), not yet a validated edge on the same
 footing as this log's 5-year daily-bar findings.
+
+---
+
+## Run 012 - Same rule set, real hourly data, ~6x more history (498 vs 85 days)
+
+**Date**: 2026-09-15
+**Purpose**: Run 011's two flagged caveats were (1) only ~4 months of
+5-minute data, far thinner than this log's usual 5-year daily window,
+and (2) ATR/lookback parameters tuned against daily-bar semantics
+running at a real-world timescale roughly 100x shorter than validated
+for. Two ways to address this were considered: pull more history, or
+tune parameters specifically for intraday cadence. **Parameter tuning
+was deliberately NOT done**: it would mean tuning against the exact
+same window that already produced Run 011's striking positive result -
+the textbook in-sample-overfitting trap this log's own standing
+discipline exists to rule out ("never tuned to look better against an
+already-logged result"), with no held-out data to tell a real
+improvement apart from fitting noise. Longer history carries no such
+risk, and turned out to be free: `data/raw/*/ONE_HOUR.parquet` already
+holds 498 real trading days (2024-09-10 to 2026-09-10, all three
+indices) - no new data pull needed. A bonus, not the main motivation:
+ATR(14)/lookback(100) at hourly granularity represents ~2.3 trading
+days / ~17 trading days - still shorter than the daily-tuned intent,
+but meaningfully closer to it than Run 011's 5-minute run (~70 min /
+~8 hours), so the parameter-mismatch caveat is somewhat less severe
+here specifically.
+
+**No code changes required** - Run 011's day-boundary fix
+(`is_new_day` computed from real calendar dates via `_bar_date()`)
+already generalizes to any intraday granularity; this run only swaps
+which parquet file gets loaded.
+
+**Result (real lot sizes, 5-fold walk-forward with a 6-bar/~1-day
+embargo, 10,000-resample bootstrap)**:
+
+| Instrument | n trades | Win rate | Mean win / mean loss | Cost as % of gross | Folds profitable | Bootstrap 90% CI | Frac. resamples profitable |
+|---|---|---|---|---|---|---|---|
+| NIFTY | 276 | 37.3% | Rs.169.18 / Rs.-45.23 | 2.5% | 5/5 | [6,423.5, 12,848.0] | 100.0% |
+| BANKNIFTY | 273 | 36.6% | Rs.483.56 / Rs.-110.13 | 1.9% | 5/5 | [20,471.4, 38,597.5] | 100.0% |
+| SENSEX | 265 | 38.5% | Rs.535.46 / Rs.-151.77 | 2.5% | 5/5 | [19,532.8, 40,535.7] | 100.0% |
+
+**Per-trade mechanism check (NIFTY)**: even more distributed than Run
+011's 5-minute result - the single largest trade is 4.8% of total P&L
+(top 5 combined: 21.0%), median hold 6 bars (~6 trading hours), max 27
+bars (~4.5 trading days). Sampled entry/exit premiums are sane, real
+option-premium magnitudes. Costs are a noticeably SMALLER drag than
+both Run 011's 5-minute result (8-11%) and even Run 005's original
+daily result (1.4-1.8%) in relative terms per index here (1.9-2.5%) -
+consistent with fewer, larger-premium-move trades relative to the
+fixed per-trade cost, not a red flag.
+
+**15/15 walk-forward folds profitable across all three indices, over
+~1.4 years of real out-of-sample data** - directly and substantially
+addresses Run 011's #1 caveat (thin sample). This is corroborating,
+not identical, evidence: it validates the SAME rule set at a
+DIFFERENT intraday granularity (hourly, not 5-minute) over a much
+longer real window, not a re-run of the exact 5-minute finding with
+more data. The two results are consistent with each other (both
+strongly positive, both well-distributed, both survive real costs)
+but should be read as two separate, mutually reinforcing data points,
+not one result confirmed twice.
+
+**Caveats that still apply, carried over honestly, not resolved by
+this run**: spot-proxy theoretical options pricing (no real historical
+intraday premium/bid-ask data) remains unchanged from every prior run
+in this log. The hourly ATR/lookback windows are closer to daily-tuned
+intent than the 5-minute run's were, but still meaningfully shorter -
+this remains the existing rule set's first look at hourly cadence, not
+a separately validated hourly-native strategy. The 498-day window still
+overlaps the same historical period the daily-bar strategies were
+originally built/tested against (2021-2026 daily data) - a formal
+look-ahead risk this analysis does not fully rule out, same as noted
+in Run 011.
+
+**Verdict**: the most robust intraday evidence in this log so far.
+Two different intraday granularities (5-minute over 4 months, hourly
+over 1.4 years) both show the SAME rule set producing consistent,
+well-distributed, cost-surviving, walk-forward-robust, bootstrap-
+confirmed positive results - genuinely more compelling than a single
+lucky window would look like. Still not claimed as a validated,
+production-ready edge: no intraday-specific parameter validation has
+been attempted (deliberately, to avoid p-hacking against these same
+results), and the spot-proxy pricing/look-ahead-overlap caveats remain
+real, disclosed, unresolved limitations. The next honest step, if
+pursued, would be sourcing genuinely fresh out-of-sample intraday data
+(a period not already touched by anything this project has tuned or
+validated against) rather than tuning parameters against what's
+already been seen.

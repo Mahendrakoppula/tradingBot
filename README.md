@@ -289,7 +289,25 @@ backtesting/  (Phase 12, done) event-driven backtester - processes bars
               parameter was tuned against daily-bar semantics, now
               running ~100x faster than validated for - a promising
               first look, not yet on the same footing as the daily-bar
-              findings. BACKTESTS.md logs every run honestly, including a real bug
+              findings. Run 012 followed up with LONGER history rather
+              than intraday parameter tuning - tuning against the same
+              window Run 011 already showed positive would be in-sample
+              overfitting with no held-out data to check it against, so
+              deliberately not done. Instead reused already-pulled
+              hourly data (data/raw/*/ONE_HOUR.parquet, 498 real days,
+              2024-2026, no new pull needed, zero code changes since the
+              day-boundary fix already generalizes) - result is the
+              most robust intraday evidence in this log: 15/15
+              walk-forward folds profitable across all three indices,
+              bootstrap CIs excluding zero, costs an even smaller drag
+              (1.9-2.5% of gross) than either the daily or 5-minute
+              runs. Two different intraday granularities now agree, but
+              still not claimed as a validated edge - spot-proxy pricing
+              and a look-ahead-overlap caveat (the window overlaps
+              period the daily strategies were themselves built against)
+              remain open; genuinely fresh out-of-sample intraday data
+              is the honest next step, not further tuning against what's
+              already been seen. BACKTESTS.md logs every run honestly, including a real bug
               it caught (daily risk state never resetting between bars)
               and the corrected, still-mixed result after fixing it -
               nothing here is a validated edge
