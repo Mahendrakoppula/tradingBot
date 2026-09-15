@@ -984,3 +984,89 @@ pursued, would be sourcing genuinely fresh out-of-sample intraday data
 (a period not already touched by anything this project has tuned or
 validated against) rather than tuning parameters against what's
 already been seen.
+
+---
+
+## Investigation 002 - Sourcing genuinely fresh out-of-sample intraday data
+
+**Date**: 2026-09-15
+**Purpose**: Run 011/012 both flagged the same unresolved
+look-ahead-overlap caveat: their intraday data (5-minute, May-Sep 2026;
+hourly, Sep 2024-Sep 2026) overlaps the same 2021-2026 span the
+daily-bar strategies were themselves originally built/tuned against -
+not a fresh, independent test. The only way to remove that overlap
+entirely is data collected strictly AFTER any tuning/validation ever
+touched this project, i.e. going forward from today. Intraday
+parameter tuning was already explicitly ruled out in Run 012 as a
+p-hacking risk - this is the other, safe half of that same decision.
+
+**No new infrastructure needed - confirmed by using what already
+exists**: `data/pull_history.py` (the exact script already scheduled
+daily on the shared EC2 instance via `deploy/codex-paper-trading.timer`,
+10:15 UTC / 15:45 IST, Mon-Fri) already backfills FIVE_MINUTE and
+ONE_HOUR among its intervals, and `data/storage.py`'s `save_ohlcv()`
+already dedups-and-merges by timestamp - so simply re-running it
+extends the local dataset forward safely, with no risk of corrupting
+or duplicating existing bars. Rather than build a parallel
+forward-collection mechanism, or touch the shared EC2 instance (which
+was stopped at the time, per its normal 6am-8pm IST schedule, and this
+local machine's own AWS deployer credentials don't have log/SSM read
+access to inspect it anyway - confirmed via `aws ssm
+list-command-invocations`, AccessDeniedException, by design per this
+project's scoped-IAM discipline), this session ran `python -m
+data.pull_history` directly on this local machine, which already has
+working SmartAPI credentials. A safe, read-only, already-tested,
+already-in-production operation - identical to what already runs daily
+on the EC2 box.
+
+**Result: the refresh succeeded cleanly, zero errors, across all three
+indices and all six intervals** - confirms the mechanism genuinely
+works end to end, not just in theory. New coverage:
+
+| Instrument | Interval | Old range end | New range end | New bars vs. Run 011/012 snapshot |
+|---|---|---|---|---|
+| NIFTY | FIVE_MINUTE | 2026-09-10 | 2026-09-15 | 147 (2 new trading days) |
+| NIFTY | ONE_HOUR | 2026-09-10 | 2026-09-15 | 14 (2 new trading days) |
+| BANKNIFTY | FIVE_MINUTE | 2026-09-10 | 2026-09-15 | 147 (2 new trading days) |
+| BANKNIFTY | ONE_HOUR | 2026-09-10 | 2026-09-15 | 14 (2 new trading days) |
+| SENSEX | FIVE_MINUTE | 2026-09-10 | 2026-09-15 | 148 (2 new trading days) |
+| SENSEX | ONE_HOUR | 2026-09-10 | 2026-09-15 | 14 (2 new trading days) |
+
+(Both intervals also confirmed to have a genuine ROLLING retention
+window, not unbounded growth: FIVE_MINUTE's oldest available date
+advanced from 2026-05-13 to 2026-05-18 and ONE_HOUR's from
+2024-09-10 to 2024-09-16 as the newest days were added - expected
+broker-side retention behavior, not a bug, and irrelevant to this
+investigation since only the NEW forward end matters for OOS
+freshness.)
+
+**FRESH_OOS_START_DATE marker, stated explicitly so a future
+re-analysis gets this right**: any bar with `timestamp > 2026-09-10
+15:30 IST` (the last bar Run 011/012 actually analyzed) is genuinely
+fresh - never touched by any tuning, parameter choice, or validation
+this project has ever done. Bars at or before that boundary remain
+valid for every OTHER purpose but must NOT be counted as fresh OOS
+evidence for the Run 011/012 intraday finding specifically.
+
+**Honestly, there is no result to report yet**: only 2 genuinely fresh
+trading days exist so far (the market was closed for the weekend in
+between). That is far too little to draw any conclusion from - for
+comparison, Run 011's SMALLEST individual walk-forward fold alone was
+already ~21 trading days. Running any backtest/walk-forward/bootstrap
+check against 2 days right now would produce a number, but not a
+meaningful one - reporting it would violate this log's own discipline
+against manufacturing an impression of validation from too little data.
+
+**Verdict**: infrastructure confirmed working end to end and the
+FRESH_OOS_START_DATE boundary is now fixed and documented - the
+mechanism for eventually answering Run 011/012's look-ahead-overlap
+caveat is in place and requires no further engineering. What remains
+is purely a function of calendar time: re-run `python -m
+data.pull_history` (locally, or confirm the already-deployed EC2 timer
+is doing it automatically) periodically and revisit once at least
+~20 fresh trading days have accumulated (a minimally meaningful single
+out-of-sample check, matching Run 011's smallest fold) - ideally
+closer to 60-90 days before treating a result with the same weight as
+Run 011/012's own findings. Not done here, and not worth simulating
+early: an honest "not enough data yet" is more useful than a fresh-OOS
+number computed from 2 trading days.

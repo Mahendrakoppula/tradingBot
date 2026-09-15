@@ -307,7 +307,20 @@ backtesting/  (Phase 12, done) event-driven backtester - processes bars
               period the daily strategies were themselves built against)
               remain open; genuinely fresh out-of-sample intraday data
               is the honest next step, not further tuning against what's
-              already been seen. BACKTESTS.md logs every run honestly, including a real bug
+              already been seen. Investigation 002 started sourcing that:
+              no new infrastructure needed (data.pull_history already
+              backfills FIVE_MINUTE/ONE_HOUR daily on the shared EC2 box
+              via deploy/codex-paper-trading.timer, and save_ohlcv
+              already dedups-and-merges by timestamp) - confirmed by
+              running it locally, zero errors across all three indices.
+              A FRESH_OOS_START_DATE marker (2026-09-10 15:30 IST, Run
+              011/012's snapshot end) is now fixed so a future
+              re-analysis knows exactly which bars are genuinely
+              untouched. Honestly, only 2 fresh trading days exist so far
+              (nowhere near Run 011's smallest fold of ~21 days) - no
+              result reported, deliberately, rather than compute one from
+              2 days; revisit after ~20+ fresh days accumulate.
+              BACKTESTS.md logs every run honestly, including a real bug
               it caught (daily risk state never resetting between bars)
               and the corrected, still-mixed result after fixing it -
               nothing here is a validated edge
