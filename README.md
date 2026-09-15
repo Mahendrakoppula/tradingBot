@@ -1,6 +1,6 @@
 # Codex — Autonomous ML-Driven Index Options Trading System
 
-Status: **Phase 9, 14, and 15 done, Phase 17/18 structural backbone done, global/derivatives/news context engines done, Phase 7 in progress** (of 18) (Phase 1: scaffolding/config/
+Status: **Phase 9, 14, and 15 done, Phase 17/18 structural backbone done, global/derivatives/news context engines done, Phase 7 in progress** (of 18). **IMPORTANT: Run 007 (backtesting/BACKTESTS.md) found the spec's own Rs.50,000 capital cannot afford even one lot of NIFTY/BANKNIFTY/SENSEX options at a conservative risk-per-trade percentage, given real current lot sizes/premiums - read that entry before assuming this capital figure is workable as stated.** (Phase 1: scaffolding/config/
 logging/notifications/deploy - done. Phase 2: historical OHLCV data
 pipeline + quality engine - done, and real data has now actually been
 pulled (data/raw/, gitignored - see "Local development" below to
@@ -217,7 +217,22 @@ backtesting/  (Phase 12, done) event-driven backtester - processes bars
               spread data exists to derive one number from - a
               deliberate sweep, not a fabricated point estimate) - Run
               006 found the P&L conclusion robust across the whole
-              range, zero fold flips. BACKTESTS.md logs every run
+              range, zero fold flips. equity_simulation.py (done) - a
+              REAL account-equity curve using actual risk-based position
+              sizing + equity-protection tiers + real transaction costs
+              (not the illustrative fixed-lot-size view the other
+              modules use). Run 007's finding is the single most
+              important result in this whole log: at the spec's own
+              Rs.50,000 starting capital, a CONSERVATIVE 1-5% risk-per-
+              trade affords ZERO trades on ANY of the three indices -
+              real 2026 index-option premiums x real lot sizes cost a
+              double-digit percentage of that capital per lot. Higher
+              risk levels that DO size show extreme, path-dependent
+              ruin-or-blowup outcomes (not a trading signal - a symptom
+              of undercapitalization). Directly motivates future work:
+              either revisit the capital assumption, build affordability-
+              aware strike selection, or move to defined-risk spreads
+              instead of naked long options. BACKTESTS.md logs every run
               honestly, including a real bug it caught (daily risk state
               never resetting between bars) and the corrected,
               still-mixed result after fixing it - nothing here is a

@@ -406,3 +406,80 @@ illiquid strikes, or a market-impact scenario beyond a simple spread
 proxy) was not tested and could tell a different story - this sweep's
 upper bound (5%) was a judgment call, not a validated ceiling on real
 options slippage.
+
+---
+
+## Run 007 - Real account-equity simulation: is Rs.50,000 even enough capital?
+
+**Date**: 2026-09-15
+**Purpose**: Every prior run used a fixed illustrative lot size applied
+uniformly to every trade (Run 005/006). This asks a different, more
+fundamental question using backtesting/equity_simulation.py: starting
+from the spec's OWN stated Rs.50,000 capital, with REAL risk-based
+position sizing (a bought option's max loss is the premium paid - sized
+against that, not a spot-points stop distance) and equity-protection
+tiers actually engaged, what does a real account balance do across this
+backtest's real trade sequence?
+**Method**: simulate_equity_curve() processes Run 001R's real trades in
+chronological order, sizing each one from CURRENT capital x
+base_risk_pct x the current equity-protection tier's multiplier, against
+that trade's REAL entry premium x real lot size (data/lot_size.py) as
+the affordability check, with real transaction costs applied
+(execution/transaction_costs.py).
+
+**Result - core finding, before any tuning**: at Rs.50,000 starting
+capital and a CONSERVATIVE 1-5% risk-per-trade (the range any
+disciplined risk framework would recommend, and this project's own
+DEFAULT_BASE_RISK_PCT), **100% of trades were skipped as unaffordable,
+on all three indices** - not 1%, not occasionally, all of them:
+
+| Instrument | n trades | Median premium x lot_size (= 1-lot max loss) | Risk % needed for the CHEAPEST trade in the dataset |
+|---|---|---|---|
+| NIFTY (lot=65) | 94 | Rs.9,000 (18.0% of Rs.50k) | 8.4% |
+| BANKNIFTY (lot=30) | 97 | Rs.10,358 (20.7% of Rs.50k) | 10.6% |
+| SENSEX (lot=20) | 92 | Rs.9,246 (18.5% of Rs.50k) | 7.7% |
+
+This is a REAL, structural fact about 2026-era Indian index-option
+economics (real lot sizes from SEBI's 2024-2025 contract-value
+revisions, real theoretical premiums from real spot levels/volatility),
+not a bug: buying even one whole lot of a near-ATM NIFTY/BANKNIFTY/
+SENSEX option, at this backtester's chosen strikes/expiry, costs a
+double-digit percentage of Rs.50,000 - incompatible with single-digit
+per-trade risk discipline for a whole-lot-buying approach.
+
+**Result - what happens at higher (non-conservative) risk levels**: swept
+10%/15%/20%/30% base_risk_pct (with max_lots=1, to bound the worst-case
+blowup - see caveat below):
+
+| Instrument | 10% | 15% | 20% |
+|---|---|---|---|
+| NIFTY | 1 trade, -8% | 1 trade, -13% | 92 trades, **+767%**, 15.9% max DD |
+| BANKNIFTY | 0 trades, +0% | 1 trade, -6% | 1 trade, -16% |
+| SENSEX | 1 trade, -9% | 81 trades, **+865%**, 14.0% max DD | 1 trade, -20% |
+
+**Verdict: this is evidence of severe undercapitalization, NOT a
+trading signal - the wild swings themselves are the finding.** Whether
+the outcome is "one trade then stuck skipping everything else" (a small
+loss) or a huge headline return depends ENTIRELY on whether the very
+first affordable trade happens to win or lose - classic gambler's-ruin-
+adjacent dynamics when bet size is forced large relative to bankroll.
+The "+767%"/"+865%" numbers are NOT validated returns and must never be
+quoted as if they were: they are what happens when a lucky early win
+lets fixed-fractional sizing compound on a growing capital base for the
+rest of a 5-year backtest - a well-known artifact of naive percentage-
+of-capital position sizing, not evidence of skill. (Uncapped, i.e.
+without max_lots=1, the same dynamic is far worse: NIFTY reached +1925%
+with an 84.7% max drawdown, SENSEX +9665% with 68.7% - included only to
+show why max_lots matters, never as a headline number.)
+
+**Actionable conclusion, not a code problem to fix quietly**: either (a)
+the spec's Rs.50,000 capital figure needs revisiting for a whole-lot-
+buying approach on these three specific indices at current real lot
+sizes, or (b) the system needs strike selection that specifically
+targets premiums cheap enough to fit a genuinely conservative risk
+budget (strategies/contract_selection.py's current capital-efficiency
+criterion does not consider absolute affordability at all - a concrete,
+well-scoped future improvement this finding directly motivates), or (c)
+defined-risk multi-leg structures (spreads) instead of naked long
+options, which the spec's own contract-selector section calls for and
+this project hasn't built yet. Not resolved here - reported as found.
