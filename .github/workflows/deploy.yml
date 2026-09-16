@@ -84,8 +84,10 @@ jobs:
           root = pathlib.Path('.')
           out = pathlib.Path('deploy_package.zip')
           with zipfile.ZipFile(out, 'w', zipfile.ZIP_DEFLATED) as z:
-              for f in root.glob('trading_bot/*.py'):
-                  z.write(f, f)
+              # rglob, not glob: trading_bot/engine/ is a subpackage and must ship too
+              for f in root.rglob('trading_bot/**/*.py'):
+                  if '__pycache__' not in f.parts:
+                      z.write(f, f.as_posix())
               z.write('requirements.txt', 'requirements.txt')
               z.write('deploy/config.env', 'config.env')
               z.write('deploy/fetch_secrets.sh', 'deploy/fetch_secrets.sh')
