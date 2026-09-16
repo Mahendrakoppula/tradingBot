@@ -9,8 +9,8 @@ User=tradingbot
 WorkingDirectory=/opt/trading-bot/trading-bot-agent
 EnvironmentFile=/opt/trading-bot/.agent-env
 # Also load the bootstrap-assembled .env (config.env + all SSM secrets,
-# same file trading-bot.service/trading-bot-technical.service use) -
-# without this, TELEGRAM_BOT_TOKEN/TELEGRAM_CHAT_ID/TECH_TELEGRAM_* are
+# same file trading-bot.service uses) -
+# without this, TELEGRAM_BOT_TOKEN/TELEGRAM_CHAT_ID are
 # absent from this service's environment, so the notify() calls the review
 # prompt documents (`from trading_bot.notifier import notify`) silently
 # no-op (notifier.py reads os.environ at import time with no fallback, and

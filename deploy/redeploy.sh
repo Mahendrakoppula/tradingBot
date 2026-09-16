@@ -37,8 +37,7 @@ COMMAND_ID=$(aws ssm send-command \
     'systemctl daemon-reload',
     'systemctl enable --now trading-bot-s3-sync.timer',
     'if [ -f /etc/systemd/system/trading-bot-review.timer ]; then systemctl enable --now trading-bot-review.timer; fi',
-    'systemctl start trading-bot.service',
-    'systemctl enable --now trading-bot-technical.service'
+    'systemctl start trading-bot.service'
   ]" \
   --query "Command.CommandId" --output text)
 

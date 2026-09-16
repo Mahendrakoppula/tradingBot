@@ -23,8 +23,9 @@ in its 12-month Free Tier window.
 
 Three separate bots recommended: one for the daily bot's routine activity
 (entries, exits, morning briefing), one dedicated to its error alerts so
-real problems don't get lost in the noise, and one for the second
-(technical-indicator) bot's alerts - both routine and error, one channel.
+real problems don't get lost in the noise, and one reserved for the second
+bot slot (decommissioned 2026-09-16, successor pending) - both routine and
+error, one channel.
 
 1. Message [@BotFather](https://t.me/BotFather) on Telegram, send `/newbot`,
    follow the prompts, for each bot. You get a **bot token**
@@ -36,7 +37,7 @@ real problems don't get lost in the noise, and one for the second
 4. Put all six values in `.env`: `TELEGRAM_BOT_TOKEN`/`TELEGRAM_CHAT_ID`
    (daily bot activity), `ERROR_TELEGRAM_BOT_TOKEN`/`ERROR_TELEGRAM_CHAT_ID`
    (daily bot errors), `TECH_TELEGRAM_BOT_TOKEN`/`TECH_TELEGRAM_CHAT_ID`
-   (second bot, everything).
+   (second bot slot, everything).
 
 ## 2. Fill in real credentials locally
 
@@ -45,9 +46,9 @@ SmartAPI key/client code/PIN/TOTP secret, all three Telegram bot pairs. This
 file is gitignored and never leaves your machine except via the SSM push
 below.
 
-Also decide now: keep `DRY_RUN=true`/`TECH_DRY_RUN=true` and
-`ENABLE_TRADING=false`/`TECH_ENABLE_TRADING=false` (in `deploy/config.env`,
-not `.env` - see below) for a while before flipping either pair. Nothing
+Also decide now: keep `DRY_RUN=true` and `ENABLE_TRADING=false` (in
+`deploy/config.env`, not `.env` - see below) for a while before flipping
+either. Nothing
 places a real order until both of a pair are set.
 
 ## 3. One-time AWS setup
@@ -92,7 +93,6 @@ No SSH needed - use SSM Session Manager:
 ```
 aws ssm start-session --target <INSTANCE_ID>
 sudo journalctl -u trading-bot -f
-sudo journalctl -u trading-bot-technical -f   # second bot, separate unit/log
 ```
 
 You should get a Telegram message when each service starts (daily bot's own
@@ -101,9 +101,9 @@ briefing. If nothing shows up:
 - `sudo systemctl status trading-bot-bootstrap` (did secret-fetching work? -
   shared by both bots, since they read the same `/opt/trading-bot/.env`)
 - `sudo systemctl status trading-bot` (did the daily bot start?)
-- `sudo systemctl status trading-bot-technical` (did the second bot start? -
-  `TECH_ENABLE_TRADING=false` at first deploy on purpose, see config.env's
-  own comment - flip it once this looks healthy)
+- `sudo systemctl is-enabled trading-bot-technical` should say `disabled` -
+  the second bot slot is installed but intentionally not running until its
+  successor ships
 - `sudo cat /var/log/cloud-init-output.log` (first-boot provisioning log,
   only relevant right after the very first launch)
 
