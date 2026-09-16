@@ -44,13 +44,24 @@ def _chunk_ranges(start: dt.date, end: dt.date, max_days: int):
 
 
 def last_completed_trading_date(now: dt.datetime | None = None) -> dt.date:
-    """A chunk whose range includes TODAY before market open is rejected
-    outright by the API ("From datetime can't be greater than current
-    datetime") - confirmed live, wastes a full retry budget for nothing.
-    One day of "today so far" doesn't matter for historical backfill, so
-    just don't ask for it until the market's been open a few minutes."""
+    """TODAY only counts once the market has actually CLOSED (15:30
+    IST) - before that, today's own candle is still partial/forming,
+    not a real, settled bar safe to persist as historical data. A
+    previous version of this function returned today as soon as the
+    market had been open a few minutes (9:16 IST), which happened to
+    never matter in production (the only real caller, pull_history.py,
+    is scheduled at 15:45 IST via deploy/codex-paper-trading.timer,
+    always after close) - but running it manually mid-session (as
+    happened during backtesting/BACKTESTS.md's Investigation 002, real
+    IST time ~10:09) silently saved an incomplete "today" bar as if it
+    were a genuine closed day, across ONE_DAY and every intraday
+    interval. Returning yesterday's date for the whole trading session,
+    not just before open, still avoids the original problem this
+    function exists for (the API rejects a chunk_end at or after "now")
+    - it's a strictly more conservative, and now actually correct,
+    boundary."""
     now = now or now_ist()
-    return now.date() if now.time() >= dt.time(9, 16) else now.date() - dt.timedelta(days=1)
+    return now.date() if now.time() >= dt.time(15, 30) else now.date() - dt.timedelta(days=1)
 
 
 def fetch_history(

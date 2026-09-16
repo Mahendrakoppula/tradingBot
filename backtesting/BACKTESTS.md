@@ -1070,3 +1070,37 @@ closer to 60-90 days before treating a result with the same weight as
 Run 011/012's own findings. Not done here, and not worth simulating
 early: an honest "not enough data yet" is more useful than a fresh-OOS
 number computed from 2 trading days.
+
+**Update (2026-09-16) - a real bug found continuing this same
+collection, fixed before it could quietly corrupt anything**: re-ran
+`python -m data.pull_history` the next day to keep accumulating fresh
+days, this time at ~10:09 IST - DURING market hours, not after close
+like the previous run and every actual production run (the deployed
+`codex-paper-trading.timer` always fires at 15:45 IST). This surfaced
+a genuine gap in `data/historical.py`'s `last_completed_trading_date()`:
+despite its name, the function only checked that the market had been
+open a few minutes (`>= 9:16 IST`), not that it had actually CLOSED
+(15:30 IST) - so it happily returned TODAY as the backfill's `end`
+date while today's own trading session was still in progress. Every
+interval for all three indices got a still-forming, incomplete "today"
+bar silently saved as if it were a real, settled close - exactly the
+kind of silent bad-data risk `data/quality.py`'s own stated principle
+("never pretend the data exists / is clean if it isn't") exists to
+prevent, and check_ohlcv has no way to catch it since an incomplete
+bar is still internally OHLC-consistent.
+
+This never mattered in production because the only real caller
+(`pull_history.py`) has only ever run at 15:45 IST, always safely
+after close - it took running it manually, off the normal schedule,
+to expose the gap. **Fixed**: the cutoff is now market CLOSE (15:30
+IST), not open; 3 tests updated/added in `tests/test_historical.py`
+(including one specifically pinned to the 9:30 IST/noon mid-session
+case this incident hit). The already-corrupted local data (18 files -
+3 indices x 6 intervals) was cleaned by stripping every row dated
+2026-09-16 back out, restoring each file to its last genuinely
+complete day (2026-09-15) - confirmed via direct inspection, not
+assumed. Fresh-day count is unaffected by any of this: still 2
+genuine fresh trading days (2026-09-11, 2026-09-15), since today's
+bad data was excluded rather than miscounted. Full suite: 399 passed,
+1 skipped (the pre-existing, expected `test_contract_selection.py`
+regression skip - unrelated).

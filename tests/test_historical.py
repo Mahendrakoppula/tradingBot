@@ -23,8 +23,27 @@ def test_last_completed_trading_date_before_market_open_is_yesterday():
     assert last_completed_trading_date(now) == dt.date(2026, 3, 4)
 
 
-def test_last_completed_trading_date_after_market_open_is_today():
+def test_last_completed_trading_date_during_market_hours_is_still_yesterday():
+    """The real bug this test exists to pin down: today's candle is
+    still forming during market hours, and must NOT be treated as a
+    completed trading day just because the market has been open a
+    while - see data/historical.py's docstring for the real incident
+    this test was added after (a manual mid-session run silently saved
+    a partial "today" bar as if it were a real, settled close)."""
     now = dt.datetime(2026, 3, 5, 9, 30, tzinfo=dt.timezone(dt.timedelta(hours=5, minutes=30)))
+    assert last_completed_trading_date(now) == dt.date(2026, 3, 4)
+
+    midday = dt.datetime(2026, 3, 5, 12, 0, tzinfo=dt.timezone(dt.timedelta(hours=5, minutes=30)))
+    assert last_completed_trading_date(midday) == dt.date(2026, 3, 4)
+
+
+def test_last_completed_trading_date_at_market_close_is_today():
+    now = dt.datetime(2026, 3, 5, 15, 30, tzinfo=dt.timezone(dt.timedelta(hours=5, minutes=30)))
+    assert last_completed_trading_date(now) == dt.date(2026, 3, 5)
+
+
+def test_last_completed_trading_date_after_market_close_is_today():
+    now = dt.datetime(2026, 3, 5, 18, 0, tzinfo=dt.timezone(dt.timedelta(hours=5, minutes=30)))
     assert last_completed_trading_date(now) == dt.date(2026, 3, 5)
 
 
