@@ -193,6 +193,21 @@ models/       (Phase 7, in progress) ML training. Model 1/8 (regime
               a materially different feature set (MTF alignment or
               theoretical Greeks as inputs) is the next real attempt,
               not another target swept against the same five features.
+              Tried theoretical Greeks next (Experiment 006):
+              build_options_features() adds realized_vol/theoretical
+              gamma/vega (option_type-symmetric, verified leak-safe) to
+              Model 2's feature set. Result is genuinely mixed, not a
+              clean resolution either way - NIFTY and SENSEX now pass
+              the 60% promotion threshold TOGETHER at horizons 5 and 10
+              (a more consistent pattern than the fully-scattered base
+              result), but they're known-correlated broad indices (same
+              "not independent confirmations" caveat BACKTESTS.md
+              already applies elsewhere), and BANKNIFTY fails at every
+              single horizon, mostly worse than its own base-feature
+              result. Reported as a promising but unconfirmed lead, not
+              a validated improvement - explaining BANKNIFTY's
+              consistent divergence is the real next step before
+              trusting the NIFTY/SENSEX pattern.
               models/feature_engineering.py provides vectorized, causal,
               whole-series equivalents of market_state/'s per-point
               classifiers, needed to make training-set construction

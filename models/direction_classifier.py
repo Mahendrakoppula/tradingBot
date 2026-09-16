@@ -40,10 +40,11 @@ import pandas as pd
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import accuracy_score, roc_auc_score
 
-from models.feature_engineering import build_features
+from models.feature_engineering import build_features, build_options_features
 from models.regime_classifier import TrainTestSplit, time_ordered_split
 
 FEATURE_COLUMNS = ["atr", "atr_percentile", "roc", "roc_magnitude_percentile", "is_strong_momentum"]
+EXTENDED_FEATURE_COLUMNS = FEATURE_COLUMNS + ["realized_vol", "theoretical_gamma", "theoretical_vega"]
 
 
 def build_dataset(df: pd.DataFrame, horizon_bars: int, **feature_kwargs) -> tuple[pd.DataFrame, pd.Series]:
@@ -62,6 +63,40 @@ def build_dataset(df: pd.DataFrame, horizon_bars: int, **feature_kwargs) -> tupl
     combined = combined.dropna()
 
     return combined[FEATURE_COLUMNS], combined["target"].astype(int)
+
+
+def build_dataset_extended(
+    df: pd.DataFrame,
+    horizon_bars: int,
+    strike_increment: float = 50.0,
+    days_to_expiry: int = 7,
+    risk_free_rate: float = 0.07,
+    vol_window: int = 20,
+    **feature_kwargs,
+) -> tuple[pd.DataFrame, pd.Series]:
+    """Same target/label logic as build_dataset(), with
+    models/feature_engineering.py's options-derived features
+    (realized_vol, theoretical_gamma, theoretical_vega) added on -
+    built to test whether Experiments 004/005's "no signal" conclusion
+    (models/EXPERIMENTS.md) reflects an absence of any learnable
+    structure, or just a limitation of the ATR/ROC-only feature set, per
+    that experiment's own stated next step. See
+    build_options_features()'s docstring for why gamma/vega specifically
+    (not delta/theta) were chosen as option_type-symmetric, leak-safe
+    additions."""
+    base_features = build_features(df, **feature_kwargs)
+    options_features = build_options_features(df, strike_increment, days_to_expiry, risk_free_rate, vol_window)
+    features = pd.concat([base_features, options_features], axis=1)
+
+    future_close = df["close"].shift(-horizon_bars)
+    target = (future_close > df["close"]).astype(float)
+    target[future_close.isna()] = float("nan")
+
+    combined = features.copy()
+    combined["target"] = target.reindex(features.index)
+    combined = combined.dropna()
+
+    return combined[EXTENDED_FEATURE_COLUMNS], combined["target"].astype(int)
 
 
 @dataclass
@@ -133,6 +168,47 @@ def walk_forward_evaluate(
     rigor)."""
     purge_bars = horizon_bars if purge_bars is None else purge_bars
     X, y = build_dataset(df, horizon_bars)
+    n = len(X)
+    fold_size = n // (n_folds + 1)
+    if fold_size <= 0:
+        raise ValueError(f"Not enough rows ({n}) for {n_folds} folds")
+
+    results = []
+    for fold in range(1, n_folds + 1):
+        train_end = fold * fold_size - purge_bars
+        test_start = fold * fold_size
+        test_end = min((fold + 1) * fold_size, n)
+        if train_end < min_fold_size or test_end - test_start < min_fold_size:
+            continue
+        X_train, y_train = X.iloc[:train_end], y.iloc[:train_end]
+        X_test, y_test = X.iloc[test_start:test_end], y.iloc[test_start:test_end]
+        results.append(_fit_and_evaluate(X_train, y_train, X_test, y_test))
+
+    if not results:
+        raise ValueError(
+            f"No usable folds: {n} rows is not enough for {n_folds} folds "
+            f"with purge_bars={purge_bars} and min_fold_size={min_fold_size}"
+        )
+    return results
+
+
+def walk_forward_evaluate_extended(
+    df: pd.DataFrame,
+    horizon_bars: int = 5,
+    n_folds: int = 5,
+    purge_bars: int | None = None,
+    min_fold_size: int = MIN_FOLD_SIZE,
+    strike_increment: float = 50.0,
+    days_to_expiry: int = 7,
+    risk_free_rate: float = 0.07,
+    vol_window: int = 20,
+) -> list[EvaluationResult]:
+    """Identical fold-splitting logic to walk_forward_evaluate(), built
+    on build_dataset_extended()'s options-augmented feature set instead
+    of build_dataset()'s ATR/ROC-only one - see that function's
+    docstring for why."""
+    purge_bars = horizon_bars if purge_bars is None else purge_bars
+    X, y = build_dataset_extended(df, horizon_bars, strike_increment, days_to_expiry, risk_free_rate, vol_window)
     n = len(X)
     fold_size = n // (n_folds + 1)
     if fold_size <= 0:

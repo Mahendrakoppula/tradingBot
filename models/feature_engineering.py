@@ -16,8 +16,11 @@ not just asserted - tests/test_feature_engineering.py cross-checks
 batch_regime_labels() against classify_market_state() at multiple
 sampled rows on real data.
 """
+import datetime as dt
+
 import pandas as pd
 
+from features.theoretical_options import theoretical_option_snapshot
 from market_state.momentum import STRONG_PERCENTILE, rate_of_change
 from market_state.structure import DEFAULT_SWING_WINDOW, find_swing_points
 from market_state.utils import rolling_percentile_rank
@@ -147,4 +150,67 @@ def build_features(
         "roc": roc_series,
         "roc_magnitude_percentile": roc_mag_pct,
         "is_strong_momentum": (roc_mag_pct >= STRONG_PERCENTILE).astype(float),
+    }, index=df.index)
+
+
+def build_options_features(
+    df: pd.DataFrame,
+    strike_increment: float = 50.0,
+    days_to_expiry: int = 7,
+    risk_free_rate: float = 0.07,
+    vol_window: int = 20,
+) -> pd.DataFrame:
+    """Options-derived features - a MATERIALLY different information
+    source from build_features()'s pure spot-technicals (ATR/ROC): the
+    realized-vol level itself, plus theoretical gamma/vega, which
+    encode convexity/vol-sensitivity that no spot-price indicator
+    captures directly. Built specifically to test whether Models 1/2's
+    "no signal with this feature set" conclusion (models/EXPERIMENTS.md,
+    Experiments 001-005) is a feature-set limitation rather than an
+    absence of any learnable structure at all.
+
+    Uses a FIXED, synthetic ATM-strike/7-day-expiry convention per row
+    (matching backtesting/event_loop.py's own BacktestConfig defaults)
+    purely to have a well-defined, reproducible contract to price at
+    each point in time - this is NOT a claim that this specific
+    contract was ever tradable or real, exactly like every other
+    theoretical-pricing use in this project (features/theoretical_options.py's
+    own documented spot-proxy limitation applies here too).
+
+    Deliberately excludes delta/theta: unlike gamma and vega, they
+    differ between calls and puts (put-call parity), so including one
+    fixed option_type's delta/theta would inject an arbitrary,
+    direction-coupled asymmetry into a feature set meant to help
+    predict direction from scratch - a subtle leak risk, not a real
+    signal. gamma and vega are IDENTICAL for calls and puts at the same
+    spot/strike/vol/rate, so the fixed "CE" choice below is provably
+    inert for these two outputs specifically.
+
+    Returns NaN for rows with insufficient history for the realized-vol
+    estimate (mirrors theoretical_option_snapshot() returning None) -
+    dropped downstream the same way build_features()'s own warmup NaNs
+    are, never fabricated."""
+    n = len(df)
+    realized_vol = [float("nan")] * n
+    gamma = [float("nan")] * n
+    vega = [float("nan")] * n
+
+    for t in range(n):
+        ts = df["timestamp"].iloc[t]
+        as_of_date = ts.date() if hasattr(ts, "date") else ts
+        spot = float(df["close"].iloc[t])
+        strike = round(spot / strike_increment) * strike_increment
+        expiry = as_of_date + dt.timedelta(days=days_to_expiry)
+
+        snapshot = theoretical_option_snapshot(df, t, strike, expiry, "CE", risk_free_rate, vol_window)
+        if snapshot is None:
+            continue
+        realized_vol[t] = snapshot.volatility_used
+        gamma[t] = snapshot.greeks.gamma
+        vega[t] = snapshot.greeks.vega_per_1pct_vol
+
+    return pd.DataFrame({
+        "realized_vol": realized_vol,
+        "theoretical_gamma": gamma,
+        "theoretical_vega": vega,
     }, index=df.index)

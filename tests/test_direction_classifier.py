@@ -6,7 +6,14 @@ import pandas as pd
 import pytest
 
 from data.storage import load_ohlcv
-from models.direction_classifier import build_dataset, train_and_evaluate, walk_forward_evaluate
+from models.direction_classifier import (
+    EXTENDED_FEATURE_COLUMNS,
+    build_dataset,
+    build_dataset_extended,
+    train_and_evaluate,
+    walk_forward_evaluate,
+    walk_forward_evaluate_extended,
+)
 
 NIFTY_DAILY = load_ohlcv("NIFTY", "ONE_DAY")
 requires_real_data = pytest.mark.skipif(len(NIFTY_DAILY) == 0, reason="real NIFTY daily data not pulled locally")
@@ -73,6 +80,26 @@ def test_walk_forward_evaluate_raises_when_not_enough_rows_for_the_fold_count():
     tiny_df = NIFTY_DAILY.iloc[: min(50, len(NIFTY_DAILY))]
     with pytest.raises(ValueError):
         walk_forward_evaluate(tiny_df, horizon_bars=5, n_folds=100)
+
+
+@requires_real_data
+def test_build_dataset_extended_has_no_nan_and_expected_columns():
+    X, y = build_dataset_extended(NIFTY_DAILY, horizon_bars=5)
+    assert list(X.columns) == EXTENDED_FEATURE_COLUMNS
+    assert len(X) == len(y)
+    assert len(X) > 0
+    assert not X.isna().any().any()
+    assert y.isin([0, 1]).all()
+
+
+@requires_real_data
+def test_walk_forward_evaluate_extended_runs_end_to_end():
+    results = walk_forward_evaluate_extended(NIFTY_DAILY, horizon_bars=5, n_folds=5)
+    assert len(results) >= 2
+    for r in results:
+        assert 0.0 <= r.model_accuracy <= 1.0
+        assert 0.0 <= r.baseline_accuracy <= 1.0
+        assert r.n_test > 0
 
 
 def test_build_dataset_on_synthetic_random_walk_still_runs():

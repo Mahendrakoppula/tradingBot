@@ -256,3 +256,88 @@ Experiment 003's own conclusion, doubly confirmed here) needs a
 materially different feature set - MTF alignment (features/mtf.py) or
 theoretical Greeks (features/theoretical_options.py) as inputs - rather
 than another target swept against the same five features.
+
+---
+
+## Experiment 006 - Direction classifier with options-derived features
+
+**Date**: 2026-09-16
+**Purpose**: Directly tests Experiment 005's own stated next step - is
+"no signal" a limitation of the ATR/ROC-only feature set, or an
+absence of any learnable structure at all? MTF alignment
+(features/mtf.py) was considered but would need new whole-series
+resampling/alignment engineering across timeframes (a harder,
+leakage-risk-prone problem per that module's own docstring warning);
+theoretical Greeks (features/theoretical_options.py) already has a
+point-in-time-correct, causal function callable per-row directly - more
+tractable, and genuinely different information (convexity/vol-
+sensitivity) from spot-price technicals.
+**New features** (models/feature_engineering.py's `build_options_features()`):
+`realized_vol` (the close-to-close realized-vol proxy actually used for
+pricing - different computation from ATR's true-range basis), plus
+theoretical ATM `gamma` and `vega` at a fixed synthetic 7-day-expiry
+convention (matching backtesting/event_loop.py's own default). Delta
+and theta were deliberately EXCLUDED: unlike gamma/vega, they differ
+between calls and puts (put-call parity), so a fixed option_type choice
+would inject an arbitrary, direction-coupled asymmetry into a feature
+set meant to help predict direction from scratch - verified directly
+(not just asserted) that gamma/vega are bit-for-bit identical for CE
+and PE at the same inputs (tests/test_feature_engineering.py).
+**Method**: models/direction_classifier.py's new `build_dataset_extended()`/
+`walk_forward_evaluate_extended()` - identical walk-forward mechanics
+to Experiments 004/005, base features + the 3 new ones, same 8 folds,
+same horizon sweep (1/3/5/10/20 bars) for direct comparability.
+**Result**:
+
+| Horizon | NIFTY | BANKNIFTY | SENSEX |
+|---|---|---|---|
+| 1 bar | 5/8, AUC 0.504, **promote** | 2/8, AUC 0.521, no | 3/8, AUC 0.502, no |
+| 3 bars | 4/8, AUC 0.538, no | 2/8, AUC 0.488, no | 4/8, AUC 0.525, no |
+| 5 bars | 5/8, AUC 0.572, **promote** | 3/8, AUC 0.485, no | 5/8, AUC 0.568, **promote** |
+| 10 bars | 5/8, AUC 0.582, **promote** | 4/8, AUC 0.531, no | 5/8, AUC 0.570, **promote** |
+| 20 bars | 4/8, AUC 0.588, no | 3/8, AUC 0.495, no | 3/8, AUC 0.532, no |
+
+**A genuinely different, more consistent pattern than Experiment 005's
+base-feature sweep - but not a clean win.** At horizons 5 and 10, NIFTY
+and SENSEX now pass the promotion threshold TOGETHER, and mean AUC is
+modestly higher across most horizon-instrument combinations (up to
+0.588, vs. Experiment 005's ceiling of 0.565) - qualitatively different
+from Experiment 005's scattered pattern, where a different single,
+non-overlapping instrument passed at each horizon with no two
+instruments ever agreeing. Two instruments agreeing at the same horizon
+is at least consistent with a real, if modest, signal rather than pure
+noise crossing an imperfect threshold.
+
+**The obvious caveat, stated as prominently as the result itself**:
+NIFTY and SENSEX are known to be highly correlated broad indices - this
+project's own BACKTESTS.md already flagged the exact same "not
+independent confirmations" caveat for a different finding (the
+trend-following reversal in Investigation 001: "really ONE Indian-
+market event observed through three correlated proxies, not three
+independent confirmations"). The same logic applies here: NIFTY+SENSEX
+passing together is much closer to ONE signal appearing in two
+correlated series than two independent confirmations. **BANKNIFTY -
+the one index in this set with genuinely different characteristics
+(sectoral, not broad-market) - fails to clear the threshold at EVERY
+single horizon tested, including performing WORSE than its own
+base-feature-set result at every horizon except 10.** This is a real,
+unresolved inconsistency: if the options-derived features captured a
+genuine, general vol-regime signal, there's no obvious reason it should
+help two correlated broad-market indices while consistently failing on
+a third, differently-structured one.
+
+**Verdict: modest, partial, genuinely mixed evidence - not a clean
+promotion for any instrument, and not a clear resolution either way of
+whether the feature set was the missing piece.** This is more
+encouraging than Experiments 004/005's fully-scattered null result, but
+substantially short of what would be needed to call this validated:
+the improvement is confined to two correlated instruments, doesn't
+extend to the third, and no single instrument in isolation exceeds what
+random threshold-crossing could plausibly produce on its own. Reported
+exactly as found, including every horizon, per this file's own
+p-hacking rule - not tuned toward NIFTY/SENSEX's better-looking numbers.
+A genuine next step, if pursued, would need to explain BANKNIFTY's
+consistent divergence (a real, structural difference between a broad
+index and a sectoral one, or simply this specific feature construction
+not suiting it) before treating the NIFTY/SENSEX pattern as anything
+more than a promising but unconfirmed lead.
