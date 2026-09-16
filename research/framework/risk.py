@@ -2,12 +2,9 @@
 and a portfolio-level risk gate (daily loss limit, consecutive-loss
 cutback, drawdown-based risk reduction, correlated-exposure cap).
 
-This is offline/research-only and does NOT touch
-trading_bot/technical_strategy.py, which stays the live bot's own
-mechanism (a fixed rupee-per-lot stop/target for scalp/intraday, ATR-based
-for swing - see that module's premium_stop_target/atr_stop_target). Only a
-piece validated here with genuine out-of-sample evidence is a candidate
-for live promotion, and that's a separate future decision.
+This is offline/research-only and drives no live orders. Only a piece
+validated here with genuine out-of-sample evidence is a candidate for live
+promotion, and that's a separate future decision.
 """
 from dataclasses import dataclass
 
@@ -107,8 +104,7 @@ def should_activate_chandelier(
 ) -> bool:
     """Only start trailing once price has moved at least
     activation_r_multiple times the original risk in the favorable
-    direction - same "don't trail from bar one" principle as
-    trading_bot.technical_strategy.should_activate_trailing."""
+    direction - the "don't trail from bar one" principle."""
     risk_dist = abs(entry_price - stop_price)
     if risk_dist == 0:
         return False
@@ -203,8 +199,7 @@ def correlated_exposure_multiplier(
 ) -> float:
     """Reduces size when a new trade would stack same-direction exposure on
     an already-open, correlated underlying (NIFTY/BANKNIFTY/SENSEX move
-    together on days that matter - same three underlyings
-    trading_bot/run_technical.py already watches). Returns a risk
+    together on days that matter). Returns a risk
     multiplier: 1.0 unaffected, 0.5 for one existing same-direction
     correlated position, 0.0 (blocked) for two or more."""
     groups = correlation_groups if correlation_groups is not None else DEFAULT_CORRELATION_GROUPS

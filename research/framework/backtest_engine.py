@@ -3,8 +3,7 @@ bar-by-bar - only candles up to and including the bar being evaluated are
 ever visible to a decision at that bar, no vectorized shortcuts - running
 one of Stage 2's 4 strategies against Stage 1's regime/structure context,
 sized and stopped via Stage 2's risk module, with real round-trip costs
-(trading_bot.costs, same functions/rates run_technical.py uses live)
-deducted from every closed trade.
+(trading_bot.costs.CostRates) deducted from every closed trade.
 
 SCOPE CAVEAT (inherited as-is from research/backtest_technical.py, not
 solved here): for asset_scope "index_option"/"stock_option" this is a
@@ -61,13 +60,12 @@ from research.framework import relative_strength as rs_mod
 from research.framework.market_structure import find_structure_events
 from research.framework.regime import Regime, classify_regime
 from research.framework.scoring import ScoreWeights, ScoringInputs
-from trading_bot import costs as costs_mod
 from trading_bot.chart_patterns import detect_breakout
+from trading_bot.costs import CostRates
 from trading_bot.indicators import macd as calc_macd
 from trading_bot.indicators import rolling_avg_volume
 from trading_bot.indicators import rsi as calc_rsi
 from trading_bot.support_resistance import cluster_levels, find_swing_points
-from trading_bot.technical_config import TechnicalConfig
 from trading_bot.volume_analysis import relative_volume as calc_relative_volume
 
 STRATEGIES = ("trend_following", "breakout", "mean_reversion", "momentum")
@@ -88,7 +86,7 @@ class BacktestConfig:
     structure_right: int = 3
     avg_volume_period: int = 20
     weights: ScoreWeights | None = None  # overrides the strategy's own default weight preset when set
-    technical_config: TechnicalConfig = field(default_factory=lambda: TechnicalConfig(dry_run=True, enable_trading=False))
+    cost_rates: CostRates = field(default_factory=CostRates)
 
     # --- optional exit/entry refinements, both OFF by default (backward
     # compatible with every earlier Stage 3/4 result) - added 2026-09-10
@@ -171,16 +169,10 @@ class BacktestResult:
     decisions: list  # list[DecisionRecord]
 
 
-def _cost_fn(asset_scope: str, cfg: TechnicalConfig):
+def _cost_fn(asset_scope: str, rates: CostRates):
     if asset_scope == "equity_delivery":
-        return lambda entry, exit_, qty: costs_mod.equity_round_trip_cost(
-            entry, exit_, qty, cfg.cost_equity_brokerage_per_order, cfg.cost_equity_stt_pct,
-            cfg.cost_exchange_txn_pct, cfg.cost_sebi_fee_pct, cfg.cost_equity_stamp_duty_pct, cfg.cost_gst_pct,
-        )
-    return lambda entry, exit_, qty: costs_mod.option_round_trip_cost(
-        entry, exit_, qty, cfg.cost_brokerage_per_order, cfg.cost_stt_sell_pct,
-        cfg.cost_exchange_txn_pct, cfg.cost_sebi_fee_pct, cfg.cost_stamp_duty_pct, cfg.cost_gst_pct,
-    )
+        return rates.equity_cost
+    return rates.option_cost
 
 
 def _check_exit(direction: str, stop_price: float, target_price: float | None, candle: dict) -> tuple[str, float] | None:
@@ -276,8 +268,7 @@ def simulate(
     if strategy not in STRATEGIES:
         raise ValueError(f"unknown strategy {strategy!r}, expected one of {STRATEGIES}")
     config = config or BacktestConfig()
-    cfg = config.technical_config
-    cost_fn = _cost_fn(asset_scope, cfg)
+    cost_fn = _cost_fn(asset_scope, config.cost_rates)
 
     closes = [c["close"] for c in candles]
     rsi_line = calc_rsi(closes)

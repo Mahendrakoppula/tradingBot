@@ -1,6 +1,28 @@
 import pytest
 
-from trading_bot.costs import equity_round_trip_cost, option_round_trip_cost
+from trading_bot.costs import CostRates, equity_round_trip_cost, option_round_trip_cost
+
+
+def test_cost_rates_defaults_are_pinned():
+    """Statutory/broker rates are not tuning knobs. These values were
+    previously pinned in tests/test_config_bounds.py as TECH_COST_*; the
+    guard moved here when that config block was retired. Change them only
+    against a real contract note or a rate circular, never to make a
+    backtest look better."""
+    r = CostRates()
+    assert (r.brokerage_per_order, r.stt_sell_pct, r.exchange_txn_pct) == (20.0, 0.1, 0.035)
+    assert (r.sebi_fee_pct, r.stamp_duty_pct, r.gst_pct) == (0.0001, 0.003, 18.0)
+    assert (r.equity_brokerage_per_order, r.equity_stt_pct, r.equity_stamp_duty_pct) == (0.0, 0.1, 0.015)
+
+
+def test_cost_rates_methods_match_functions():
+    r = CostRates()
+    assert r.option_cost(20.0, 25.0, 65) == pytest.approx(
+        option_round_trip_cost(20.0, 25.0, 65, 20.0, 0.1, 0.035, 0.0001, 0.003, 18.0)
+    )
+    assert r.equity_cost(100.0, 110.0, 10) == pytest.approx(
+        equity_round_trip_cost(100.0, 110.0, 10, 0.0, 0.1, 0.035, 0.0001, 0.015, 18.0)
+    )
 
 
 def test_option_round_trip_cost_basic_breakdown():
