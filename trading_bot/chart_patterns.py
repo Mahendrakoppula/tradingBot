@@ -67,8 +67,8 @@ def detect_trend_structure(swing_points: list[SwingPoint]) -> str | None:
 
 def detect_double_top_bottom(swing_points: list[SwingPoint], tolerance_pct: float = 0.5) -> str | None:
     """FIRST-CUT HEURISTIC with real false-positive risk - use only as a
-    secondary confirmation signal, never a sole trigger (see
-    technical_strategy.py's swing tier). Flags "double_top" when the last
+    secondary confirmation signal, never a sole trigger. Flags
+    "double_top" when the last
     two swing highs are within `tolerance_pct` of each other with a swing
     low between them (and symmetrically for "double_bottom")."""
     highs = sorted((p for p in swing_points if p.kind == "high"), key=lambda p: p.index)

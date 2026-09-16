@@ -12,7 +12,7 @@ backtest_orb.py's load_candles(), candle_history_logger.py): at minimum
 Formulas are the standard, decades-old textbook definitions (SMA, EMA,
 Wilder's RSI/ATR smoothing, MACD, VWAP) - not first-cut guesses. What IS
 still unvalidated is which periods/thresholds a given strategy tier chooses
-to use them with - see technical_strategy.py / research/backtest_technical.py
+to use them with - see research/backtest_technical.py and research/framework/
 for that.
 """
 

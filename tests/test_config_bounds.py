@@ -61,45 +61,6 @@ NUMERIC_BOUNDS = {
     "OPTION_CHAIN_LOG_INTERVAL_SECONDS": (60, 3600),
     "OPTION_CHAIN_LOG_STRIKE_BAND_PCT": (0.02, 0.50),
     "CANDLE_LOG_STRIKES_EACH_SIDE": (1, 10),
-    # --- second bot (run_technical.py) - same enforcement boundary, kept
-    # separate from the daily bot's own tuner scope but bounded the same way.
-    "TECH_CAPITAL": (1000, 10_000_000),
-    "TECH_MAX_CAPITAL_PCT_PER_TRADE": (0.05, 0.50),
-    "TECH_MAX_LOTS_PER_TRADE": (1, 20),
-    "TECH_MAX_SPREAD_PCT": (1.0, 25.0),
-    "TECH_MIN_OPEN_INTEREST": (0, 100_000),
-    "TECH_LIMIT_ORDER_BUFFER_PCT": (0.0, 5.0),
-    "TECH_DTE_MIN": (0, 30),
-    "TECH_DTE_MAX": (0, 90),
-    "TECH_OTM_DISTANCE_PCT": (0.0, 0.10),
-    "TECH_ATR_PERIOD": (5, 50),
-    "TECH_ATR_STOP_MULT": (0.5, 4.0),
-    "TECH_ATR_TARGET_MULT": (0.5, 6.0),
-    "TECH_ATR_TRAIL_ACTIVATE_MULT": (0.2, 4.0),
-    "TECH_ATR_TRAIL_MULT": (0.2, 4.0),
-    "TECH_ATR_BASELINE_PERIOD_MULT": (2, 10),
-    "TECH_ATR_TREND_FAST_PERIOD": (2, 50),
-    "TECH_ATR_TREND_SLOW_PERIOD": (5, 100),
-    "TECH_ATR_STOP_SCALE_MIN": (0.3, 1.0),
-    "TECH_ATR_STOP_SCALE_MAX": (1.0, 3.0),
-    "TECH_ATR_TARGET_SCALE_MIN": (1.0, 2.0),
-    "TECH_ATR_TARGET_SCALE_MAX": (1.0, 4.0),
-    "TECH_SCALP_RISK_PER_TRADE_PCT": (0.005, 0.35),
-    "TECH_SCALP_DAILY_LOSS_CAP_PCT": (0.005, 0.10),
-    "TECH_SCALP_MAX_HOLD_MINUTES": (1, 120),
-    "TECH_SCALP_MAX_TRADES_PER_DAY": (1, 20),
-    "TECH_RELATIVE_STRENGTH_LOOKBACK_BARS": (5, 100),
-    "TECH_INTRADAY_RISK_PER_TRADE_PCT": (0.005, 0.35),
-    "TECH_INTRADAY_DAILY_LOSS_CAP_PCT": (0.005, 0.10),
-    "TECH_INTRADAY_MAX_TRADES_PER_DAY": (1, 10),
-    "TECH_SWING_RISK_PER_TRADE_PCT": (0.005, 0.35),
-    "TECH_SWING_DAILY_LOSS_CAP_PCT": (0.01, 0.15),
-    "TECH_SWING_MIN_VOLUME": (0, 50_000_000),
-    "TECH_SWING_MAX_HOLD_DAYS": (5, 365),
-    "TECH_SWING_EQUITY_BUDGET_PCT_PER_TRADE": (0.01, 0.25),
-    "TECH_SWING_MAX_EQUITY_POSITIONS": (1, 50),
-    "TECH_SWING_INDEX_DTE_MIN": (0, 60),
-    "TECH_SWING_INDEX_DTE_MAX": (5, 120),
 }
 
 # Settings the tuner must never change, with the value they must keep.
@@ -109,37 +70,9 @@ NUMERIC_BOUNDS = {
 # tuner should be turned off at the same time.
 PINNED = {
     "DRY_RUN": "true",
-    "TECH_DRY_RUN": "true",
-    # Statutory tax rates / broker-plan facts (added 2026-09-09), not
-    # strategy parameters - there's no valid "tuning" rationale for an
-    # autonomous agent to change a tax rate based on backtested
-    # performance. Only a human updating these to match a real contract
-    # note / rate change should touch them.
-    "TECH_COST_BROKERAGE_PER_ORDER": "20.0",
-    "TECH_COST_STT_SELL_PCT": "0.1",
-    "TECH_COST_EXCHANGE_TXN_PCT": "0.035",
-    "TECH_COST_SEBI_FEE_PCT": "0.0001",
-    "TECH_COST_STAMP_DUTY_PCT": "0.003",
-    "TECH_COST_GST_PCT": "18.0",
-    "TECH_COST_EQUITY_BROKERAGE_PER_ORDER": "0.0",
-    "TECH_COST_EQUITY_STT_PCT": "0.1",
-    "TECH_COST_EQUITY_STAMP_DUTY_PCT": "0.015",
-    # Moved here from NUMERIC_BOUNDS 2026-09-10: these are the scalp/
-    # intraday exit MECHANISM (see technical_strategy.premium_stop_target),
-    # not a risk-sizing knob - the same class of "signal tuning, not risk
-    # reduction" the daily_review_prompt.md rules already forbid for the
-    # first bot. Retuning these based on a handful of days' P&L is exactly
-    # the overfitting risk that prompt warns against; changing them is a
-    # deliberate human decision informed by real premium-range data (see
-    # today's live replay), not something a nightly agent should touch.
-    "TECH_SCALP_STOP_RUPEES_PER_LOT": "600.0",
-    "TECH_SCALP_TARGET_RUPEES_PER_LOT": "700.0",
-    "TECH_INTRADAY_STOP_RUPEES_PER_LOT": "600.0",
-    "TECH_INTRADAY_TARGET_RUPEES_PER_LOT": "700.0",
 }
 
-REQUIRED_PRESENT = ["ENABLE_TRADING", "WATCHLIST", "ENTRY_TIME", "EXIT_TIME",
-                     "TECH_ENABLE_TRADING", "TECH_ENTRY_TIME", "TECH_EXIT_TIME"]
+REQUIRED_PRESENT = ["ENABLE_TRADING", "WATCHLIST", "ENTRY_TIME", "EXIT_TIME"]
 
 TIME_RE = re.compile(r"^([01]\d|2[0-3]):([0-5]\d)$")
 
@@ -185,8 +118,7 @@ def test_required_setting_present(name):
     assert name in CONFIG and CONFIG[name] != "", f"{name} is missing or empty in config.env"
 
 
-@pytest.mark.parametrize("name", ["ENTRY_TIME", "EXIT_TIME", "SCALP_ORB_REF_START", "SCALP_ORB_REF_END",
-                                   "TECH_ENTRY_TIME", "TECH_EXIT_TIME", "TECH_EOD_SUMMARY_TIME"])
+@pytest.mark.parametrize("name", ["ENTRY_TIME", "EXIT_TIME", "SCALP_ORB_REF_START", "SCALP_ORB_REF_END"])
 def test_time_settings_are_valid_hhmm(name):
     if name not in CONFIG:
         pytest.skip(f"{name} not set in config.env")
@@ -200,53 +132,6 @@ def test_entry_time_is_before_exit_time():
         f"silently never trades."
     )
 
-
-def test_tech_entry_time_is_before_exit_time():
-    assert CONFIG["TECH_ENTRY_TIME"] < CONFIG["TECH_EXIT_TIME"], (
-        f"TECH_ENTRY_TIME ({CONFIG['TECH_ENTRY_TIME']}) must be before TECH_EXIT_TIME "
-        f"({CONFIG['TECH_EXIT_TIME']}) - an inverted pair means the second bot silently never trades."
-    )
-
-
-def test_tech_eod_summary_time_is_at_or_after_exit_time():
-    assert CONFIG["TECH_EOD_SUMMARY_TIME"] >= CONFIG["TECH_EXIT_TIME"], (
-        f"TECH_EOD_SUMMARY_TIME ({CONFIG['TECH_EOD_SUMMARY_TIME']}) must be at/after TECH_EXIT_TIME "
-        f"({CONFIG['TECH_EXIT_TIME']}) - sending the summary before exit_time would miss same-day trades "
-        f"that haven't closed yet."
-    )
-
-
-def test_tech_swing_daily_loss_cap_versus_single_trade_risk_is_not_extreme():
-    """Same check as test_daily_loss_cap_versus_single_trade_risk_is_not_extreme,
-    for the second bot's swing tier - TECH_SWING_RISK_PER_TRADE_PCT (0.30) is
-    deliberately above TECH_SWING_DAILY_LOSS_CAP_PCT (0.05), same reasoning
-    (a wide-DTE option's premium IS the max loss). Bound widened 4x -> 8x
-    2026-09-09 evening alongside the user's explicit 0.15 -> 0.30 budget
-    increase - catches the tuner making the ratio worse than THAT deliberate
-    human decision, not the decision itself."""
-    risk = float(CONFIG["TECH_SWING_RISK_PER_TRADE_PCT"])
-    cap = float(CONFIG["TECH_SWING_DAILY_LOSS_CAP_PCT"])
-    assert risk <= cap * 8, (
-        f"TECH_SWING_RISK_PER_TRADE_PCT ({risk}) is more than 8x TECH_SWING_DAILY_LOSS_CAP_PCT ({cap}) - "
-        f"reconcile them deliberately rather than letting the tuner drift here."
-    )
-
-
-@pytest.mark.parametrize("risk_key,cap_key", [
-    ("TECH_SCALP_RISK_PER_TRADE_PCT", "TECH_SCALP_DAILY_LOSS_CAP_PCT"),
-    ("TECH_INTRADAY_RISK_PER_TRADE_PCT", "TECH_INTRADAY_DAILY_LOSS_CAP_PCT"),
-])
-def test_tech_scalp_intraday_daily_loss_cap_versus_single_trade_risk_is_not_extreme(risk_key, cap_key):
-    """Same reasoning as the swing check above - both raised 0.02 -> 0.15 ->
-    0.30 on 2026-09-09 (live-verified the Rs.1,000 then Rs.7,500 budgets
-    both blocked real premiums seen that day), deliberately above their own
-    0.05 daily loss caps. Bound widened 4x -> 8x alongside the increase."""
-    risk = float(CONFIG[risk_key])
-    cap = float(CONFIG[cap_key])
-    assert risk <= cap * 8, (
-        f"{risk_key} ({risk}) is more than 8x {cap_key} ({cap}) - "
-        f"reconcile them deliberately rather than letting the tuner drift here."
-    )
 
 
 def test_daily_loss_cap_versus_single_trade_risk_is_not_extreme():
