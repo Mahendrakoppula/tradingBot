@@ -175,7 +175,24 @@ strategies/   (Phase 6, done) strategy portfolio, regime-eligibility
               finding, see backtesting/ below
 models/       (Phase 7, in progress) ML training. Model 1/8 (regime
               classifier) built - see models/EXPERIMENTS.md for its
-              honest result (did not beat baseline, not promoted).
+              honest result (did not beat baseline at any horizon
+              1-20 bars tried, not promoted). Model 2/8 (direction-
+              probability, direction_classifier.py) built next -
+              walk-forward validation applied from its first experiment
+              (a lesson already learned from Model 1's own history).
+              Also NOT promoted at any of 5 horizons (1/3/5/10/20 bars)
+              tried: mean AUC never leaves a 0.499-0.565 band across all
+              15 horizon-instrument combinations (essentially no better
+              than random ranking), and a different single instrument
+              marginally clears the 60% promotion threshold at each
+              horizon with no consistent pattern - the signature of
+              noise crossing an imperfect threshold, not a real signal.
+              Two of the spec's 8 models now show the same honest
+              conclusion: the current feature set (ATR/ROC/momentum
+              only) has no exploitable signal for either target tried;
+              a materially different feature set (MTF alignment or
+              theoretical Greeks as inputs) is the next real attempt,
+              not another target swept against the same five features.
               models/feature_engineering.py provides vectorized, causal,
               whole-series equivalents of market_state/'s per-point
               classifiers, needed to make training-set construction

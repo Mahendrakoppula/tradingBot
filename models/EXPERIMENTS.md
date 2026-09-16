@@ -145,3 +145,114 @@ a materially different feature set (MTF alignment, theoretical Greeks)
 or a different target entirely (Model 2's direction-probability) is
 needed before this regime-classification task is worth more direct
 iteration.
+
+---
+
+## Experiment 004 - Direction classifier (Model 2/8), first pass with walk-forward from the start
+
+**Date**: 2026-09-16
+**Hypothesis**: A RandomForest trained on the SAME causal ATR/ROC/
+momentum features (models/feature_engineering.py) as Model 1, but
+predicting price DIRECTION (up/down `horizon_bars` ahead) instead of
+regime, can beat a majority-class baseline - the "fundamentally
+different target" Experiments 001/003 already flagged as the natural
+next step once regime-classification itself was thoroughly explored
+with no signal found at any horizon.
+**Baseline choice, different from Model 1's**: regime has real
+persistence (a genuinely informative naive guess), so Model 1 used a
+persistence baseline. Price direction over a short horizon is much
+closer to a random walk, so majority-class-in-train (the standard,
+textbook-honest naive baseline for a binary target) is used instead -
+it already credits any real class imbalance in the sample without
+assuming trend continuation.
+**Dataset**: Real NIFTY/BANKNIFTY/SENSEX ONE_DAY spot history (~1,239
+bars each, refreshed 2026-09-16). Same features as Model 1
+(atr, atr_percentile, roc, roc_magnitude_percentile, is_strong_momentum).
+**Model**: sklearn RandomForestClassifier, identical hyperparameters to
+Model 1 (n_estimators=200, max_depth=6, min_samples_leaf=20,
+class_weight="balanced").
+**Method**: expanding-window walk-forward (models/direction_classifier.py's
+walk_forward_evaluate(), identical shape to Model 1's), 8 folds,
+horizon=5 bars (matching Model 1's own first-pass horizon for direct
+comparability) - applied FROM THE FIRST EXPERIMENT rather than needing
+a follow-up, a lesson already learned from Model 1's own history
+(Experiment 001's single split was immediately followed by Experiment
+002's walk-forward once a single split was shown insufficient rigor).
+Also reports ROC-AUC per fold (a probability-output model can have real
+ranking/calibration skill a hard-class accuracy comparison would miss),
+though promotion still keys off accuracy vs. baseline
+(research/promotion_gate.py), consistent with Model 1.
+**Result** (horizon=5, 8 folds):
+
+| Instrument | Folds beating baseline | Mean AUC | Promote? |
+|---|---|---|---|
+| NIFTY | 5/8 (62%) | 0.554 | **Yes** (marginal, at the 60% threshold) |
+| BANKNIFTY | 3/8 (38%) | 0.500 | No |
+| SENSEX | 4/8 (50%) | 0.545 | No |
+
+**Verdict: NOT promoted overall.** NIFTY marginally clears
+promotion_gate.py's own 60% threshold in isolation, but BANKNIFTY and
+SENSEX do not - the same "one instrument marginally passes, the others
+don't" shape as Model 1's Experiment 003 (10-bar horizon). Mean AUC
+sits close to 0.50-0.55 across all three (BANKNIFTY at exactly 0.500 -
+literally no better than random ranking), which is the more informative
+number here than the binary promote/fail per instrument: none of the
+three show a probability output that reliably separates up-days from
+down-days. Treating NIFTY's isolated pass as a win would be exactly the
+kind of single-instrument cherry-picking this project's own promotion
+criteria and BACKTESTS.md's correlated-indices caveats exist to prevent.
+
+---
+
+## Experiment 005 - Direction classifier, horizon sweep
+
+**Date**: 2026-09-16
+**Purpose**: Same follow-up Model 1's Experiment 003 already validated
+as the right move after a single-horizon first pass - horizon=5 was an
+arbitrary starting choice (matching Model 1's own), not evidence of the
+right horizon for THIS target. Every horizon below is reported, not
+just the best one, per this file's own p-hacking rule.
+**Method**: Same walk_forward_evaluate(), 8 folds, horizons 1/3/10/20
+(the exact same sweep points as Model 1's Experiment 003, for direct
+comparability across the two models' behavior at each horizon).
+**Result** (folds beating baseline / promotion decision / mean AUC,
+all three instruments, all four horizons):
+
+| Horizon | NIFTY | BANKNIFTY | SENSEX |
+|---|---|---|---|
+| 1 bar | 6/8, AUC 0.540, **promote** | 4/8, AUC 0.522, no | 5/8, AUC 0.537, **promote** |
+| 3 bars | 4/8, AUC 0.535, no | 3/8, AUC 0.499, no | 5/8, AUC 0.523, **promote** |
+| 5 bars | 5/8, AUC 0.554, **promote** | 3/8, AUC 0.500, no | 4/8, AUC 0.545, no |
+| 10 bars | 4/8, AUC 0.558, no | 4/8, AUC 0.513, no | 5/8, AUC 0.539, **promote** |
+| 20 bars | 4/8, AUC 0.565, no | 5/8, AUC 0.519, **promote** | 3/8, AUC 0.532, no |
+
+**This scattered pattern is itself the finding.** Across all 15
+horizon-instrument combinations, mean AUC never leaves a tight
+0.499-0.565 band (essentially indistinguishable from 0.50 - no skill),
+and every single horizon has a DIFFERENT instrument marginally clearing
+the 60% promotion threshold, with no instrument passing at more than
+two of the five horizons and no horizon where all three (or even two)
+pass together. This is exactly the signature of noise crossing an
+imperfect threshold by chance, not a real, horizon-specific directional
+edge - a genuine signal would be expected to show up more consistently
+across nearby horizons and/or across the three correlated indices
+together, not scattered arbitrarily. Not tuned toward a better number -
+every decision came straight from research/promotion_gate.py's fixed
+criteria, none adjusted after seeing a result.
+
+**Overall verdict for Model 2 (Experiments 004-005): NOT promoted at
+any horizon tried, on the same footing as Model 1.** The direction-
+probability target - the "fundamentally different target" Model 1's
+own experiment log flagged as the natural next thing to try - does not
+show reliable skill with this feature set either, at any of the five
+horizons tested (1/3/5/10/20 bars) or any of the three instruments.
+Combined with Model 1's own null result across regime-classification at
+every horizon, this now covers two of the spec's 8 models with the same
+honest conclusion: models/feature_engineering.py's current feature set
+(ATR/ROC/momentum only, no volume, no MTF alignment, no options-
+Greeks-derived features) has essentially no exploitable signal for
+either target tried so far. The next genuinely different attempt (per
+Experiment 003's own conclusion, doubly confirmed here) needs a
+materially different feature set - MTF alignment (features/mtf.py) or
+theoretical Greeks (features/theoretical_options.py) as inputs - rather
+than another target swept against the same five features.
