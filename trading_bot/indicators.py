@@ -221,3 +221,156 @@ def vwap(candles: list[dict]) -> list[float]:
 
 def rolling_avg_volume(candles: list[dict], period: int) -> list[float | None]:
     return sma([c.get("volume", 0) or 0 for c in candles], period)
+
+
+# --- additions for the index-options engine (spec §12) -------------------
+# Same conventions as everything above: index-aligned lists, None until
+# enough history, standard textbook formulas. Which periods a given engine
+# uses is config, not code (trading_bot/engine/config.py).
+
+
+def roc(closes: list[float], period: int) -> list[float | None]:
+    """Rate of change, percent: (close[i] / close[i-period] - 1) * 100."""
+    n = len(closes)
+    result: list[float | None] = [None] * n
+    for i in range(period, n):
+        prev = closes[i - period]
+        if prev:
+            result[i] = (closes[i] / prev - 1.0) * 100.0
+    return result
+
+
+def stochastic(
+    candles: list[dict], k_period: int = 14, d_period: int = 3
+) -> tuple[list[float | None], list[float | None]]:
+    """Stochastic oscillator: %K = (close - lowest low) / (highest high -
+    lowest low) * 100 over `k_period`; %D = SMA(%K, d_period). Returns
+    (k_line, d_line). A flat window (high == low) yields %K = 50."""
+    n = len(candles)
+    k: list[float | None] = [None] * n
+    for i in range(k_period - 1, n):
+        window = candles[i - k_period + 1 : i + 1]
+        hi = max(c["high"] for c in window)
+        lo = min(c["low"] for c in window)
+        k[i] = 50.0 if hi == lo else (candles[i]["close"] - lo) / (hi - lo) * 100.0
+    d_line: list[float | None] = [None] * n
+    first = next((i for i, v in enumerate(k) if v is not None), None)
+    if first is not None:
+        for j, v in enumerate(sma([v for v in k[first:] if v is not None], d_period)):
+            d_line[first + j] = v
+    return k, d_line
+
+
+def bollinger(
+    closes: list[float], period: int = 20, num_std: float = 2.0
+) -> tuple[list[float | None], list[float | None], list[float | None], list[float | None]]:
+    """Bollinger Bands on a population standard deviation (the common
+    charting convention). Returns (middle, upper, lower, width_pct) where
+    width_pct = (upper - lower) / middle * 100 - the "Bollinger width" the
+    regime engine uses for compression/expansion (spec §4)."""
+    n = len(closes)
+    mid = sma(closes, period)
+    upper: list[float | None] = [None] * n
+    lower: list[float | None] = [None] * n
+    width: list[float | None] = [None] * n
+    for i in range(period - 1, n):
+        m = mid[i]
+        if m is None:
+            continue
+        window = closes[i - period + 1 : i + 1]
+        var = sum((x - m) ** 2 for x in window) / period
+        sd = var ** 0.5
+        upper[i] = m + num_std * sd
+        lower[i] = m - num_std * sd
+        width[i] = ((upper[i] - lower[i]) / m * 100.0) if m else None
+    return mid, upper, lower, width
+
+
+def obv(candles: list[dict]) -> list[float]:
+    """On-balance volume: cumulative signed volume by close-to-close
+    direction. Meaningless on index candles (volume=0) - the engine feeds it
+    the futures proxy series instead (see engine/config.py volume_proxy)."""
+    result: list[float] = []
+    total = 0.0
+    for i, c in enumerate(candles):
+        vol = c.get("volume", 0) or 0
+        if i > 0:
+            prev_close = candles[i - 1]["close"]
+            if c["close"] > prev_close:
+                total += vol
+            elif c["close"] < prev_close:
+                total -= vol
+        result.append(total)
+    return result
+
+
+def percentile_rank_series(values: list[float | None], lookback: int) -> list[float | None]:
+    """For each index, the percentile (0-100) of values[i] within the
+    trailing `lookback` window ending at i (inclusive) - the fraction of
+    window values strictly below it. Used for ATR percentile (spec §4/§12).
+    None where fewer than `lookback` non-None values are available."""
+    n = len(values)
+    result: list[float | None] = [None] * n
+    for i in range(n):
+        v = values[i]
+        if v is None:
+            continue
+        window = [x for x in values[max(0, i - lookback + 1) : i + 1] if x is not None]
+        if len(window) < lookback:
+            continue
+        below = sum(1 for x in window if x < v)
+        result[i] = below / len(window) * 100.0
+    return result
+
+
+def relative_volume_series(candles: list[dict], period: int) -> list[float | None]:
+    """volume / trailing average volume (the average EXCLUDES the current
+    bar, so a spike doesn't dilute its own baseline). None until `period`
+    prior bars exist or when the baseline is 0."""
+    n = len(candles)
+    result: list[float | None] = [None] * n
+    vols = [float(c.get("volume", 0) or 0) for c in candles]
+    for i in range(period, n):
+        base = sum(vols[i - period : i]) / period
+        result[i] = (vols[i] / base) if base > 0 else None
+    return result
+
+
+def slope(values: list[float | None], period: int, atr_series: list[float | None] | None = None) -> list[float | None]:
+    """Change in a series over `period` bars, optionally normalised by ATR
+    so slopes are comparable across instruments and volatility regimes
+    (spec §4-5 "EMA slope"). slope[i] = (v[i] - v[i-period]) / (ATR[i] or 1)."""
+    n = len(values)
+    result: list[float | None] = [None] * n
+    for i in range(period, n):
+        a, b = values[i - period], values[i]
+        if a is None or b is None:
+            continue
+        denom = 1.0
+        if atr_series is not None:
+            av = atr_series[i]
+            if av is None or av <= 0:
+                continue
+            denom = av
+        result[i] = (b - a) / denom
+    return result
+
+
+def session_vwap(candles: list[dict]) -> list[float | None]:
+    """VWAP that resets at each new session (date change), so it can be
+    computed over a multi-day 1m/5m series without the caller slicing per
+    day. Candles need a "ts" (datetime) or "date" key. None where the
+    session's cumulative volume is 0 (e.g. index candles) - the caller then
+    falls back to the futures proxy rather than a fake VWAP equal to close."""
+    result: list[float | None] = []
+    cur_day = None
+    cum_pv = cum_vol = 0.0
+    for c in candles:
+        day = c.get("date") or (c["ts"].date() if c.get("ts") is not None else None)
+        if day != cur_day:
+            cur_day, cum_pv, cum_vol = day, 0.0, 0.0
+        vol = float(c.get("volume", 0) or 0)
+        cum_pv += (c["high"] + c["low"] + c["close"]) / 3 * vol
+        cum_vol += vol
+        result.append(cum_pv / cum_vol if cum_vol > 0 else None)
+    return result
