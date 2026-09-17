@@ -41,6 +41,7 @@ with zipfile.ZipFile(out, 'w', zipfile.ZIP_DEFLATED) as z:
     z.write('requirements.txt', 'requirements.txt')
     z.write('deploy/config.env', 'config.env')
     z.write('deploy/fetch_secrets.sh', 'deploy/fetch_secrets.sh')
+    z.write('deploy/assemble_env.py', 'deploy/assemble_env.py')
     z.write('deploy/trading-bot.service', 'deploy/trading-bot.service')
     z.write('deploy/trading-bot-technical.service', 'deploy/trading-bot-technical.service')
     z.write('deploy/trading-bot-bootstrap.service', 'deploy/trading-bot-bootstrap.service')
