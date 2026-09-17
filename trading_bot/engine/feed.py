@@ -173,3 +173,31 @@ def smartapi_stream_factory(session):
         return stream
 
     return make
+
+
+class LiveTickSource:
+    """ShadowLoop's TickSource over a ResilientMarketStream: ticks are
+    pulled off the queue on the MAIN thread; `done()` is never True live -
+    the loop ends on the session clock."""
+
+    def __init__(self, stream: ResilientMarketStream, q: "queue.Queue"):
+        self.stream = stream
+        self.q = q
+
+    def start(self) -> None:
+        self.stream.start()
+
+    def next(self, timeout: float = 1.0):
+        try:
+            return self.q.get(timeout=timeout)
+        except queue.Empty:
+            return None
+
+    def done(self) -> bool:
+        return False
+
+    def health(self) -> FeedHealth:
+        return self.stream.health()
+
+    def close(self) -> None:
+        self.stream.close()

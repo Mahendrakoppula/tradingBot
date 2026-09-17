@@ -73,6 +73,10 @@ class MemoryDAL:
             }
         return len(candles)
 
+    def last_candle_ts(self, token, tf):
+        ts = [k[2] for k in self.candles if k[0] == token and k[1] == tf]
+        return max(ts) if ts else None
+
     def load_candles(self, token, tf, since, until=None, complete_only=True) -> list[Candle]:
         rows = [r for (t, f, ts), r in self.candles.items() if t == token and f == tf and ts >= since
                 and (until is None or ts < until) and (not complete_only or r["complete"])]

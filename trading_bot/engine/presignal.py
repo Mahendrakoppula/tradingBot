@@ -103,8 +103,11 @@ class PreSignalTracker:
             found = self._evidence(ctx, direction)
             if state is None:
                 if len(found) >= self.cfg.early_min_evidence and found & DIRECTIONAL_KEYS:
+                    # deterministic id (uuid5 of underlying/direction/bar time): a
+                    # replay of the same candles must journal the same setup ids (§51)
+                    setup_id = uuid.uuid5(uuid.NAMESPACE_URL, f"presignal/{ctx.underlying}/{direction}/{ctx.ts.isoformat()}")
                     state = SetupState(
-                        setup_id=str(uuid.uuid4()), underlying=ctx.underlying, direction=direction,
+                        setup_id=str(setup_id), underlying=ctx.underlying, direction=direction,
                         stage="NO_SETUP", evidence=set(found),
                         confidence=min(1.0, self.cfg.confidence_start + self.cfg.confidence_per_evidence * len(found)),
                         opened_bar=ctx.bar_index, last_progress_bar=ctx.bar_index,
