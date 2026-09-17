@@ -17,6 +17,24 @@ env:
 jobs:
   test:
     runs-on: ubuntu-latest
+    # Real Postgres for the engine DAL tests (tests/test_engine_db.py) - the
+    # jsonb / ON CONFLICT / CHECK behaviour the bot relies on has no SQLite
+    # stand-in. Tests skip the Postgres leg when TECH_TEST_DATABASE_URL is unset.
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: tech
+          POSTGRES_PASSWORD: tech
+          POSTGRES_DB: tech_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U tech"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      TECH_TEST_DATABASE_URL: postgresql://tech:tech@localhost:5432/tech_test
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
