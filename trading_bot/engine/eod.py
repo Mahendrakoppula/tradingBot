@@ -28,10 +28,10 @@ def eod_stats(dal, run_id) -> dict:
     }
 
 
-def eod_summary(dal, run_id, day: dt.date, mode: str, feed: dict | None = None) -> str:
+def eod_summary(dal, run_id, day: dt.date, mode: str, feed: dict | None = None, heading: str = "EOD") -> str:
     s = eod_stats(dal, run_id)
     lines = [
-        f"EOD {day.isoformat()} | {mode} | zero orders",
+        f"{heading} {day.isoformat()} | {mode} | zero orders",
         f"snapshots={s['context_snapshots']} presignal_events={s['presignal_events']} would_be_signals={s['would_be_signals']}",
         f"setups opened={s['setups_opened']} expired={s['setups_expired']} rejected/extended/exhausted={s['setups_rejected']}",
     ]

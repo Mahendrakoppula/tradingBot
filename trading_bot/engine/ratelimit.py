@@ -27,7 +27,10 @@ class RateLimiter:
     and at most `per_minute` in any 60 s window. `wait()` blocks (via
     `sleep`) until a call is allowed and records it."""
 
-    def __init__(self, rate_per_s: float = 2.5, per_minute: int = 140,
+    # Defaults sit well under the documented 3/s, 150/min because the budget
+    # is PER ACCOUNT and the daily bot shares it: on 2026-09-17 both bots
+    # restarting together at 2.5/s drew a wall of "exceeding access rate".
+    def __init__(self, rate_per_s: float = 1.0, per_minute: int = 50,
                  clock: Callable[[], float] = time.monotonic, sleep: Callable[[float], None] = time.sleep):
         self.rate_per_s = rate_per_s
         self.per_minute = per_minute
@@ -65,8 +68,8 @@ def is_retryable(exc: BaseException) -> bool:
     return isinstance(exc, (ConnectionError, TimeoutError, OSError, ValueError))
 
 
-def paced_call(fn: Callable[..., T], *args, limiter: RateLimiter | None = None, retries: int = 3,
-               backoff: float = 1.0, sleep: Callable[[float], None] = time.sleep, **kwargs) -> T:
+def paced_call(fn: Callable[..., T], *args, limiter: RateLimiter | None = None, retries: int = 5,
+               backoff: float = 2.0, sleep: Callable[[float], None] = time.sleep, **kwargs) -> T:
     """Call `fn(*args, **kwargs)` under the limiter; retry transient
     failures up to `retries` times with exponential backoff. Non-retryable
     errors propagate immediately."""

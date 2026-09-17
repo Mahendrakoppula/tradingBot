@@ -211,3 +211,26 @@ def test_candles_to_ticks_shape():
     assert [t.ltp for t in ticks[:4]] == [10000, 10100, 9900, 10050]
     assert [t.volume for t in ticks] == [100, 200, 300, 400, 425, 450, 475, 500]
     assert ticks[3].exchange_timestamp - ticks[0].exchange_timestamp == 59_000
+
+
+def test_external_stop_is_reported_as_stopped_not_eod():
+    spot_hist, px = _history(5, 1, 0)
+    stores = _stores(spot_hist, SPOT.token)
+    today = _session(DAY, px, 5, 0)
+    clock = SimClock(dt.datetime.combine(DAY, dt.time(9, 0), tzinfo=IST))
+    src = TickReplaySource({SPOT.token: today}, clock, DAY)
+    notes = _Notes()
+    dal = MemoryDAL()
+    loop = ShadowLoop(_cfg(mode="SHADOW"), dal, [SPOT], src, clock.now, notes, stores)
+    # stop after the first tick, like a SIGTERM from a redeploy
+    orig_next = src.next
+
+    def next_then_stop(timeout=0.0):
+        loop.stop()
+        return orig_next(timeout)
+
+    src.next = next_then_stop
+    loop.run()
+    run = dal.runs[str(loop.run_id)]
+    assert run["status"] == "stopped"
+    assert notes.msgs[-1].startswith("STOPPED 2026-09-16 | SHADOW | zero orders")

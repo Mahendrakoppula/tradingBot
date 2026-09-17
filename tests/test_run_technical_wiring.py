@@ -158,3 +158,36 @@ def test_main_refuses_when_invariant_broken(monkeypatch):
     monkeypatch.setattr(rt.EngineConfig, "from_env", classmethod(lambda cls: _cfg()))
     monkeypatch.setattr(rt, "broker_config", lambda cfg: type("B", (), {"dry_run": False})())
     assert rt.main() == 2
+
+
+def test_backfill_failure_degrades_to_a_gap_not_a_crash(monkeypatch):
+    class BrokenRest(FakeRest):
+        def get_candle_data(self, exchange, token, interval, fromdate, todate):
+            a = dt.datetime.strptime(fromdate, "%Y-%m-%d %H:%M")
+            if a.date() == DAY and interval == "ONE_MINUTE":
+                from trading_bot.rest_client import ApiError
+                raise ApiError("Access denied because of exceeding access rate", "HTTP_403")
+            return super().get_candle_data(exchange, token, interval, fromdate, todate)
+
+    monkeypatch.setattr(rt, "Session", FakeSession)
+    monkeypatch.setattr(rt, "RestClient", BrokenRest)
+    monkeypatch.setattr(rt, "InstrumentLookup", FakeLookup)
+    monkeypatch.setattr(rt, "ResilientMarketStream", lambda *a, **k: object())
+    monkeypatch.setattr(rt, "smartapi_stream_factory", lambda session: None)
+    monkeypatch.setattr(rt, "LiveTickSource", FakeSource)
+    monkeypatch.setattr(rt, "today_ist", lambda: DAY)
+    monkeypatch.setattr(rt.technical_notifier, "notify", lambda m, html=False: None)
+    monkeypatch.setattr(rt, "_git_sha", lambda: None)
+    monkeypatch.setattr(rt.signal, "signal", lambda *a, **k: None)
+    monkeypatch.setattr(rt, "broker_config", lambda cfg: type("B", (), {"dry_run": True, "scrip_master_url": "x"})())
+    import trading_bot.engine.ratelimit as rl
+    monkeypatch.setattr(rl.time, "sleep", lambda s: None)  # paced_call retry backoff
+    # start mid-session so the backfill actually runs
+    CLOCK["now"] = dt.datetime.combine(DAY, dt.time(9, 15), tzinfo=IST)
+    monkeypatch.setattr(rt, "now_ist", lambda: CLOCK["now"])
+    dals = []
+    orig = rt._open_dal
+    monkeypatch.setattr(rt, "_open_dal", lambda cfg: dals.append(orig(cfg)) or dals[-1])
+    assert rt.run_live(_cfg()) == 0
+    run = next(iter(dals[0].runs.values()))
+    assert run["status"] == "completed"  # the session ran to its end despite the failed backfill
