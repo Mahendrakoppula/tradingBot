@@ -33,7 +33,7 @@ python3.12 -m venv /opt/trading-bot/.venv
 /opt/trading-bot/.venv/bin/pip install --quiet --upgrade pip
 /opt/trading-bot/.venv/bin/pip install --quiet -r /opt/trading-bot/requirements.txt
 
-chmod +x /opt/trading-bot/deploy/fetch_secrets.sh /opt/trading-bot/deploy/sync_state_to_s3.sh
+chmod +x /opt/trading-bot/deploy/fetch_secrets.sh /opt/trading-bot/deploy/sync_state_to_s3.sh /opt/trading-bot/deploy/pgdump_to_s3.sh /opt/trading-bot/deploy/setup_postgres.sh
 chown -R tradingbot:tradingbot /opt/trading-bot
 
 cp /opt/trading-bot/deploy/trading-bot-bootstrap.service /etc/systemd/system/trading-bot-bootstrap.service
@@ -41,11 +41,17 @@ cp /opt/trading-bot/deploy/trading-bot.service /etc/systemd/system/trading-bot.s
 cp /opt/trading-bot/deploy/trading-bot-technical.service /etc/systemd/system/trading-bot-technical.service
 cp /opt/trading-bot/deploy/trading-bot-s3-sync.service /etc/systemd/system/trading-bot-s3-sync.service
 cp /opt/trading-bot/deploy/trading-bot-s3-sync.timer /etc/systemd/system/trading-bot-s3-sync.timer
+cp /opt/trading-bot/deploy/trading-bot-pgdump.service /etc/systemd/system/trading-bot-pgdump.service
+cp /opt/trading-bot/deploy/trading-bot-pgdump.timer /etc/systemd/system/trading-bot-pgdump.timer
 systemctl daemon-reload
 # Requires=/Before= on trading-bot.service pulls the bootstrap service in
 # automatically on every start - no need to separately enable it.
 systemctl enable --now trading-bot.service
-# trading-bot-technical.service is installed but deliberately NOT enabled:
-# the original technical bot was decommissioned 2026-09-16 and its
-# successor isn't built yet. Re-enable here when it ships.
+# Second bot (index-options engine, SHADOW mode). Started AFTER the daily
+# bot (unit has After=trading-bot.service) to stagger the two logins on the
+# shared SmartAPI key. Needs PostgreSQL: on a FRESH instance run
+# deploy/setup_postgres.sh once and put TECH_DATABASE_URL in SSM first
+# (deploy/DEPLOY.md section 8); until then it journals to memory only.
+systemctl enable --now trading-bot-technical.service
+systemctl enable --now trading-bot-pgdump.timer
 systemctl enable --now trading-bot-s3-sync.timer

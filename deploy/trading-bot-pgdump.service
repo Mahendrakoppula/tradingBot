@@ -1,0 +1,12 @@
+[Unit]
+Description=Nightly pg_dump of the trading-bot engine database to S3
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=tradingbot
+Group=tradingbot
+WorkingDirectory=/opt/trading-bot
+EnvironmentFile=/opt/trading-bot/.env
+ExecStart=/opt/trading-bot/deploy/pgdump_to_s3.sh

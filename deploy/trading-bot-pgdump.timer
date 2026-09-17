@@ -1,0 +1,11 @@
+[Unit]
+Description=Nightly pg_dump of the engine database at 16:30 IST (11:00 UTC), before the 18:00 IST instance stop
+
+[Timer]
+# instance clock is UTC (see timeutil.py); 11:00 UTC == 16:30 IST
+OnCalendar=Mon..Fri 11:00
+AccuracySec=1min
+Persistent=true
+
+[Install]
+WantedBy=timers.target
