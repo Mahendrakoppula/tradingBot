@@ -12,15 +12,7 @@ cp "$APP_DIR/config.env" "$ENV_FILE"
 
 aws ssm get-parameters-by-path --path "/trading-bot/" --with-decryption \
   --query "Parameters[].{Name:Name,Value:Value}" --output json \
-  | python3 -c "
-import json, sys
-params = json.load(sys.stdin)
-with open('$ENV_FILE', 'a') as f:
-    f.write('\n# --- secrets, fetched from SSM Parameter Store at boot ---\n')
-    for p in params:
-        key = p['Name'].rsplit('/', 1)[-1]
-        f.write(f'{key}={p[\"Value\"]}\n')
-"
+  | python3 "$APP_DIR/deploy/assemble_env.py" "$ENV_FILE"
 
 chown tradingbot:tradingbot "$ENV_FILE"
 chmod 600 "$ENV_FILE"
