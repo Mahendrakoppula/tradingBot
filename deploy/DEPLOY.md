@@ -160,3 +160,64 @@ DEPLOY_BUCKET=<bucket> DELETE_BUCKET=1 ./deploy/teardown_aws.sh   # removes ever
 
 Doesn't currently delete the OIDC provider, GitHub Actions role, or SSM
 parameters - clean those up separately if fully decommissioning.
+
+## 8. Second bot: PostgreSQL + instance resize (one-time, M1)
+
+The index-options engine (`trading_bot.run_technical`, SHADOW mode, zero
+orders) journals every candle, context snapshot, pre-signal event and
+would-be signal to a **local PostgreSQL 16** on the same instance. Two bot
+processes plus Postgres do not fit a t3.micro (1 GB), so the box is resized
+to **t3.small (2 GB)** first. All of this happens **outside market hours**
+(after 18:00 IST or before 08:00 IST) because the resize is a stop/start of
+the instance the daily bot runs on.
+
+1. **Resize** (instance must be stopped; with broader-than-deployer credentials):
+   ```
+   aws ec2 stop-instances --instance-ids <INSTANCE_ID>
+   aws ec2 wait instance-stopped --instance-ids <INSTANCE_ID>
+   aws ec2 modify-instance-attribute --instance-id <INSTANCE_ID> --instance-type '{"Value":"t3.small"}'
+   aws ec2 start-instances --instance-ids <INSTANCE_ID>
+   aws ec2 wait instance-status-ok --instance-ids <INSTANCE_ID>
+   ```
+   The EventBridge start/stop schedule is unchanged; the EBS volume and all
+   `.state/` data survive a resize.
+
+2. **Install Postgres + create the role/db** via SSM Run Command (root), after
+   the next deploy has shipped `deploy/setup_postgres.sh` to the box:
+   ```
+   aws ssm send-command --instance-ids <INSTANCE_ID> --document-name AWS-RunShellScript \
+     --parameters 'commands=["bash /opt/trading-bot/deploy/setup_postgres.sh <DB_PASSWORD>"]'
+   ```
+   Idempotent - safe to re-run. Listens on localhost only; the security
+   group exposes nothing.
+
+3. **Connection string into SSM** (same pattern as the Telegram tokens, needs
+   `ssm:PutParameter` - the deployer user does not have it):
+   ```
+   aws ssm put-parameter --name /trading-bot/TECH_DATABASE_URL --type SecureString --overwrite \
+     --value 'postgresql://tradingbot:<DB_PASSWORD>@127.0.0.1:5432/tradingbot'
+   ```
+   `fetch_secrets.sh` pulls every `/trading-bot/*` parameter into `.env` at
+   boot, so nothing else is needed. Without it the engine still runs but
+   journals to memory only (it says so in its startup log).
+
+4. **Enable**: the next CI deploy (or `redeploy.sh`) copies the unit files,
+   `systemctl enable --now trading-bot-technical.service` (after
+   `trading-bot.service` - the unit has `After=trading-bot.service` to
+   stagger the two logins on the shared SmartAPI key, and `MemoryMax=600M`)
+   and `trading-bot-pgdump.timer` (16:30 IST, before the 18:00 stop; keeps
+   30 daily dumps under `s3://<bucket>/trading-bot/pgdump/`).
+
+5. **Verify the first session** (M1 acceptance gate):
+   ```
+   sudo journalctl -u trading-bot-technical -f            # banner "SHADOW MODE | LIVE ORDER PLACEMENT DISABLED"
+   sudo journalctl -u trading-bot-technical -o cat | grep '"component":"warmup"'   # calls + seconds
+   sudo -u postgres psql tradingbot -c "select count(*) from context_snapshots where ts::date = current_date"
+   sudo -u postgres psql tradingbot -c "select underlying, direction, to_stage, count(*) from presignal_events where ts::date = current_date group by 1,2,3 order by 1,2,3"
+   sudo -u postgres psql tradingbot -c "select ts, underlying, direction, status from signals where ts::date = current_date"
+   systemctl is-active trading-bot                         # the daily bot must be unaffected
+   aws s3 ls s3://<bucket>/trading-bot/pgdump/             # after 16:30 IST
+   ```
+   Replay a stored day through the same engine for the §51 parity check:
+   `TECH_MODE=BACKTEST TECH_REPLAY_DATE=YYYY-MM-DD python -m trading_bot.run_technical`
+   then diff `signals`/`context_snapshots` across the two `run_id`s.

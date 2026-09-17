@@ -47,6 +47,11 @@ with zipfile.ZipFile(out, 'w', zipfile.ZIP_DEFLATED) as z:
     z.write('deploy/sync_state_to_s3.sh', 'deploy/sync_state_to_s3.sh')
     z.write('deploy/trading-bot-s3-sync.service', 'deploy/trading-bot-s3-sync.service')
     z.write('deploy/trading-bot-s3-sync.timer', 'deploy/trading-bot-s3-sync.timer')
+    # second bot: Postgres one-time setup + nightly pg_dump (deploy/DEPLOY.md section 8)
+    z.write('deploy/setup_postgres.sh', 'deploy/setup_postgres.sh')
+    z.write('deploy/pgdump_to_s3.sh', 'deploy/pgdump_to_s3.sh')
+    z.write('deploy/trading-bot-pgdump.service', 'deploy/trading-bot-pgdump.service')
+    z.write('deploy/trading-bot-pgdump.timer', 'deploy/trading-bot-pgdump.timer')
     # nightly review/tuning agent - see deploy/setup_claude_agent.sh
     z.write('deploy/setup_claude_agent.sh', 'deploy/setup_claude_agent.sh')
     z.write('deploy/daily_review_prompt.md', 'deploy/daily_review_prompt.md')

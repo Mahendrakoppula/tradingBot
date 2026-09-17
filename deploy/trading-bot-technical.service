@@ -1,7 +1,7 @@
 [Unit]
-Description=SmartAPI technical-indicator trading bot (second, independent strategy)
-After=network-online.target trading-bot-bootstrap.service
-Wants=network-online.target
+Description=Index-options engine (second bot, SHADOW mode - analysis and journaling, zero orders)
+After=network-online.target trading-bot-bootstrap.service postgresql.service trading-bot.service
+Wants=network-online.target postgresql.service
 Requires=trading-bot-bootstrap.service
 
 [Service]
@@ -13,6 +13,9 @@ EnvironmentFile=/opt/trading-bot/.env
 ExecStart=/opt/trading-bot/.venv/bin/python -m trading_bot.run_technical
 Restart=on-failure
 RestartSec=60
+# The instance is a t3.small (2 GB) shared with the daily bot and a local
+# PostgreSQL: cap this process so a leak can never starve the others.
+MemoryMax=600M
 # systemd sends SIGTERM on stop (including when EventBridge stops the EC2
 # instance) - run_technical.py handles that the same as Ctrl+C (SIGINT).
 TimeoutStopSec=30

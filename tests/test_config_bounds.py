@@ -61,6 +61,33 @@ NUMERIC_BOUNDS = {
     "OPTION_CHAIN_LOG_INTERVAL_SECONDS": (60, 3600),
     "OPTION_CHAIN_LOG_STRIKE_BAND_PCT": (0.02, 0.50),
     "CANDLE_LOG_STRIKES_EACH_SIDE": (1, 10),
+    # --- second bot (TECH_*). Spec §25: per-trade risk 0.25%-1.0% ALL-IN;
+    # the caps are hard limits the spec calls non-negotiable. ---
+    "TECH_CAPITAL": (10_000, 10_000_000),
+    "TECH_RISK_PER_TRADE_PCT": (0.0025, 0.01),
+    "TECH_DAILY_LOSS_CAP_PCT": (0.005, 0.03),
+    "TECH_WEEKLY_LOSS_CAP_PCT": (0.01, 0.06),
+    "TECH_WARMUP_DAYS_1M": (3, 28),
+    "TECH_WARMUP_DAYS_5M": (10, 95),
+    "TECH_WARMUP_DAYS_30M": (30, 190),
+    "TECH_WARMUP_DAYS_1D": (250, 1900),
+    "TECH_STALE_TICK_SECONDS": (5, 120),
+    "TECH_FEED_BACKOFF_MAX_SECONDS": (10, 300),
+    "TECH_CLOCK_DRIFT_SECONDS": (1, 60),
+    "TECH_ALIGN_W_DAILY": (0.0, 1.0),
+    "TECH_ALIGN_W_30M": (0.0, 1.0),
+    "TECH_ALIGN_W_5M": (0.0, 1.0),
+    "TECH_ALIGN_W_1M": (0.0, 1.0),
+    "TECH_TREND_ADX_MIN": (10, 35),
+    "TECH_TREND_ADX_STRONG": (15, 50),
+    "TECH_REGIME_ATR_PCT_HIGH": (60, 99),
+    "TECH_REGIME_ATR_PCT_LOW": (1, 40),
+    "TECH_BB_COMPRESSION_PCT": (5, 40),
+    "TECH_PRESIGNAL_TTL_BARS": (2, 24),
+    "TECH_PRESIGNAL_DECAY": (0.5, 1.0),
+    "TECH_PRESIGNAL_MIN_CONF": (0.1, 0.9),
+    "TECH_LEVEL_PROXIMITY_ATR": (0.1, 2.0),
+    "TECH_TELEGRAM_MAX_ALERTS_PER_HOUR": (1, 60),
 }
 
 # Settings the tuner must never change, with the value they must keep.
@@ -70,9 +97,12 @@ NUMERIC_BOUNDS = {
 # tuner should be turned off at the same time.
 PINNED = {
     "DRY_RUN": "true",
+    # second bot: SHADOW until a human decides otherwise (spec §50/§83)
+    "TECH_DRY_RUN": "true",
+    "TECH_LIVE_TRADING_ENABLED": "false",
 }
 
-REQUIRED_PRESENT = ["ENABLE_TRADING", "WATCHLIST", "ENTRY_TIME", "EXIT_TIME"]
+REQUIRED_PRESENT = ["ENABLE_TRADING", "WATCHLIST", "ENTRY_TIME", "EXIT_TIME", "TECH_MODE", "TECH_UNDERLYINGS"]
 
 TIME_RE = re.compile(r"^([01]\d|2[0-3]):([0-5]\d)$")
 
@@ -118,7 +148,8 @@ def test_required_setting_present(name):
     assert name in CONFIG and CONFIG[name] != "", f"{name} is missing or empty in config.env"
 
 
-@pytest.mark.parametrize("name", ["ENTRY_TIME", "EXIT_TIME", "SCALP_ORB_REF_START", "SCALP_ORB_REF_END"])
+@pytest.mark.parametrize("name", ["ENTRY_TIME", "EXIT_TIME", "SCALP_ORB_REF_START", "SCALP_ORB_REF_END",
+                                  "TECH_EOD_CUTOFF", "TECH_SESSION_END", "TECH_EOD_SUMMARY_TIME"])
 def test_time_settings_are_valid_hhmm(name):
     if name not in CONFIG:
         pytest.skip(f"{name} not set in config.env")
@@ -152,3 +183,33 @@ def test_daily_loss_cap_versus_single_trade_risk_is_not_extreme():
         f"daily cap halts trading almost immediately and the two settings are fighting each other. "
         f"Reconcile them deliberately rather than letting the tuner drift here."
     )
+
+
+# --- second bot invariants ---------------------------------------------------
+
+
+def test_tech_mode_is_a_known_mode_and_not_live():
+    """M1 has no execution layer; LIVE needs M4's gates (spec §79/§83).
+    Moving this to LIVE is a reviewed human commit that also turns the
+    nightly tuner off."""
+    assert CONFIG["TECH_MODE"] in ("BACKTEST", "RESEARCH", "PAPER", "SHADOW"), CONFIG["TECH_MODE"]
+
+
+def test_tech_alignment_weights_sum_to_one():
+    total = sum(float(CONFIG[k]) for k in ("TECH_ALIGN_W_DAILY", "TECH_ALIGN_W_30M", "TECH_ALIGN_W_5M", "TECH_ALIGN_W_1M"))
+    assert abs(total - 1.0) < 1e-6, f"TECH_ALIGN_W_* must sum to 1.0, got {total}"
+
+
+def test_tech_session_times_are_ordered():
+    assert CONFIG["TECH_EOD_CUTOFF"] < CONFIG["TECH_SESSION_END"] <= CONFIG["TECH_EOD_SUMMARY_TIME"]
+
+
+def test_tech_adx_thresholds_ordered():
+    assert float(CONFIG["TECH_TREND_ADX_MIN"]) < float(CONFIG["TECH_TREND_ADX_STRONG"])
+    assert float(CONFIG["TECH_REGIME_ATR_PCT_LOW"]) < float(CONFIG["TECH_REGIME_ATR_PCT_HIGH"])
+
+
+def test_tech_underlyings_are_the_three_indices_only():
+    """Spec scope: NIFTY/BANKNIFTY/SENSEX index options only."""
+    names = {s.strip() for s in CONFIG["TECH_UNDERLYINGS"].split(",") if s.strip()}
+    assert names and names <= {"NIFTY", "BANKNIFTY", "SENSEX"}, names
