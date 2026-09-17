@@ -69,7 +69,17 @@ class RestClient:
             timeout=10,
             **kwargs,
         )
-        payload = resp.json()
+        try:
+            payload = resp.json()
+        except ValueError:
+            # Not JSON at all - seen live as a plain-text HTTP 403 "Access
+            # denied" from the CDN edge, which used to surface as a bare
+            # JSONDecodeError. Wrap it so callers can classify (and the
+            # engine's paced_call can retry) by HTTP status.
+            body = (resp.text or "").strip()[:200]
+            raise ApiError(f"non-JSON response ({resp.status_code}): {body or '<empty>'}", f"HTTP_{resp.status_code}")
+        if not isinstance(payload, dict):
+            raise ApiError(f"unexpected response shape ({resp.status_code})", f"HTTP_{resp.status_code}")
         if not payload.get("status"):
             raise ApiError(payload.get("message", "request failed"), payload.get("errorcode", ""))
         return payload["data"]
