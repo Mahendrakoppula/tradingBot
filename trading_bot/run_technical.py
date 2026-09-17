@@ -114,7 +114,14 @@ def run_live(cfg: EngineConfig) -> int:
         if now <= session_open_at(today):
             return
         for inst in instruments:
-            n = backfill_today_1m(rest, inst, stores.setdefault((inst.token, "1m"), CandleStore("1m")), now, limiter)
+            store = stores.setdefault((inst.token, "1m"), CandleStore("1m"))
+            try:
+                n = backfill_today_1m(rest, inst, store, now, limiter)
+            except Exception as exc:  # noqa: BLE001 - a missing backfill is a GAP, not a fatal error
+                jsonlog.event("warmup", "backfill_failed", severity="WARN", underlying=inst.underlying,
+                              token=inst.token, error=repr(exc))
+                log.warning("backfill %s (%s) failed - continuing with a gap: %s", inst.underlying, inst.token, exc)
+                continue
             jsonlog.event("warmup", "backfill_today", underlying=inst.underlying, token=inst.token, bars=n)
 
     loop = ShadowLoop(cfg, dal, instruments, source, now_ist, notifier, stores, git_sha=_git_sha(),

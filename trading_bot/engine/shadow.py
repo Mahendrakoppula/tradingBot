@@ -143,7 +143,7 @@ class ShadowLoop:
                 # for that so the final bars close through timers, not flush_all
                 if (tick is None and self.source.done()) or now >= session_close_at(self.day) + EOD_GRACE:
                     break
-            self._eod()
+            self._eod(stopped=self._stopped)
         except Exception as exc:  # noqa: BLE001 - record the failure, then re-raise
             jsonlog.event("loop", "crash", severity="ERROR", error=repr(exc))
             self.dal.end_run(self.run_id, self.clock(), status="crashed", notes={"error": repr(exc)})
@@ -261,7 +261,11 @@ class ShadowLoop:
 
     # --- end of day -----------------------------------------------------------------------------
 
-    def _eod(self) -> None:
+    def _eod(self, stopped: bool = False) -> None:
+        """Session close, or an external stop (SIGTERM from a deploy/instance
+        stop). Both flush partial bars and end the run, but a stop is
+        recorded and reported as STOPPED so nobody mistakes a 12:01 redeploy
+        for the day's summary."""
         now = self.clock()
         partial = 0
         for token, agg in self.aggs.items():
@@ -273,9 +277,11 @@ class ShadowLoop:
         feed = {"ticks": self.stats.ticks, "reconnects": h.reconnects, "partial_bars": partial,
                 "late_ticks": sum(a.late_ticks for a in self.aggs.values()),
                 "quality": self.stats.quality}
-        summary = eod_summary(self.dal, self.run_id, self.day, self.mode, feed)
-        self.dal.end_run(self.run_id, now, status="completed", notes={"stats": vars(self.stats), "feed": feed})
-        jsonlog.event("loop", "eod", run_id=str(self.run_id), stats=vars(self.stats), feed=feed)
+        summary = eod_summary(self.dal, self.run_id, self.day, self.mode, feed,
+                              heading="STOPPED" if stopped else "EOD")
+        status = "stopped" if stopped else "completed"
+        self.dal.end_run(self.run_id, now, status=status, notes={"stats": vars(self.stats), "feed": feed})
+        jsonlog.event("loop", "stopped" if stopped else "eod", run_id=str(self.run_id), stats=vars(self.stats), feed=feed)
         for line in summary.splitlines():
             log.info(line)
         if self.notifier is not None:

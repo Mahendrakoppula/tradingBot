@@ -125,3 +125,20 @@ def test_rest_client_wraps_non_dict_payload(monkeypatch):
         assert False
     except ApiError as e:
         assert e.errorcode == "HTTP_502"
+
+
+def test_defaults_stay_under_the_shared_account_budget():
+    """Angel's 3/s, 150/min is per ACCOUNT and the daily bot shares it."""
+    lim = RateLimiter()
+    assert lim.rate_per_s <= 1.5 and lim.per_minute <= 100
+    slept = []
+    calls = {"n": 0}
+
+    def throttled():
+        calls["n"] += 1
+        if calls["n"] <= 5:
+            raise ApiError("Access denied because of exceeding access rate", "HTTP_403")
+        return "ok"
+
+    assert paced_call(throttled, sleep=slept.append) == "ok"
+    assert sum(slept) >= 60  # default retries ride out a full minute window
