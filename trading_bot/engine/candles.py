@@ -19,7 +19,7 @@ from collections import deque
 from dataclasses import dataclass, replace
 from typing import Callable
 
-from trading_bot.engine.clock import TF_MINUTES, bar_start, in_session, next_boundary
+from trading_bot.engine.clock import TF_MINUTES, bar_start, in_session, next_boundary, session_open_at
 from trading_bot.timeutil import IST
 
 PAISE = 100.0
@@ -204,9 +204,17 @@ class BarAggregator:
                 bar.oi = oi
             if cum_volume is not None:
                 if bar.cum_volume is None:
-                    # first tick in this bar: volume since the previous bar's last cumulative
+                    # first tick in this bar: volume since the previous bar's last
+                    # cumulative. With no previous bar, the whole day-cumulative
+                    # belongs to this bar ONLY if it is the session's first bar;
+                    # after a mid-session restart it would be the day's volume so far
                     prev_cum = self._prev_cum.get(tf)
-                    bar.volume = max(0, cum_volume - prev_cum) if prev_cum is not None else 0
+                    if prev_cum is not None:
+                        bar.volume = max(0, cum_volume - prev_cum)
+                    elif start == session_open_at(start.date()):
+                        bar.volume = max(0, cum_volume)
+                    else:
+                        bar.volume = 0
                 else:
                     bar.volume += max(0, cum_volume - bar.cum_volume)
                 bar.cum_volume = cum_volume

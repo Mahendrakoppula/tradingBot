@@ -106,8 +106,14 @@ def test_volume_from_cumulative_and_oi():
     agg.on_tick(2500000, _ms(9, 15, 30), cum_volume=1600, oi=520)
     agg.on_tick(2500000, _ms(9, 16, 1), cum_volume=1900)
     bar0 = closed[0][1]
-    assert bar0.volume == 600 and bar0.oi == 520  # first tick's delta vs prior bar unknown -> 0, then +600
+    assert bar0.volume == 1600 and bar0.oi == 520  # session's first bar owns the day-cumulative so far
     assert agg.current("1m").volume == 300  # 1900 - 1600 carried from the previous bar
+    # mid-session start: the first bar seen must NOT inherit the day's cumulative
+    agg2, closed2 = _agg(("1m",))
+    agg2.on_tick(2500000, _ms(11, 0, 1), cum_volume=500000)
+    agg2.on_tick(2500000, _ms(11, 0, 30), cum_volume=500400)
+    agg2.on_tick(2500000, _ms(11, 1, 1), cum_volume=500900)
+    assert closed2[0][1].volume == 400 and agg2.current("1m").volume == 500
 
 
 # --- store -------------------------------------------------------------------------

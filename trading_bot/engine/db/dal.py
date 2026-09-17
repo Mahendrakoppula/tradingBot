@@ -131,6 +131,10 @@ class Database:
             )
         return len(rows)
 
+    def last_candle_ts(self, token: str, tf: str) -> dt.datetime | None:
+        row = self.conn.execute("SELECT max(ts) AS ts FROM candles WHERE token = %s AND tf = %s", (token, tf)).fetchone()
+        return row["ts"].astimezone(IST) if row and row["ts"] is not None else None
+
     def load_candles(self, token: str, tf: str, since: dt.datetime, until: dt.datetime | None = None,
                      complete_only: bool = True) -> list[Candle]:
         q = "SELECT * FROM candles WHERE token = %s AND tf = %s AND ts >= %s"
