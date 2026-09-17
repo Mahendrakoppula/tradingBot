@@ -3,3 +3,4 @@ pyotp>=2.9
 python-dotenv>=1.0
 websocket-client>=1.7
 vaderSentiment>=3.3
+psycopg[binary]>=3.1
