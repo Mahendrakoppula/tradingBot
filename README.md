@@ -483,8 +483,24 @@ backtesting/  (Phase 12, done) event-driven backtester - processes bars
               always, and the CI still spans meaningfully negative
               territory) - but a real, direct confirmation that
               decoupling sizing from one shared drawdown gate is what
-              actually helps, completing the 014-019 portfolio
-              investigation arc at a genuinely informative endpoint.
+              actually helps. Run 020 then walk-forward validated BOTH
+              designs (independent folds, fresh capital each - a lens
+              no portfolio Run had used yet) and the ranking REVERSED:
+              shared-tier won 5/5 folds profitable vs per-instrument's
+              4/5, higher returns in every single fold. Not a
+              contradiction - a real, traceable trade-off: per-
+              instrument tiers caps each instrument at its own 1/3
+              notional share even during a GOOD stretch (what protects
+              against Run 016's bad-luck-transmission problem also
+              caps upside), while shared-tier's uncapped pool wins when
+              capital resets frequently but is what let one instrument's
+              bad luck drag everything down over a long compounding
+              horizon. No single design is "better" - which one wins
+              depends on which failure mode matters more, honestly
+              reported rather than picking the flattering lens. Closes
+              the 014-020 portfolio investigation arc with a real
+              mechanistic understanding, not a false "solved it" from
+              Run 019 alone.
               BACKTESTS.md logs every run honestly, including a real bug
               it caught (daily risk state never resetting between bars)
               and the corrected, still-mixed result after fixing it -

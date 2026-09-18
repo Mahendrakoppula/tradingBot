@@ -1825,3 +1825,62 @@ exists and matters (014), naive pooling's headline is sequence-luck
 pools (016), concentration limits alone don't fix that (017-018), and
 decoupling the sizing mechanism itself does meaningfully help, though
 not enough on its own to call this a validated edge (019).
+
+---
+
+## Run 020 - Walk-forward validation: the picture reverses, and that's the finding
+
+**Date**: 2026-09-18
+**Purpose**: Every portfolio Run so far (014-019) used only two
+validation lenses - full-history observed, and reshuffle/sequence-risk.
+No portfolio result has been walk-forward validated (independent,
+non-overlapping folds, fresh capital per fold) the way single-
+instrument Runs (002R, 006, 008) always are. Checks whether Run 019's
+promising reshuffled-mean result holds up under this third, independent
+lens too - reusing the SAME fold-splitting methodology already verified
+correct against Run 008's own numbers (filter each instrument's
+already-decided trades by entry_index range, run fresh per fold).
+
+**Result** (same 5-fold windows as Run 002R/006/008, 1% risk):
+
+| Fold | Shared-tier | Per-instrument tiers |
+|---|---|---|
+| [0:244] | +337.5% | +70.8% |
+| [249:493] | +356.6% | +86.0% |
+| [498:742] | +271.1% | +126.0% |
+| [747:991] | +409.9% | +42.5% |
+| [996:1240] | +3.2% | **-7.1%** |
+| **Folds profitable** | **5/5** | **4/5** |
+
+**This REVERSES Run 019's own reshuffle ranking, and that reversal is
+itself the real finding, not a contradiction to explain away.** Run
+019 found per-instrument tiers has a better TYPICAL (reshuffled-mean)
+outcome over the full 5-year compounding horizon. Here, under
+short, independently-capitalized folds, shared-tier wins on every
+measure - more folds profitable, higher returns in every single fold.
+The mechanism is real and traceable, not a fluke of one specific split:
+per-instrument tiers structurally CAPS each instrument at sizing
+against only its own 1/3 notional share of capital, even during a
+GOOD stretch for that instrument - it can never access the other two
+instruments' unused capital to size up further. Shared-tier has no
+such cap: a hot streak in any one instrument gets to use the FULL
+pool. Over a short, fresh-capital fold, this uncapped upside dominates;
+over a long compounding horizon with adverse reshuffled orderings, the
+same lack of a cap is what let one instrument's bad luck drag the
+whole pool down (Run 016's original diagnosis). The two lenses are not
+disagreeing about facts - they are stress-testing genuinely different
+failure/success modes of the SAME structural trade-off.
+
+**Verdict: there is no single "better" design between these two -
+which one wins depends on the question being asked.** Per-instrument
+tiers protects against long-horizon, one-instrument-drags-down-the-
+account risk (what Run 016 diagnosed and Run 019 confirmed fixing) at
+the direct cost of capping upside during favorable, short-to-medium
+stretches (what this Run now shows). Reporting both honestly rather
+than picking the flattering lens: a real production design would need
+to decide which failure mode it cares more about avoiding - not
+something this backtesting log can decide on its own, and not
+attempted here. This closes out the 014-020 portfolio investigation
+arc with an honest, mechanistic understanding of the real trade-off
+involved, rather than a false "solved it" conclusion from Run 019
+alone.
