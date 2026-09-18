@@ -214,13 +214,25 @@ models/       (Phase 7, in progress) ML training. Model 1/8 (regime
               result is nearly identical at every horizon, cleanly
               RULING OUT a wrong strike as the explanation (realized_vol
               doesn't depend on strike, and gamma/vega barely move over
-              a Rs.50 gap on a ~Rs.55,000 underlying). The divergence
-              remains genuinely unexplained by this bug, strengthening
-              the case that it's a real structural difference, not an
-              artifact - still open. The SAME bug mattered much more for
-              BACKTESTS.md's Run 013 (equity-curve sequence risk), where
-              it changed which trades were even affordable - see that
-              Run's own correction note.
+              a Rs.50 gap on a ~Rs.55,000 underlying). The SAME bug
+              mattered much more for BACKTESTS.md's Run 013 (equity-
+              curve sequence risk), where it changed which trades were
+              even affordable, and for Run 008 itself (re-verified as
+              likely already correct - see that Run's own update).
+              Checked a second hypothesis too: BANKNIFTY is real-world
+              MONTHLY-only (NSE discontinued its weeklies, already
+              live-verified), unlike NIFTY/SENSEX which still have real
+              weeklies, yet every feature uses the same fixed 7-day
+              synthetic expiry - re-ran with a realistic 28-day expiry
+              for BANKNIFTY specifically, again nearly identical results,
+              also ruled out. Stopped there deliberately: continuing to
+              adjust parameters until BANKNIFTY's numbers converge with
+              NIFTY/SENSEX's would itself resemble the p-hacking this
+              project's discipline exists to prevent. Two independent,
+              well-motivated technical hypotheses ruled out is now
+              treated as real evidence the divergence is a genuine
+              structural difference (sectoral vs. broad-market index),
+              not an unsolved bug.
               models/feature_engineering.py provides vectorized, causal,
               whole-series equivalents of market_state/'s per-point
               classifiers, needed to make training-set construction

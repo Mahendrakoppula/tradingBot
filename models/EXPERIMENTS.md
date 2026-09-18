@@ -392,3 +392,45 @@ BANKNIFTY strike_increment for its equity-curve sequence-risk test) -
 there, unlike here, the impact was material, since it changed which
 trades were even affordable, not just a smoothly-varying feature value.
 See Run 013's own correction note for details.
+
+**Second hypothesis checked and also ruled out (2026-09-18)**: this
+project has already live-verified (data/expiry_calendar.py, confirmed
+2026-09-15) that NSE discontinued BANKNIFTY weekly options - it's
+MONTHLY only now, unlike NIFTY (weekly, Tuesday) and SENSEX (weekly,
+Thursday), both of which still have real weeklies. Every options-
+derived feature in this project uses a uniform fixed 7-day synthetic
+expiry for all three indices - a reasonable rough approximation for
+NIFTY/SENSEX's real weekly market, but BANKNIFTY's real market doesn't
+have anything resembling a 7-day option anymore. Re-ran the same
+horizon sweep with a more realistic `days_to_expiry=28` for BANKNIFTY
+specifically:
+
+| Horizon | Beat baseline (28-day expiry) | Mean AUC (28-day) | Promote? | (original, 7-day) |
+|---|---|---|---|---|
+| 1 bar | 2/8 | 0.526 | No | 2/8, AUC 0.524, no |
+| 3 bars | 3/8 | 0.484 | No | 3/8, AUC 0.485, no |
+| 5 bars | 3/8 | 0.489 | No | 3/8, AUC 0.493, no |
+| 10 bars | 4/8 | 0.534 | No | 4/8, AUC 0.530, no |
+| 20 bars | 4/8 | 0.487 | No | 4/8, AUC 0.490, no |
+
+Again nearly identical at every horizon - ruled out. Makes sense on
+reflection: `realized_vol` doesn't depend on expiry at all, and while
+gamma/vega do depend on time-to-expiry, they vary smoothly with it away
+from a knife-edge near-expiry singularity - a 7-day vs 28-day
+difference changes their magnitude somewhat but doesn't meaningfully
+change what directional INFORMATION they carry.
+
+**Verdict: stopping here, deliberately, not continuing to hunt for a
+technical fix.** Two independent, well-motivated hypotheses for
+BANKNIFTY's divergence (wrong strike granularity, wrong expiry
+duration) have now been checked and cleanly ruled out. Continuing to
+adjust parameters specifically to make BANKNIFTY's numbers converge
+with NIFTY/SENSEX's would itself start to resemble the kind of
+p-hacking this file's own standing rule exists to prevent - tuning
+until a result looks better is not a validation, whether the target is
+beating a baseline or explaining away an inconvenient divergence. The
+evidence now points more confidently toward BANKNIFTY's divergence
+being a genuine, structural characteristic (a sectoral index's
+volatility/direction relationship differing from two broad-market
+indices), not an artifact of these two specific technical choices - a
+real finding in its own right, not an unsolved bug.
