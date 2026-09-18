@@ -19,10 +19,11 @@ from typing import Callable
 from trading_bot.costs import CostRates
 from trading_bot.engine import jsonlog
 from trading_bot.engine.candles import Candle
-from trading_bot.engine.clock import SESSION_CLOSE, SESSION_OPEN
+from trading_bot.engine.clock import SESSION_CLOSE, SESSION_OPEN, in_session
 from trading_bot.engine.context import ContextSnapshot
 from trading_bot.engine.execution import GateParams, OrderRequest, OrderStateMachine, PaperBroker, execution_gate
 from trading_bot.engine.explain import render
+from trading_bot.engine.health import HealthMonitor, HealthThresholds, format_alert
 from trading_bot.engine.instruments import FUTURES_EXCHANGE
 from trading_bot.engine.option_chain import CacheParams, ChainCache
 from trading_bot.engine.pipeline import Decision, PipelineParams, _reject, decide
@@ -33,6 +34,7 @@ from trading_bot.engine.risk_engine import AccountState, record_result
 from trading_bot.engine.shadow import TRIGGER_TF, ShadowLoop
 from trading_bot.engine.stops import ExitSignal, ThesisMonitor
 from trading_bot.options import OptionChain
+from trading_bot.timeutil import IST
 
 log = logging.getLogger(__name__)
 
@@ -100,6 +102,12 @@ class PaperLoop(ShadowLoop):
         self._pending_exits: dict[str, tuple] = {}  # execution_id -> (record, position)
         self._reconciled = True
         self._eod_swept = False
+        self.health = HealthMonitor(HealthThresholds(stale_tick_seconds=float(self.cfg.stale_tick_seconds) + 5.0,
+                                                     max_clock_drift_seconds=float(self.cfg.clock_drift_seconds)),
+                                    in_session=lambda now: in_session(now.astimezone(IST).time()))
+        self.health.state.daily_cap = self.cfg.capital * self.cfg.daily_loss_cap_pct
+        self.health.state.heat_cap = self.cfg.capital * self.pp.limits.max_portfolio_heat_pct
+        self._last_reconnects = 0
         self.stats.__dict__.update({"decisions": 0, "approved": 0, "orders_sent": 0, "fills": 0, "trades_closed": 0,
                                     "net_pnl": 0.0, "gross_pnl": 0.0, "costs": 0.0})
 
@@ -112,6 +120,39 @@ class PaperLoop(ShadowLoop):
             for u, spot in list(self.last_spot.items()):
                 if self.chains.due(u, now):
                     self._refresh_chain(u, spot, now)
+        self._health_tick(now)
+
+    # --- §87 health -----------------------------------------------------------------------------
+
+    def _health_tick(self, now: dt.datetime) -> None:
+        h = self.source.health()
+        st = self.health.state
+        st.feed_connected = h.connected
+        st.last_tick_at = h.last_tick_at
+        st.clock_drift_seconds = h.clock_drift_seconds
+        st.dropped_ticks = getattr(getattr(self.source, "stream", None), "dropped", 0)
+        while self._last_reconnects < h.reconnects:
+            self._last_reconnects += 1
+            self.health.note_reconnect(now)
+        st.snapshots = self.stats.snapshots
+        st.decisions = self.stats.decisions
+        st.approved = self.stats.approved
+        st.rejections_by_stage = summarize(self.rejections)["by_stage"] if self.rejections else {}
+        st.realized_today = self.account.realized_today
+        st.open_risk = self.book.open_risk()
+        st.open_positions = len(self.book.open)
+        st.reconciled = self._reconciled
+        st.api_errors = self.chains.errors if self.chains else 0
+        st.circuit_breaker = self.kills.circuit_breaker
+        for a in self.health.check(now):
+            jsonlog.event("health", "recovered" if a.cleared else "alert", severity="INFO" if a.cleared else a.severity,
+                          code=a.code, message=a.message)
+            if a.severity == "CRITICAL" or a.cleared and a.code in ("feed_disconnected", "feed_stale", "engine_stalled"):
+                self._alert(format_alert(a, self.mode), now)
+            elif a.severity == "WARN" and not a.cleared:
+                self._alert(format_alert(a, self.mode), now)
+        if self.health.heartbeat_due(now):
+            jsonlog.event("health", "heartbeat", **self.health.snapshot(now))
 
     def _refresh_chain(self, u: str, spot: float, now: dt.datetime) -> ChainCache | None:
         c = self.chains.refresh(u, spot, now)
@@ -138,6 +179,8 @@ class PaperLoop(ShadowLoop):
         u = ctx.underlying
         self.last_ctx[u] = ctx
         now = self.clock()
+        self.health.state.quality[u] = ctx.quality
+        self.health.state.last_snapshot_at[u] = now
         if self.broker is not None:
             r = reconcile(self.book, self.broker, now)
             if not r.ok:
@@ -203,7 +246,7 @@ class PaperLoop(ShadowLoop):
         snap_dict = d.snapshot.as_dict() if d.snapshot else {
             "ts": ctx.ts, "spot": ctx.spot, "direction": ev.direction, "stage_reached": d.stage_reached,
             "option": d.option.contract.tradingsymbol if d.option else None, "strategy": d.candidate.strategy if d.candidate else None}
-        self.dal.insert_signal(self.run_id, signal_id=d.signal_id, setup_id=ev.setup_id, ts=ctx.ts, mode=self.mode, underlying=u,
+        self._journal(self.dal.insert_signal, self.run_id, signal_id=d.signal_id, setup_id=ev.setup_id, ts=ctx.ts, mode=self.mode, underlying=u,
                                direction=ev.direction, stage=d.stage_reached, status=d.status, explanation=explanation,
                                snapshot=snap_dict, reason_code=d.reason_code, context_snapshot_id=ctx_id,
                                option_type="CE" if ev.direction == "up" else "PE",
@@ -232,6 +275,16 @@ class PaperLoop(ShadowLoop):
         self._alert(f"{head}\n{u} {ev.direction.upper()} {d.option.contract.tradingsymbol} x{d.risk.quantity} @ ~{d.option.ask:.2f}\n\n{render(explanation)}", ctx.ts)
         if self.execute:
             self._enter(d, ctx, now)
+
+    def _journal(self, fn, *a, **kw):
+        """A journal write must never kill the session; count failures for §87."""
+        try:
+            return fn(*a, **kw)
+        except Exception as exc:  # noqa: BLE001
+            self.health.state.db_write_failures += 1
+            jsonlog.event("journal", "write_failed", severity="ERROR", fn=getattr(fn, "__name__", "?"), error=repr(exc))
+            log.warning("journal write failed (%s): %s", getattr(fn, "__name__", "?"), exc)
+            return None
 
     # --- execution ---------------------------------------------------------------------------------
 
@@ -272,6 +325,9 @@ class PaperLoop(ShadowLoop):
                 continue
             del self._pending_entries[eid]
             self._journal_execution(rec, d.signal_id, now)
+            self.health.note_order(filled=rec.state == "POSITION_ACTIVE", rejected=rec.state in ("REJECTED", "FAILED"),
+                                   latency_ms=rec.latency.ms("request_at", "fill_at"),
+                                   slippage=(rec.average_price - rec.request.limit_price) if (rec.average_price and rec.request and rec.request.limit_price) else None)
             if rec.state == "POSITION_ACTIVE":
                 snap = d.snapshot
                 ctx = self.last_ctx.get(snap.underlying)
@@ -418,4 +474,6 @@ class PaperLoop(ShadowLoop):
                     self._on_trade_closed(result, now)
         self.stats.__dict__["rejections"] = summarize(self.rejections)
         self.stats.__dict__["kill_events"] = len(self.kills.log)
+        self.stats.__dict__["health"] = {"alerts": len(self.health.history), "final": self.health.worst(),
+                                         "codes": sorted({a.code for a in self.health.history if not a.cleared})}
         super()._eod(stopped=stopped)
