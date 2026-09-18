@@ -42,6 +42,9 @@ from backtesting.portfolio_equity_simulation import PortfolioEquitySimulationRes
 from backtesting.tick_slippage import tick_slippage_cost
 from backtesting.trade_record import Trade
 from execution.transaction_costs import TransactionCostRates, option_round_trip_cost
+from features.black_scholes import Greeks
+from features.theoretical_options import theoretical_option_snapshot
+from portfolio.greek_aggregation import Position, PortfolioRiskLimits, aggregate_portfolio_greeks, check_portfolio_risk
 from risk.equity_protection import classify_equity_tier
 from risk.position_sizing import capital_at_risk_for_trade
 
@@ -54,6 +57,7 @@ class _LogicalTradeEvent:
     exit_premium: float
     strike: float
     duration: int  # exit_index - entry_index from the real run, in bars
+    greeks: Greeks | None = None  # entry-time Greeks, reshuffle-invariant (see monte_carlo_portfolio_sequence) - only needed when concentration-limit-testing
 
 
 def _riffle_interleave(sequences: list[list[_LogicalTradeEvent]], rng: random.Random) -> list[_LogicalTradeEvent]:
@@ -83,6 +87,7 @@ def replay_portfolio_in_logical_order(
     max_lots: int | None = None,
     rates: TransactionCostRates = TransactionCostRates(),
     tick_spread: float = 0.0,
+    max_single_instrument_delta_share: float | None = None,
 ) -> PortfolioEquitySimulationResult:
     """Assigns each event a LOGICAL entry slot (its position in
     `ordered_events`) and a logical exit slot (entry slot + the event's
@@ -90,7 +95,19 @@ def replay_portfolio_in_logical_order(
     as portfolio_equity_simulation.py's real-calendar version - tier
     classification, risk-based lot sizing, cash locked up at entry and
     refunded at exit - over this synthetic timeline instead of real
-    calendar dates."""
+    calendar dates.
+
+    `max_single_instrument_delta_share`: mirrors
+    portfolio_equity_simulation.py's own Run 017 concentration check,
+    with ONE necessary difference stated plainly: that version reprices
+    every open position's CURRENT Greeks as of the new candidate's real
+    calendar date. There is no real calendar date on this logical
+    timeline to reprice against, so this uses each event's own
+    ENTRY-TIME Greeks instead (requires `ordered_events` to have
+    `.greeks` populated - see monte_carlo_portfolio_sequence, which
+    precomputes them once since they don't depend on the reshuffle at
+    all). An approximation, not a re-derivation of "current" exposure -
+    stated once here rather than re-asserted at every call site."""
     scheduled = [(t, t + ev.duration, ev) for t, ev in enumerate(ordered_events)]
     events = []
     for entry_t, exit_t, ev in scheduled:
@@ -150,8 +167,30 @@ def replay_portfolio_in_logical_order(
         if entry_cost > cash:
             skipped.append((ev.instrument, ev.trade))
             continue
+        if max_single_instrument_delta_share is not None and open_positions and ev.greeks is not None:
+            positions = [
+                Position(instrument=open_instr, option_type=pos["direction"], quantity=pos["quantity"], greeks=pos["greeks"])
+                for open_instr, pos in open_positions.items()
+                if pos["greeks"] is not None
+            ]
+            positions.append(Position(instrument=ev.instrument, option_type=ev.trade.direction, quantity=quantity, greeks=ev.greeks))
+            check = check_portfolio_risk(
+                aggregate_portfolio_greeks(positions),
+                PortfolioRiskLimits(
+                    max_abs_delta=float("inf"), max_abs_gamma=float("inf"),
+                    max_abs_vega=float("inf"), max_abs_theta=float("inf"),
+                    max_single_instrument_delta_share=max_single_instrument_delta_share,
+                ),
+            )
+            if not check.within_limits:
+                skipped.append((ev.instrument, ev.trade))
+                continue
+
         cash -= entry_cost
-        open_positions[ev.instrument] = {"lots": lots, "quantity": quantity, "entry_cost": entry_cost}
+        open_positions[ev.instrument] = {
+            "lots": lots, "quantity": quantity, "entry_cost": entry_cost,
+            "direction": ev.trade.direction, "greeks": ev.greeks,
+        }
         max_concurrent = max(max_concurrent, len(open_positions))
 
     return PortfolioEquitySimulationResult(
@@ -190,12 +229,26 @@ def monte_carlo_portfolio_sequence(
     max_lots: int | None = None,
     rates: TransactionCostRates = TransactionCostRates(),
     tick_spread: float = 0.0,
+    max_single_instrument_delta_share: float | None = None,
+    dfs_by_instrument: dict | None = None,
+    risk_free_rate: float = 0.07,
+    vol_window: int = 20,
     rng: random.Random | None = None,
 ) -> PortfolioSequenceRiskResult:
     """Riffle-shuffles the interleaving of base_result's own three
     instrument trade streams (each stream's own internal order held
     fixed) and replays the logical-timeline capital mechanics under
-    each new interleaving."""
+    each new interleaving.
+
+    `max_single_instrument_delta_share`: extends Run 017's concentration
+    check to this reshuffle test - answers whether it helps under
+    TYPICAL (not just the one observed, already-known-lucky) ordering.
+    Requires `dfs_by_instrument` (real OHLCV per instrument) to price
+    each trade's entry-time Greeks ONCE up front - these are
+    reshuffle-invariant (a trade's own real entry_index/strike/expiry
+    never changes across reshuffles), so pricing them once and reusing
+    across all `n_simulations` replays avoids repricing the same fixed
+    value millions of times."""
     rng = rng or random.Random()
 
     by_instrument: dict[str, list[PortfolioSimulatedTrade]] = {}
@@ -204,11 +257,21 @@ def monte_carlo_portfolio_sequence(
     for instr in by_instrument:
         by_instrument[instr].sort(key=lambda st: st.trade.entry_index)
 
+    def _entry_greeks(instr: str, st: PortfolioSimulatedTrade) -> Greeks | None:
+        if dfs_by_instrument is None:
+            return None
+        snapshot = theoretical_option_snapshot(
+            dfs_by_instrument[instr], st.trade.entry_index, st.strike, st.trade.expiry,
+            st.trade.direction, risk_free_rate, vol_window,
+        )
+        return snapshot.greeks if snapshot is not None else None
+
     sequences = [
         [
             _LogicalTradeEvent(
                 instrument=instr, trade=st.trade, entry_premium=st.entry_premium, exit_premium=st.exit_premium,
                 strike=st.strike, duration=(st.trade.exit_index - st.trade.entry_index),
+                greeks=_entry_greeks(instr, st),
             )
             for st in trades
         ]
@@ -221,6 +284,7 @@ def monte_carlo_portfolio_sequence(
         ordered = _riffle_interleave(sequences, rng)
         result = replay_portfolio_in_logical_order(
             ordered, lot_sizes, base_result.starting_capital, base_risk_pct, max_lots, rates, tick_spread,
+            max_single_instrument_delta_share,
         )
         simulated_endings.append(result.ending_capital)
     simulated_endings.sort()

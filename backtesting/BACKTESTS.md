@@ -1693,3 +1693,60 @@ drawdown in the expected direction) - but reported as exactly that, not
 inflated into a claim about typical-case risk-adjusted performance that
 would need the more expensive reshuffle test this Run explicitly does
 not attempt.
+
+---
+
+## Run 018 - Does concentration-limiting help under TYPICAL conditions?
+
+**Date**: 2026-09-18
+**Purpose**: Directly closes the more expensive reshuffle test Run 017
+explicitly scoped out - does the concentration limit improve typical
+(reshuffled-mean) performance, or only the one observed, already-known-
+lucky historical draw?
+
+**The real technical obstacle, and how it was resolved**: Run 015's
+logical-timeline reshuffle has no real calendar dates, so Run 017's
+approach (reprice every open position's CURRENT Greeks as of the new
+candidate's real date) has nothing to reprice against. Resolution: a
+trade's own ENTRY-TIME Greeks are reshuffle-INVARIANT - they only
+depend on its real, unchanging entry_index/strike/expiry, never on
+where it lands in a given reshuffle - so they can be priced ONCE up
+front (before the 5,000-reshuffle loop) and reused cheaply, using
+entry-time Greeks as a stable proxy for "current" exposure rather than
+Run 017's fresher, real-calendar repricing. Stated as an approximation,
+not a silent difference from Run 017's own method.
+
+**Result** (`backtesting/portfolio_sequence_risk.py`'s extended
+`monte_carlo_portfolio_sequence()`, 5,000 reshuffles each):
+
+| | Observed | Reshuffled mean | Reshuffled 90% CI | Reshuffles worse than observed |
+|---|---|---|---|---|
+| No limit (Run 015 baseline, reproduced exactly) | +2,265.0% | -3.9% | -8.5% to +20.9% | 100.0% |
+| 40% concentration cap (Run 017 config) | +871.1% | -2.2% | **-4.0% to -1.8%** | 100.0% |
+
+**A genuine, nuanced finding - not a fix, but not nothing either.**
+Concentration-limiting does NOT turn this strategy's typical outcome
+positive: both configurations' reshuffled means stay solidly negative,
+and 100% of reshuffles still beat the observed headline either way -
+Run 016's core conclusion (the shared-pool mechanism's typical outcome
+is poor, not just its lucky-draw headline) is NOT overturned by adding
+a concentration limit. What DOES change substantially: the reshuffled
+distribution's WIDTH collapses from a 29.4-percentage-point 90% CI span
+(-8.5% to +20.9%) to a 2.2-point span (-4.0% to -1.8%) - an order of
+magnitude tighter. The concentration limit doesn't fix the expected
+value, but it substantially reduces how much that value varies across
+plausible orderings - a real, distinct risk-management property
+(consistency/predictability) from the one it fails to fix (typical
+return).
+
+**Verdict**: closes the loop Run 017 opened, honestly. Wiring in the
+concentration check (Run 017) was a real capability gain, and this Run
+proves its benefit is real but narrower than a first glance might
+suggest - it buys predictability, not profitability, for this specific
+trade set and risk configuration. Combined with Run 016's diagnosis
+(the shared drawdown-tier mechanism, not concentration per se, is what
+transmits one instrument's bad luck to the others), this points clearly
+at where future portfolio-design work would need to focus: the SIZING/
+TIER mechanism Run 016 identified, not the concentration dimension Run
+017/018 have now thoroughly explored. That specific redesign remains
+real, unbuilt future work.

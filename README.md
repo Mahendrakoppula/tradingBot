@@ -455,10 +455,20 @@ backtesting/  (Phase 12, done) event-driven backtester - processes bars
               reduces observed max drawdown (21.0% -> 11.7-13.7%) - but
               explicitly NOT claimed to improve TYPICAL performance,
               only this one observed (already-known-lucky) historical
-              draw; properly testing that would need extending Run
-              015's reshuffle to this Greek-repricing-gated version too,
-              scoped out as a real, more expensive next step, not done
-              here.
+              draw. Run 018 then did extend Run 015's reshuffle to this
+              Greek-gated version (entry-time Greeks are reshuffle-
+              invariant, so priced once and reused across 5,000
+              reshuffles rather than being an intractable repricing
+              cost) - a genuine, nuanced answer: the 40% cap's
+              reshuffled mean stays solidly negative (-2.2%, vs the
+              unconstrained -3.9%), so it does NOT fix Run 016's
+              typical-outcome problem, but its 90% CI collapses from a
+              29-point span to a 2-point one - concentration-limiting
+              buys predictability, not profitability, for this trade
+              set. Points at where real future work belongs: the
+              shared drawdown-tier SIZING mechanism Run 016 diagnosed,
+              not the concentration dimension Runs 017/018 have now
+              thoroughly explored.
               BACKTESTS.md logs every run honestly, including a real bug
               it caught (daily risk state never resetting between bars)
               and the corrected, still-mixed result after fixing it -
