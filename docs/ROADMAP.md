@@ -16,24 +16,55 @@ Legend: `[x]` built + unit-tested (review happens at the milestone gate) ·
 | **M3 — validation** | phases 18, 21–24: backtest parity through the same loop, walk-forward, Monte Carlo, shadow strategies, the four §79 paper gates | 4–12 weeks of paper (§78), gates 1–4 passed |
 | **M4 — controlled live** | phases 25–27: one-lot cap, Rs.60–75 initial risk (§80), health monitoring (§87) | human decision; `TECH_MODE=LIVE` is a reviewed commit that also turns the nightly tuner off |
 
-## Status
+## Status (as of 2026-09-18, end of day)
 
-**2026-09-17: M1 merged to main and deployed** (SHADOW unit live on the box, memory
-journal until the DEPLOY.md §8 infra - t3.small resize, PostgreSQL 16,
-`TECH_DATABASE_URL` in SSM - is done; that plus one Postgres-backed session is the
-M1 gate).
+**Built: 26 of 29 phases. Validated: none yet.** Everything through M4a is merged
+to `main` and running on the instance in SHADOW mode with a PostgreSQL journal.
+The two phases not built are deliberate: 25 (live deployment) waits for the §79
+gates to pass on real paper data plus a §83 promotion record per strategy; 28
+(AI/ML) is outside V1 by the spec's own rule (§92 #51).
 
-**2026-09-18: M2 fully built** on 9 stacked branches (`feature/m2-strategies` ->
-`m2-scoring` -> `m2-expected-move` -> `m2-options` -> `m2-stops` -> `m2-risk` ->
-`m2-execution` -> `m2-positions` -> `m2-paper-loop`). SHADOW now runs the whole
-§93 pipeline and journals every decision; `TECH_MODE=PAPER` fills approved
-signals in the in-process paper broker. Finding for M3: at Rs.50k x 0.5% one
-NIFTY lot fits ~3.3 pts of ALL-IN option risk, so most structural stops are
-rejected at 0.5% (and many at 1%) - the risk engine is doing its job; the
-capital/lot mismatch is a real constraint the paper phase must quantify.
+"Built" is not "validated". Phases 18-24 exist as code, but their gates are
+empirical - weeks of paper sessions, 100+ valid opportunities, walk-forward
+stability, Monte Carlo ruin probability, execution parity - and no paper session
+has run yet. From here the work is running, reading the nightly review, and
+making two decisions with data: the capital / risk-per-trade question, then
+`TECH_MODE=PAPER`.
 
-M1 deviation, deliberate: every engine runs at the **5m close only** (no 1m-driven
-CONFIRMING→TRADE_READY leg) — see `trading_bot/engine/shadow.py`. M2 revisits.
+| Milestone | State | Evidence |
+|---|---|---|
+| M1 SHADOW | merged 2026-09-17, deployed, **gate met** 2026-09-18 | Postgres-backed session: 93 snapshots, 84 pre-signal events, warmup 18-90 s, daily bot unaffected, AST no-orders test green |
+| M2 PAPER (code) | merged + deployed 2026-09-18 | full §93 pipeline runs live on every TRADE_READY; paper broker exists; `TECH_MODE` still SHADOW |
+| M3 validation (tooling) | merged 2026-09-18 | `research_cli` metrics/review/gates/walkforward/montecarlo/backtest; **gate not attempted** (no paper data) |
+| M4a observability | merged + deployed 2026-09-18 | health alerts to Telegram, JSON heartbeat, restart recovery, review timer 15:45 IST |
+| M4b live adapter | **not built** | blocked on M3 gate (§74 "never skip validation") |
+
+**Infrastructure done 2026-09-18:** PostgreSQL 16.15 on the instance, peer auth
+over the Unix socket (no password, no SSM parameter), 1 GB swap, sized for the
+t3.micro; nightly pg_dump into `.state/pgdump/` (S3 via the existing sync
+timer). The t3.small resize is optional and needs credentials the deployer
+lacks (DEPLOY.md §8).
+
+**First shadow-session finding (2026-09-18):** all nine TRADE_READY setups
+were rejected at STRATEGY_ROUTING because `is_counter_trend()` treated the
+alignment label COUNTER_TREND (raised on any timeframe conflict, even the 1m)
+as counter-trend for both directions. Fixed the same evening (direction-aware,
+§7). Monday 2026-09-21 is the first session that can show real pipeline
+throughput.
+
+**Open questions the paper phase must answer before M4b:**
+1. At Rs.50k x 0.5% one NIFTY lot fits ~3.3 pts of all-in option risk; most
+   structural stops need more. Expect `RISK_ENGINE: one_lot_exceeds_max_risk`
+   to dominate; decide capital vs risk-per-trade (both within §25's ranges).
+2. How often COUNTER_TREND / regime gating still blocks setups after the fix.
+3. Whether SENSEX (model Greeks, wider spreads) is worth keeping in the set.
+
+**Outstanding on the operator:** rotate the Anthropic API key and GitHub PAT
+that were exposed in journald (fixed 2026-09-17, values still need rotating).
+
+Deviation, deliberate: every engine runs at the **5m close only** (no 1m-driven
+CONFIRMING->TRADE_READY leg) - see `trading_bot/engine/shadow.py`. Positions ARE
+managed on 1m closes (hard stop / targets).
 
 ## Phase checklist
 
@@ -62,9 +93,9 @@ CONFIRMING→TRADE_READY leg) — see `trading_bot/engine/shadow.py`. M2 revisit
 | 20 | EOD Analysis | [x] | M3 | `engine/eod.py` session summary + `engine/research/review.py` daily review (§71), rejected-signal analysis (§72). Nightly automation of the review is M4 observability. |
 | 21 | Walk-Forward | [x] | M3 | `validation.walk_forward()` chronological windows + `coverage()` (§75). No fitting step by design (§84). |
 | 22 | Monte Carlo | [x] | M3 | `validation.monte_carlo()` bootstrap: final-net/dd percentiles, ruin probability, streaks, adverse-execution stress (§76). |
-| 23 | Paper Trading | [x] | M2 | `engine/paper_loop.py` PaperLoop: SHADOW (journal) and PAPER (paper broker) on the same pipeline. |
+| 23 | Paper Trading | [x] code, [ ] run | M2-M3 | `engine/paper_loop.py`; `TECH_MODE` is still SHADOW. The paper phase (4-12 weeks, 100+ valid opportunities, §78) has not started. |
 | 24 | Shadow Strategies | [x] | M3 | SHADOW mode journals every family's decision; `TECH_SHADOW_STRATEGIES` lists families that stay journal-only in PAPER/LIVE (status valid, reason shadow_only_strategy); per-strategy kill switches. |
-| 25 | Controlled Live Deployment | [ ] | M4 | Gated on §79 gates 1–4; start at ₹60–75 risk (§80). |
+| 25 | Controlled Live Deployment | [ ] deferred | M4b | Live broker adapter, one lot, Rs.60-75 initial risk ladder (§80). Not built until `research_cli gates` passes on paper data and each strategy has a §83 promotion record. |
 | 26 | Live Observability | [x] M4a | M4 | `engine/health.py` §87 monitor: edge-triggered alerts to Telegram (feed, data, engine stall, orders, latency, daily loss, heat, reconciliation, API/DB errors, breaker, RSS), JSON heartbeat every 60 s; `engine/recovery.py` §54 restart recovery; nightly `trading-bot-engine-review.timer` posts review + gates. Live-adapter metrics land with M4b. |
 | 27 | Continuous Research | [x] tooling | M4 | `research_cli` metrics/review/gates/walkforward/montecarlo/backtest/counterfactuals; `strategy_versions` promotion records (§83). |
 | 28 | Future AI/ML/NLP | [ ] | — | Explicitly out of V1 (§82). |
