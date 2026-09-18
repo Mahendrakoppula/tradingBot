@@ -181,6 +181,11 @@ class PaperBroker:
         self._live.pop(broker_order_id, None)
         return bo
 
+    def seed_position(self, token: str, tradingsymbol: str, quantity: int, average_price: float) -> None:
+        """Restart recovery (§54): the previous process's fills are re-applied
+        from the journal so reconciliation has something to compare against."""
+        self._positions[token] = BrokerPosition(token, tradingsymbol, quantity, average_price)
+
     def open_orders(self) -> list[BrokerOrder]:
         return [bo for bo in self._orders.values() if bo.status in ("SENT", "ACKNOWLEDGED", "PARTIALLY_FILLED")]
 
