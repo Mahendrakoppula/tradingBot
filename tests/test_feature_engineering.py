@@ -9,10 +9,12 @@ import pytest
 
 from data.storage import load_ohlcv
 from market_state.classifier import classify_market_state
-from models.feature_engineering import batch_regime_labels, build_features, build_options_features
+from models.feature_engineering import batch_regime_labels, build_features, build_mtf_features, build_options_features
 
 NIFTY_DAILY = load_ohlcv("NIFTY", "ONE_DAY")
+NIFTY_HOURLY = load_ohlcv("NIFTY", "ONE_HOUR")
 requires_real_data = pytest.mark.skipif(len(NIFTY_DAILY) == 0, reason="real NIFTY daily data not pulled locally")
+requires_real_hourly_data = pytest.mark.skipif(len(NIFTY_HOURLY) == 0, reason="real NIFTY hourly data not pulled locally")
 
 
 @requires_real_data
@@ -123,6 +125,142 @@ def test_build_options_features_is_causal_not_leaking_future_bars():
     mutated.loc[mutated.index[as_of + 1]:, ["open", "high", "low", "close", "volume"]] = 99999.0
     mutated_features = build_options_features(mutated)
 
+    pd.testing.assert_frame_equal(
+        features.iloc[: as_of + 1].reset_index(drop=True),
+        mutated_features.iloc[: as_of + 1].reset_index(drop=True),
+    )
+
+
+def _mtf_synthetic_dfs():
+    """Two daily bars (2026-01-01, 2026-01-02) and hourly bars spanning
+    both days, used with a monkeypatched batch_regime_labels() so the
+    alignment MECHANICS (not real regime classification, which needs
+    much more history to confirm a swing-based trend) can be verified
+    precisely and deterministically."""
+    daily_df = pd.DataFrame({
+        "timestamp": pd.to_datetime(["2026-01-01", "2026-01-02"]).tz_localize("Asia/Kolkata"),
+        "open": [100, 101], "high": [101, 102], "low": [99, 100], "close": [100, 101], "volume": [0, 0],
+    })
+    hourly_times = pd.to_datetime([
+        "2026-01-01 09:15", "2026-01-01 14:15", "2026-01-01 15:15",  # day 1's own session, including its LAST bar at 15:15
+        "2026-01-02 09:15", "2026-01-02 15:15",  # day 2's own session
+    ]).tz_localize("Asia/Kolkata")
+    hourly_df = pd.DataFrame({
+        "timestamp": hourly_times, "open": [100] * 5, "high": [101] * 5, "low": [99] * 5, "close": [100] * 5, "volume": [0] * 5,
+    })
+    return daily_df, hourly_df
+
+
+def test_build_mtf_features_includes_same_day_hourly_bars_not_just_prior_days(monkeypatch):
+    """The core leakage-safety fix this function exists for: day 1's
+    OWN 15:15 hourly bar (which closes before day 1's own 15:30 daily
+    close) must be included when computing day 1's row - a naive
+    merge_asof on the raw midnight daily timestamp would wrongly exclude
+    it, understating what's genuinely already known by day 1's close."""
+    daily_df, hourly_df = _mtf_synthetic_dfs()
+
+    # Distinct labels per row so the alignment result unambiguously reveals which hourly row got picked.
+    daily_labels = pd.Series(["TRENDING_UP", "TRENDING_DOWN"])
+    hourly_labels = pd.Series(["H0_0915", "H0_1415", "H0_1515", "H1_0915", "H1_1515"])
+
+    def fake_batch_regime_labels(df, *args, **kwargs):
+        return daily_labels if len(df) == 2 else hourly_labels
+
+    monkeypatch.setattr("models.feature_engineering.batch_regime_labels", fake_batch_regime_labels)
+    monkeypatch.setattr("models.feature_engineering._direction_of", lambda r: {
+        "TRENDING_UP": "UP", "TRENDING_DOWN": "DOWN",
+        "H0_1515": "UP", "H1_1515": "DOWN",  # only the LAST bar of each day is directional, to prove which one wins
+    }.get(r))
+
+    result = build_mtf_features(daily_df, hourly_df)
+    # Day 1: daily=UP, hourly as-of day 1's 15:30 close should resolve to H0_1515 (=UP) - the SAME day's own last bar.
+    assert result["mtf_both_directional"].iloc[0] == 1.0
+    assert result["mtf_agree"].iloc[0] == 1.0
+    # Day 2: daily=DOWN, hourly as-of day 2's 15:30 close should resolve to H1_1515 (=DOWN).
+    assert result["mtf_both_directional"].iloc[1] == 1.0
+    assert result["mtf_agree"].iloc[1] == 1.0
+
+
+def test_build_mtf_features_marks_not_both_directional_as_nan_agreement(monkeypatch):
+    daily_df, hourly_df = _mtf_synthetic_dfs()
+    daily_labels = pd.Series(["TRENDING_UP", "RANGING"])
+    hourly_labels = pd.Series(["RANGING", "RANGING", "RANGING", "RANGING", "TRENDING_DOWN"])
+
+    def fake_batch_regime_labels(df, *args, **kwargs):
+        return daily_labels if len(df) == 2 else hourly_labels
+
+    monkeypatch.setattr("models.feature_engineering.batch_regime_labels", fake_batch_regime_labels)
+
+    result = build_mtf_features(daily_df, hourly_df)
+    # Day 1: daily=UP, hourly=RANGING (not directional, but KNOWN - not
+    # missing data) - not both directional, so agreement is the neutral
+    # 0.5 sentinel, not NaN (RANGING is real information, never dropped
+    # just for not trending).
+    assert result["mtf_both_directional"].iloc[0] == 0.0
+    assert result["mtf_agree"].iloc[0] == 0.5
+    # Day 2: daily=RANGING, hourly's last bar=DOWN - still not BOTH directional, same neutral treatment.
+    assert result["mtf_both_directional"].iloc[1] == 0.0
+    assert result["mtf_agree"].iloc[1] == 0.5
+
+
+def test_build_mtf_features_unknown_warmup_is_genuine_nan_not_neutral(monkeypatch):
+    """The real distinction this design draws: "UNKNOWN" (genuine
+    warmup, no information yet) must still produce NaN (dropped
+    downstream) - only a KNOWN non-directional state (RANGING/VOLATILE)
+    gets the neutral 0.5 sentinel."""
+    daily_df, hourly_df = _mtf_synthetic_dfs()
+    daily_labels = pd.Series(["UNKNOWN", "TRENDING_UP"])
+    hourly_labels = pd.Series(["UNKNOWN", "UNKNOWN", "UNKNOWN", "UNKNOWN", "RANGING"])
+
+    def fake_batch_regime_labels(df, *args, **kwargs):
+        return daily_labels if len(df) == 2 else hourly_labels
+
+    monkeypatch.setattr("models.feature_engineering.batch_regime_labels", fake_batch_regime_labels)
+
+    result = build_mtf_features(daily_df, hourly_df)
+    # Day 1: daily itself is still UNKNOWN (genuine warmup) - both outputs must be real NaN.
+    assert pd.isna(result["mtf_both_directional"].iloc[0])
+    assert pd.isna(result["mtf_agree"].iloc[0])
+    # Day 2: daily=UP (known), hourly=RANGING (known, not UNKNOWN) - both known, so NOT NaN, uses the neutral sentinel.
+    assert result["mtf_both_directional"].iloc[1] == 0.0
+    assert result["mtf_agree"].iloc[1] == 0.5
+
+
+@requires_real_data
+@requires_real_hourly_data
+def test_build_mtf_features_on_real_data_is_nan_before_hourly_history_then_populated():
+    features = build_mtf_features(NIFTY_DAILY, NIFTY_HOURLY)
+    assert len(features) == len(NIFTY_DAILY)
+    # the earliest daily rows have no hourly data at all yet - a genuine
+    # warmup gap, so mtf_both_directional must be real NaN there (never
+    # fabricated as a fake 0.0), and by the END of the series (well
+    # within the real hourly window), it's a real 0.0/1.0 mix, not
+    # universally absent.
+    hourly_start = NIFTY_HOURLY["timestamp"].min()
+    rows_before_hourly = NIFTY_DAILY[NIFTY_DAILY["timestamp"] < hourly_start]
+    if len(rows_before_hourly) > 0:
+        assert features["mtf_both_directional"].iloc[: len(rows_before_hourly)].isna().all()
+    assert features["mtf_both_directional"].iloc[-30:].notna().any()  # sanity: real values exist late in the series, not NaN/garbage throughout
+    assert set(features["mtf_both_directional"].dropna().unique()) <= {0.0, 1.0}
+    assert set(features["mtf_agree"].dropna().unique()) <= {0.0, 0.5, 1.0}
+
+
+@requires_real_data
+@requires_real_hourly_data
+def test_build_mtf_features_is_causal_not_leaking_future_bars():
+    features = build_mtf_features(NIFTY_DAILY, NIFTY_HOURLY)
+    as_of = min(500, len(NIFTY_DAILY) - 2)
+
+    mutated_daily = NIFTY_DAILY.copy()
+    mutated_daily.loc[mutated_daily.index[as_of + 1]:, ["open", "high", "low", "close", "volume"]] = 99999.0
+    # The real "as of" cutoff row `as_of` uses is that day's OWN 15:30 close,
+    # not raw midnight - mutating anything after midnight would wrongly
+    # corrupt that SAME day's own legitimately-included hourly bars too.
+    as_of_cutoff = NIFTY_DAILY["timestamp"].iloc[as_of].normalize() + pd.Timedelta(hours=15, minutes=30)
+    mutated_hourly = NIFTY_HOURLY.copy()
+    mutated_hourly.loc[mutated_hourly["timestamp"] > as_of_cutoff, ["open", "high", "low", "close", "volume"]] = 99999.0
+
+    mutated_features = build_mtf_features(mutated_daily, mutated_hourly)
     pd.testing.assert_frame_equal(
         features.iloc[: as_of + 1].reset_index(drop=True),
         mutated_features.iloc[: as_of + 1].reset_index(drop=True),

@@ -8,15 +8,20 @@ import pytest
 from data.storage import load_ohlcv
 from models.direction_classifier import (
     EXTENDED_FEATURE_COLUMNS,
+    MTF_FEATURE_COLUMNS,
     build_dataset,
     build_dataset_extended,
+    build_dataset_with_mtf,
     train_and_evaluate,
     walk_forward_evaluate,
     walk_forward_evaluate_extended,
+    walk_forward_evaluate_with_mtf,
 )
 
 NIFTY_DAILY = load_ohlcv("NIFTY", "ONE_DAY")
+NIFTY_HOURLY = load_ohlcv("NIFTY", "ONE_HOUR")
 requires_real_data = pytest.mark.skipif(len(NIFTY_DAILY) == 0, reason="real NIFTY daily data not pulled locally")
+requires_real_hourly_data = pytest.mark.skipif(len(NIFTY_HOURLY) == 0, reason="real NIFTY hourly data not pulled locally")
 
 
 def _trending_df(n: int = 60) -> pd.DataFrame:
@@ -95,6 +100,31 @@ def test_build_dataset_extended_has_no_nan_and_expected_columns():
 @requires_real_data
 def test_walk_forward_evaluate_extended_runs_end_to_end():
     results = walk_forward_evaluate_extended(NIFTY_DAILY, horizon_bars=5, n_folds=5)
+    assert len(results) >= 2
+    for r in results:
+        assert 0.0 <= r.model_accuracy <= 1.0
+        assert 0.0 <= r.baseline_accuracy <= 1.0
+        assert r.n_test > 0
+
+
+@requires_real_data
+@requires_real_hourly_data
+def test_build_dataset_with_mtf_has_no_nan_and_expected_columns():
+    X, y = build_dataset_with_mtf(NIFTY_DAILY, NIFTY_HOURLY, horizon_bars=5)
+    assert list(X.columns) == MTF_FEATURE_COLUMNS
+    assert len(X) == len(y)
+    assert len(X) > 0
+    assert not X.isna().any().any()
+    assert y.isin([0, 1]).all()
+    assert set(X["mtf_agree"].unique()) <= {0.0, 0.5, 1.0}
+
+
+@requires_real_data
+@requires_real_hourly_data
+def test_walk_forward_evaluate_with_mtf_runs_end_to_end():
+    # fewer folds than Experiments 004-006's 8 - real hourly data covers
+    # a much shorter window, so fold sizes need to stay meaningful.
+    results = walk_forward_evaluate_with_mtf(NIFTY_DAILY, NIFTY_HOURLY, horizon_bars=5, n_folds=4)
     assert len(results) >= 2
     for r in results:
         assert 0.0 <= r.model_accuracy <= 1.0

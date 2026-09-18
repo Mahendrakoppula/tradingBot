@@ -40,11 +40,12 @@ import pandas as pd
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import accuracy_score, roc_auc_score
 
-from models.feature_engineering import build_features, build_options_features
+from models.feature_engineering import build_features, build_mtf_features, build_options_features
 from models.regime_classifier import TrainTestSplit, time_ordered_split
 
 FEATURE_COLUMNS = ["atr", "atr_percentile", "roc", "roc_magnitude_percentile", "is_strong_momentum"]
 EXTENDED_FEATURE_COLUMNS = FEATURE_COLUMNS + ["realized_vol", "theoretical_gamma", "theoretical_vega"]
+MTF_FEATURE_COLUMNS = FEATURE_COLUMNS + ["mtf_both_directional", "mtf_agree"]
 
 
 def build_dataset(df: pd.DataFrame, horizon_bars: int, **feature_kwargs) -> tuple[pd.DataFrame, pd.Series]:
@@ -97,6 +98,39 @@ def build_dataset_extended(
     combined = combined.dropna()
 
     return combined[EXTENDED_FEATURE_COLUMNS], combined["target"].astype(int)
+
+
+def build_dataset_with_mtf(
+    df: pd.DataFrame,
+    hourly_df: pd.DataFrame,
+    horizon_bars: int,
+    **feature_kwargs,
+) -> tuple[pd.DataFrame, pd.Series]:
+    """Same target/label logic as build_dataset(), with
+    models/feature_engineering.py's multi-timeframe alignment features
+    (mtf_both_directional, mtf_agree) added on - the OTHER "materially
+    different feature set" Experiment 006 identified but deferred as
+    harder/more leakage-risk-prone than theoretical Greeks (which was
+    tried first). Real hourly data only covers a recent window (see
+    backtesting/BACKTESTS.md's Run 011/012) - rows before it exists are
+    dropped by the same dropna() every other feature's warmup already
+    goes through, so this dataset is meaningfully SHORTER than
+    build_dataset()/build_dataset_extended()'s full-history ones, a
+    real, disclosed limitation stated once here rather than at every
+    call site."""
+    base_features = build_features(df, **feature_kwargs)
+    mtf_features = build_mtf_features(df, hourly_df)
+    features = pd.concat([base_features, mtf_features], axis=1)
+
+    future_close = df["close"].shift(-horizon_bars)
+    target = (future_close > df["close"]).astype(float)
+    target[future_close.isna()] = float("nan")
+
+    combined = features.copy()
+    combined["target"] = target.reindex(features.index)
+    combined = combined.dropna()
+
+    return combined[MTF_FEATURE_COLUMNS], combined["target"].astype(int)
 
 
 @dataclass
@@ -209,6 +243,46 @@ def walk_forward_evaluate_extended(
     docstring for why."""
     purge_bars = horizon_bars if purge_bars is None else purge_bars
     X, y = build_dataset_extended(df, horizon_bars, strike_increment, days_to_expiry, risk_free_rate, vol_window)
+    n = len(X)
+    fold_size = n // (n_folds + 1)
+    if fold_size <= 0:
+        raise ValueError(f"Not enough rows ({n}) for {n_folds} folds")
+
+    results = []
+    for fold in range(1, n_folds + 1):
+        train_end = fold * fold_size - purge_bars
+        test_start = fold * fold_size
+        test_end = min((fold + 1) * fold_size, n)
+        if train_end < min_fold_size or test_end - test_start < min_fold_size:
+            continue
+        X_train, y_train = X.iloc[:train_end], y.iloc[:train_end]
+        X_test, y_test = X.iloc[test_start:test_end], y.iloc[test_start:test_end]
+        results.append(_fit_and_evaluate(X_train, y_train, X_test, y_test))
+
+    if not results:
+        raise ValueError(
+            f"No usable folds: {n} rows is not enough for {n_folds} folds "
+            f"with purge_bars={purge_bars} and min_fold_size={min_fold_size}"
+        )
+    return results
+
+
+def walk_forward_evaluate_with_mtf(
+    df: pd.DataFrame,
+    hourly_df: pd.DataFrame,
+    horizon_bars: int = 5,
+    n_folds: int = 5,
+    purge_bars: int | None = None,
+    min_fold_size: int = MIN_FOLD_SIZE,
+) -> list[EvaluationResult]:
+    """Identical fold-splitting logic to walk_forward_evaluate(), built
+    on build_dataset_with_mtf()'s MTF-augmented feature set instead of
+    build_dataset()'s ATR/ROC-only one. `min_fold_size` matters more
+    here than for the other variants - the dataset is already much
+    shorter (real hourly data covers a recent window only), so `n_folds`
+    may need to be smaller than the 8 used for Experiments 004-006."""
+    purge_bars = horizon_bars if purge_bars is None else purge_bars
+    X, y = build_dataset_with_mtf(df, hourly_df, horizon_bars)
     n = len(X)
     fold_size = n // (n_folds + 1)
     if fold_size <= 0:

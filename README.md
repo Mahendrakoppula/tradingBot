@@ -232,7 +232,28 @@ models/       (Phase 7, in progress) ML training. Model 1/8 (regime
               well-motivated technical hypotheses ruled out is now
               treated as real evidence the divergence is a genuine
               structural difference (sectoral vs. broad-market index),
-              not an unsolved bug.
+              not an unsolved bug. Built the OTHER "materially
+              different feature set" next (Experiment 007): MTF
+              alignment - build_mtf_features() batch-aligns daily and
+              hourly regime labels to each daily bar's own 15:30 close
+              (a real leakage-safety fix: daily bars store a MIDNIGHT
+              timestamp, so a naive merge would wrongly exclude that
+              SAME day's own hourly bars). A real bug was found and
+              fixed by the module's own tests before any experiment
+              ran - the same numpy/pandas None-vs-NaN coercion gotcha
+              already caught once this session. Result: the most
+              consistent cross-instrument pattern across all three
+              feature-set attempts - at horizon=1, NIFTY/BANKNIFTY/
+              SENSEX all clear the promotion threshold TOGETHER (never
+              happened with base ATR/ROC or Greeks features) - but mean
+              AUC stays barely above 0.5 even there, and the dataset is
+              meaningfully shorter/noisier (real hourly data only covers
+              a recent window, ~490 of ~1,241 daily rows usable).
+              Reported as the most encouraging result so far, still
+              short of validated - a real out-of-sample check once
+              Investigation 002's fresh-OOS data accumulates enough is
+              the honest next step, not further tuning against the same
+              ~490 rows.
               models/feature_engineering.py provides vectorized, causal,
               whole-series equivalents of market_state/'s per-point
               classifiers, needed to make training-set construction

@@ -20,6 +20,7 @@ import datetime as dt
 
 import pandas as pd
 
+from features.mtf import _direction_of
 from features.theoretical_options import theoretical_option_snapshot
 from market_state.momentum import STRONG_PERCENTILE, rate_of_change
 from market_state.structure import DEFAULT_SWING_WINDOW, find_swing_points
@@ -214,3 +215,94 @@ def build_options_features(
         "theoretical_gamma": gamma,
         "theoretical_vega": vega,
     }, index=df.index)
+
+
+def build_mtf_features(
+    daily_df: pd.DataFrame,
+    hourly_df: pd.DataFrame,
+    structure_window: int = DEFAULT_SWING_WINDOW,
+    atr_period: int = 14,
+    vol_lookback: int = 100,
+) -> pd.DataFrame:
+    """Multi-timeframe alignment features - the other "materially
+    different feature set" Experiment 006 identified but deferred as
+    harder/more leakage-risk-prone than theoretical Greeks (which was
+    tried first, in Experiment 006). features/mtf.py's own point-in-time
+    fuse_states()/classify_mtf() aren't directly usable for whole-series
+    ML training (same quadratic-rescan problem batch_regime_labels() was
+    built to avoid for the single-timeframe case) - this is that
+    module's batch equivalent, reusing batch_regime_labels() on each
+    timeframe's OWN bars rather than reimplementing regime
+    classification.
+
+    LEAKAGE-SAFETY, the real risk this module's own docstring warns
+    about repeating: daily bars are stored with a MIDNIGHT timestamp
+    (verified directly - NIFTY's own real data confirms 00:00:00+05:30),
+    not the real 15:30 IST close the bar's OHLC actually represents. A
+    naive merge_asof keyed on the raw daily timestamp would silently
+    exclude that SAME day's own intraday bars (09:15-15:15, all AFTER
+    midnight) - understating available information, not leaking future
+    information, but still wrong. Fixed by explicitly computing each
+    daily row's real "as of" cutoff as that calendar date's own 15:30
+    close, so every intraday bar from that SAME trading session (which
+    genuinely closed by the time the daily bar itself is "known") is
+    correctly included, and nothing from the NEXT day ever is.
+
+    Returns `mtf_both_directional` (1.0 if daily AND the intraday
+    timeframe both show a confirmed trend, else 0.0) and `mtf_agree`
+    (1.0 if both directional and the SAME direction, 0.0 if both
+    directional and opposite, 0.5 if NOT both directional but both
+    ARE known - RANGING/VOLATILE is a real, informative state, not
+    missing data, and must not be thrown away just for not trending).
+    Both are genuine NaN (dropped downstream the same way every other
+    feature's warmup NaN is, never fabricated) only when there is
+    truly no information yet: either series' own "UNKNOWN" warmup
+    period, or every row before `hourly_df`'s own history begins at
+    all - real intraday data only covers a recent window (see
+    backtesting/BACKTESTS.md's Run 011/012), a genuine, disclosed
+    limitation of this feature set, not a bug."""
+    daily_regime = batch_regime_labels(daily_df, structure_window, atr_period, vol_lookback)
+    hourly_regime = batch_regime_labels(hourly_df, structure_window, atr_period, vol_lookback)
+
+    as_of = daily_df["timestamp"].dt.normalize() + pd.Timedelta(hours=15, minutes=30)
+    hourly_lookup = pd.DataFrame({
+        "timestamp": hourly_df["timestamp"].values, "hourly_regime": hourly_regime.values,
+    }).sort_values("timestamp").reset_index(drop=True)
+    daily_as_of = pd.DataFrame({"as_of": as_of.values})
+
+    merged = pd.merge_asof(daily_as_of, hourly_lookup, left_on="as_of", right_on="timestamp", direction="backward")
+    aligned_hourly_regime = merged["hourly_regime"].reset_index(drop=True)
+    daily_regime_r = daily_regime.reset_index(drop=True)
+    daily_directions = daily_regime_r.map(_direction_of)
+    hourly_directions = aligned_hourly_regime.map(_direction_of)
+
+    # "UNKNOWN" (or no merge_asof match at all, i.e. real NaN) means
+    # genuinely no information yet - the same warmup/no-data case every
+    # other feature in this module handles by producing NaN, dropped
+    # downstream, never fabricated. RANGING/VOLATILE is NOT that - it's
+    # a fully known, real, non-directional state and must NOT be treated
+    # as missing just because it isn't trending.
+    daily_known = daily_regime_r != "UNKNOWN"
+    hourly_known = aligned_hourly_regime.notna() & (aligned_hourly_regime != "UNKNOWN")
+
+    both_directional = []
+    agree = []
+    for d_known, h_known, d, h in zip(daily_known, hourly_known, daily_directions, hourly_directions):
+        if not (d_known and h_known):
+            both_directional.append(float("nan"))
+            agree.append(float("nan"))
+            continue
+        # pandas' own .map() silently coerces the None _direction_of()
+        # returns into float NaN once stored in a Series - "is None"
+        # never fires against that (nan is None is False), the same
+        # numpy/pandas type-coercion gotcha already caught once this
+        # session (backtesting/moneyness_analysis.py). pd.isna() catches
+        # both real None and NaN correctly.
+        if pd.isna(d) or pd.isna(h):
+            both_directional.append(0.0)
+            agree.append(0.5)  # known, non-directional (RANGING/VOLATILE) on at least one side - a real, informative state, not missing data
+        else:
+            both_directional.append(1.0)
+            agree.append(1.0 if d == h else 0.0)
+
+    return pd.DataFrame({"mtf_both_directional": both_directional, "mtf_agree": agree}, index=daily_df.index)

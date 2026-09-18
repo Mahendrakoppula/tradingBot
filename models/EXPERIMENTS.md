@@ -434,3 +434,94 @@ being a genuine, structural characteristic (a sectoral index's
 volatility/direction relationship differing from two broad-market
 indices), not an artifact of these two specific technical choices - a
 real finding in its own right, not an unsolved bug.
+
+---
+
+## Experiment 007 - Direction classifier with multi-timeframe alignment features
+
+**Date**: 2026-09-19
+**Purpose**: The OTHER "materially different feature set" Experiment
+006 identified but deferred - MTF alignment, previously judged harder
+and more leakage-risk-prone than theoretical Greeks (which was tried
+first). Tests it now that the Greeks path has been thoroughly explored
+(Experiments 006, and the BANKNIFTY divergence follow-up above).
+
+**Method**: `models/feature_engineering.py`'s new `build_mtf_features()`
+- a whole-series batch equivalent of `features/mtf.py`'s point-in-time
+fusion, reusing `batch_regime_labels()` on daily and hourly bars
+independently, then aligning each daily row to the LATEST hourly regime
+known by that day's own 15:30 IST close (a real leakage-safety detail:
+daily bars are stored at midnight, so a naive merge on the raw
+timestamp would wrongly exclude that SAME day's own hourly bars, not
+leak future ones - fixed with an explicit 15:30 "as of" cutoff, not
+just a docstring claim). Produces `mtf_both_directional` (1.0 if daily
+AND hourly both show a confirmed trend) and `mtf_agree` (1.0 same
+direction, 0.0 opposite, 0.5 if not both directional but both known -
+RANGING is real information, not missing data, and is never dropped
+just for not trending). Genuine NaN (dropped downstream) only for true
+warmup: either series' own "UNKNOWN" period, or before hourly data
+exists at all.
+
+**A real bug found and fixed while building this, before it ever
+reached an experiment**: the exact same numpy/pandas type-coercion
+gotcha already caught once this session
+(`backtesting/moneyness_analysis.py`) - `_direction_of()` returns
+Python `None`, but pandas' own `.map()` silently coerces that to float
+`NaN` once stored in a Series, so an `is None` identity check never
+fires (`nan is None` is `False`). Every row was silently getting
+`mtf_both_directional=1.0` regardless of the real data, caught by the
+module's own test suite before any real experiment ran on it - fixed
+with `pd.isna()`, which catches both real `None` and `NaN` correctly.
+
+**Real sample-size limitation, stated honestly**: hourly data only
+covers a recent window (Run 011/012), so after dropping genuine warmup
+rows, only ~490 of NIFTY/BANKNIFTY/SENSEX's ~1,241 daily rows are
+usable (~40%) - meaningfully less than Experiments 004-006's full-
+history datasets. Used 6 walk-forward folds instead of Experiments
+004-006's 8, to keep fold sizes meaningful given the shorter series -
+folds here are smaller and noisier than those experiments' own,
+stated once here rather than caveated at every result.
+
+**Result**:
+
+| Horizon | NIFTY | BANKNIFTY | SENSEX |
+|---|---|---|---|
+| 1 bar | 4/6, AUC 0.517, **promote** | 4/6, AUC 0.508, **promote** | 5/6, AUC 0.567, **promote** |
+| 3 bars | 3/6, AUC 0.493, no | 4/6, AUC 0.534, **promote** | 4/6, AUC 0.518, **promote** |
+| 5 bars | 3/6, AUC 0.516, no | 3/6, AUC 0.518, no | 2/6, AUC 0.559, no |
+| 10 bars | 4/6, AUC 0.579, **promote** | 3/6, AUC 0.582, no | 3/6, AUC 0.588, no |
+| 20 bars | 3/6, AUC 0.512, no | 2/6, AUC 0.570, no | 2/6, AUC 0.541, no |
+
+**A genuinely more consistent pattern than either prior feature set -
+but not a validated signal, stated with equal weight**: at horizon=1,
+all THREE indices clear the promotion threshold TOGETHER - a pattern
+neither Experiment 005 (base features, no horizon ever had more than
+one instrument pass) nor Experiment 006 (Greeks, at most two
+correlated instruments agreed) produced. This is the single most
+consistent cross-instrument result across all three feature-set
+attempts so far.
+
+**The reasons for real skepticism, not just enthusiasm**: mean AUC even
+at the "promoted" horizon=1 stays barely above 0.5 (0.508-0.567) -
+weak by the same standard applied to every other result in this file,
+not a strong signal merely because three instruments happened to agree
+this time. The walk-forward folds here are smaller and noisier than
+Experiments 004-006's own (6 folds over ~490 rows vs. 8 folds over
+~1,200) - a "beat baseline in 4/6 folds" decision rests on less
+evidence than the same fraction would from 8 larger folds. And exactly
+the same "scattered across horizons" pattern from Experiments 005/006
+reappears elsewhere in this same sweep (BANKNIFTY/SENSEX also pass at
+horizon=3, NIFTY alone at horizon=10) - horizon=1 is the interesting
+case, not the whole picture.
+
+**Verdict: the most encouraging single result across three feature-set
+attempts (base ATR/ROC, Greeks, MTF alignment), but still short of
+validated, and reported at exactly that strength - no more, no less.**
+Unlike the BANKNIFTY divergence investigation, this one doesn't warrant
+"stop hunting" yet: horizon=1's three-way agreement is a genuinely
+different, more consistent shape of result than anything found so far,
+and is worth a real out-of-sample check once enough calendar time has
+passed for the fresh-OOS data collection (Investigation 002,
+backtesting/BACKTESTS.md) to accumulate a meaningful sample - the
+honest, non-p-hacking way to find out if this specific pattern holds,
+rather than tuning further against the same ~490 rows it was found on.
