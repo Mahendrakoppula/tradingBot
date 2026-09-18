@@ -32,7 +32,10 @@ from trading_bot.engine.feed import LiveTickSource, ResilientMarketStream, Subsc
 from trading_bot.engine.instruments import resolve_instruments, ws_type
 from trading_bot.engine.ratelimit import RateLimiter
 from trading_bot.engine.replay import SimClock, TickReplaySource
-from trading_bot.engine.shadow import ShadowLoop
+from trading_bot.engine.execution import PaperBroker, PaperParams
+from trading_bot.engine.option_chain import CacheParams
+from trading_bot.engine.paper_loop import ChainService, PaperLoop
+from trading_bot.engine.pipeline import PipelineParams
 from trading_bot.engine.warmup import WarmupPlan, backfill_today_1m, warm_up
 from trading_bot.instruments import InstrumentLookup
 from trading_bot.rest_client import RestClient
@@ -89,6 +92,13 @@ def run_live(cfg: EngineConfig) -> int:
     lookup = InstrumentLookup(bcfg.scrip_master_url)
     lookup.load()
     instruments = resolve_instruments(lookup.instruments, cfg.underlyings, today, cfg.volume_proxy)
+    # option chains for the pipeline (M2): built from the scrip master before it is dropped
+    option_rows = [r for r in lookup.instruments if r.get("instrumenttype") == "OPTIDX"
+                   and str(r.get("name", "")).upper() in cfg.underlyings]
+    chains = ChainService(rest, option_rows, {i.underlying: i.exchange for i in instruments if i.role == "spot"},
+                          CacheParams(strikes_each_side=cfg.chain_strikes_each_side, refresh_seconds=cfg.chain_refresh_seconds,
+                                      dte_max=cfg.option_dte_max), limiter)
+    del option_rows
     lookup.instruments = []  # drop the scrip master; only the resolved tokens are needed
     lookup._by_symbol = {}
 
@@ -124,8 +134,13 @@ def run_live(cfg: EngineConfig) -> int:
                 continue
             jsonlog.event("warmup", "backfill_today", underlying=inst.underlying, token=inst.token, bars=n)
 
-    loop = ShadowLoop(cfg, dal, instruments, source, now_ist, notifier, stores, git_sha=_git_sha(),
-                      after_feed_start=_backfill)
+    # SHADOW: full pipeline, journal only. PAPER: + paper broker. LIVE: no execution layer yet -> as SHADOW.
+    execute = cfg.mode == "PAPER"
+    broker = PaperBroker(PaperParams.for_profile(cfg.paper_profile)) if execute else None
+    loop = PaperLoop(cfg, dal, instruments, source, now_ist, notifier, stores, git_sha=_git_sha(),
+                     after_feed_start=_backfill, chains=chains, broker=broker,
+                     pipeline=PipelineParams.from_config(cfg), execute=execute)
+    log.info("loop=%s execute=%s paper_profile=%s", type(loop).__name__, execute, cfg.paper_profile if execute else "-")
 
     def _sigterm(signum, frame):
         log.warning("signal %s received - stopping loop", signum)
@@ -189,7 +204,10 @@ def run_replay(cfg: EngineConfig) -> int:
     clock = SimClock(dt.datetime.combine(day, dt.time(9, 0), tzinfo=IST))
     source = TickReplaySource(today_1m, clock, day)
     notifier = _Notifier() if cfg.mode == "BACKTEST" else None
-    loop = ShadowLoop(cfg, dal, instruments, source, clock.now, notifier, stores, git_sha=_git_sha())
+    # replay has no option chain (no quotes were stored for the day) - every TRADE_READY is journaled
+    # through the pipeline and stops at OPTION_SELECTION; the underlying-side decisions are still parity-checked
+    loop = PaperLoop(cfg, dal, instruments, source, clock.now, notifier, stores, git_sha=_git_sha(),
+                     chains=None, broker=None, pipeline=PipelineParams.from_config(cfg), execute=False)
     try:
         stats = loop.run()
     finally:

@@ -106,6 +106,23 @@ class EngineConfig:
     telegram_max_alerts_per_hour: int
 
     holidays: tuple[str, ...]  # ISO dates
+    # --- M2: decision pipeline + paper execution (spec §16, §19, §25, §29, §34, §52) ---
+    paper_profile: str = "realistic"  # realistic | conservative | ideal (ideal is never proof of anything, §52)
+    min_score: int = 40
+    preferred_net_reward: float = 800.0
+    tier_b_enabled: bool = True
+    tier_b_min_score: int = 70
+    max_trades_per_day: int = 6
+    max_open_positions: int = 2
+    max_consecutive_losses: int = 3
+    option_delta_min: float = 0.30
+    option_delta_max: float = 0.65
+    option_max_spread_pct: float = 2.0
+    option_min_oi: int = 5000
+    option_dte_max: int = 14
+    option_expiry_day_allowed: bool = False
+    chain_refresh_seconds: int = 60
+    chain_strikes_each_side: int = 6
 
     @property
     def can_place_live_orders(self) -> bool:
@@ -159,6 +176,22 @@ class EngineConfig:
             level_proximity_atr=_float("TECH_LEVEL_PROXIMITY_ATR", "0.5"),
             telegram_max_alerts_per_hour=_int("TECH_TELEGRAM_MAX_ALERTS_PER_HOUR", "12"),
             holidays=tuple(s.strip() for s in os.environ.get("TECH_HOLIDAYS", "").split(",") if s.strip()),
+            paper_profile=os.environ.get("TECH_PAPER_PROFILE", "realistic").strip().lower(),
+            min_score=_int("TECH_MIN_SCORE", "40"),
+            preferred_net_reward=_float("TECH_PREFERRED_NET_REWARD", "800"),
+            tier_b_enabled=_bool("TECH_TIER_B_ENABLED", "true"),
+            tier_b_min_score=_int("TECH_TIER_B_MIN_SCORE", "70"),
+            max_trades_per_day=_int("TECH_MAX_TRADES_PER_DAY", "6"),
+            max_open_positions=_int("TECH_MAX_OPEN_POSITIONS", "2"),
+            max_consecutive_losses=_int("TECH_MAX_CONSECUTIVE_LOSSES", "3"),
+            option_delta_min=_float("TECH_OPTION_DELTA_MIN", "0.30"),
+            option_delta_max=_float("TECH_OPTION_DELTA_MAX", "0.65"),
+            option_max_spread_pct=_float("TECH_OPTION_MAX_SPREAD_PCT", "2.0"),
+            option_min_oi=_int("TECH_OPTION_MIN_OI", "5000"),
+            option_dte_max=_int("TECH_OPTION_DTE_MAX", "14"),
+            option_expiry_day_allowed=_bool("TECH_OPTION_EXPIRY_DAY_ALLOWED", "false"),
+            chain_refresh_seconds=_int("TECH_CHAIN_REFRESH_SECONDS", "60"),
+            chain_strikes_each_side=_int("TECH_CHAIN_STRIKES_EACH_SIDE", "6"),
         )
 
 

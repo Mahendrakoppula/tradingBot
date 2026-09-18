@@ -138,6 +138,7 @@ class ShadowLoop:
                 if tick is not None:
                     self._on_tick(tick, now)
                 self._flush(now)
+                self._housekeeping(now)
                 # replay: `done()` turns True as the last tick is consumed, but the
                 # clock only jumps past the close on the NEXT (empty) pull - wait
                 # for that so the final bars close through timers, not flush_all
@@ -178,6 +179,12 @@ class ShadowLoop:
         if inst.role == "spot" and tf == TRIGGER_TF:
             self._on_trigger(inst, bar)
 
+    def _housekeeping(self, now: dt.datetime) -> None:
+        """Per-iteration hook (order polling, cache refresh) - no-op in M1."""
+
+    def _on_context(self, ctx, ctx_id: int) -> None:
+        """Per-trigger hook with the freshly built context - no-op in M1."""
+
     # --- the slow path ------------------------------------------------------------------
 
     def _slices(self, token: str) -> dict[str, list[dict]]:
@@ -209,6 +216,7 @@ class ShadowLoop:
             return
         ctx_id = self.dal.insert_context_snapshot(self.run_id, ctx, self.config_version_id)
         self.stats.snapshots += 1
+        self._on_context(ctx, ctx_id)
         jsonlog.event("context", "snapshot", underlying=u, ts=close_at, context_snapshot_id=ctx_id, spot=ctx.spot,
                       regime=ctx.regime.get("primary"), alignment=ctx.alignment.get("label"),
                       trend_5m=ctx.trend("5m").get("label"), quality=q.status, quality_reasons=list(q.reasons))

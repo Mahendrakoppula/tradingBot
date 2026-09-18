@@ -36,9 +36,25 @@ class FakeSession:
         self.logged_in = True
 
 
+from trading_bot.engine.ratelimit import RateLimiter as _RL
+
+
+class _NoSleepLimiter(_RL):
+    """A real limiter with a no-op sleep busy-spins until the wall clock
+    moves; tests want no pacing at all."""
+    def __init__(self):
+        super().__init__(rate_per_s=1e9, per_minute=10**9, sleep=lambda s: None)
+
+
 class FakeRest:
     def __init__(self, session):
         self.calls = 0
+
+    def get_quote(self, mode, exchange_tokens):
+        return {"fetched": [], "unfetched": []}
+
+    def get_option_greeks(self, name, expirydate):
+        return []
 
     def get_candle_data(self, exchange, token, interval, fromdate, todate):
         self.calls += 1
@@ -116,6 +132,7 @@ def test_run_live_wires_everything(monkeypatch):
     monkeypatch.setattr(rt, "ResilientMarketStream", lambda *a, **k: object())
     monkeypatch.setattr(rt, "smartapi_stream_factory", lambda session: None)
     monkeypatch.setattr(rt, "LiveTickSource", FakeSource)
+    monkeypatch.setattr(rt, "RateLimiter", _NoSleepLimiter)
     monkeypatch.setattr(rt, "now_ist", lambda: CLOCK["now"])
     monkeypatch.setattr(rt, "today_ist", lambda: DAY)
     monkeypatch.setattr(rt.technical_notifier, "notify", lambda m, html=False: NOTES.append(m))
@@ -175,6 +192,7 @@ def test_backfill_failure_degrades_to_a_gap_not_a_crash(monkeypatch):
     monkeypatch.setattr(rt, "ResilientMarketStream", lambda *a, **k: object())
     monkeypatch.setattr(rt, "smartapi_stream_factory", lambda session: None)
     monkeypatch.setattr(rt, "LiveTickSource", FakeSource)
+    monkeypatch.setattr(rt, "RateLimiter", _NoSleepLimiter)
     monkeypatch.setattr(rt, "today_ist", lambda: DAY)
     monkeypatch.setattr(rt.technical_notifier, "notify", lambda m, html=False: None)
     monkeypatch.setattr(rt, "_git_sha", lambda: None)

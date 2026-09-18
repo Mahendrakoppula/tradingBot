@@ -189,6 +189,68 @@ class Database:
         )
         return str(signal_id)
 
+    # --- M2 records (§60-§65) ----------------------------------------------------------------------
+
+    def update_signal_status(self, signal_id, status: str, reason_code: str | None = None) -> None:
+        self.conn.execute("UPDATE signals SET status = %s, reason_code = COALESCE(%s, reason_code) WHERE signal_id = %s",
+                          (status, reason_code, str(signal_id)))
+
+    def insert_risk_decision(self, run_id, signal_id, ts, *, decision: str, reason_code: str | None, risk_amount: float | None,
+                             quantity: int | None, all_in_cost: float | None, expected_value: float | None, details: dict) -> int:
+        row = self.conn.execute(
+            "INSERT INTO risk_decisions (run_id, signal_id, ts, decision, reason_code, risk_amount, quantity, all_in_cost, "
+            "expected_value, details) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id",
+            (str(run_id), str(signal_id) if signal_id else None, ts, decision, reason_code, risk_amount, quantity, all_in_cost,
+             expected_value, _jsonb(details))).fetchone()
+        return int(row["id"])
+
+    def insert_execution(self, run_id, signal_id, ts, *, mode: str, side: str, state: str, broker_order_id: str | None,
+                         ordertag: str | None, requested_price: float | None, fill_price: float | None, quantity: int,
+                         filled_quantity: int, latency_ms: int | None, slippage: float | None, details: dict) -> int:
+        row = self.conn.execute(
+            "INSERT INTO executions (run_id, signal_id, ts, mode, side, broker_order_id, ordertag, state, requested_price, "
+            "fill_price, quantity, filled_quantity, latency_ms, slippage, details) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) "
+            "RETURNING id",
+            (str(run_id), str(signal_id) if signal_id else None, ts, mode, side, broker_order_id, ordertag, state, requested_price,
+             fill_price, quantity, filled_quantity, latency_ms, slippage, _jsonb(details))).fetchone()
+        return int(row["id"])
+
+    def insert_trade_result(self, run_id, signal_id, *, entry_ts, exit_ts, entry_price, exit_price, quantity, gross_pnl,
+                            costs, net_pnl, r_multiple, exit_reason, mae, mfe, details: dict) -> int:
+        row = self.conn.execute(
+            "INSERT INTO trade_results (run_id, signal_id, entry_ts, exit_ts, entry_price, exit_price, quantity, gross_pnl, costs, "
+            "net_pnl, r_multiple, exit_reason, mae, mfe, details) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id",
+            (str(run_id), str(signal_id) if signal_id else None, entry_ts, exit_ts, entry_price, exit_price, quantity, gross_pnl,
+             costs, net_pnl, r_multiple, exit_reason, mae, mfe, _jsonb(details))).fetchone()
+        return int(row["id"])
+
+    def insert_kill_switch_event(self, run_id, ts, *, switch: str, action: str, reason: str, details: dict) -> int:
+        row = self.conn.execute(
+            "INSERT INTO kill_switch_events (run_id, ts, switch, action, reason, details) VALUES (%s,%s,%s,%s,%s,%s) RETURNING id",
+            (str(run_id), ts, switch, action, reason, _jsonb(details))).fetchone()
+        return int(row["id"])
+
+    def insert_option_chain_snapshots(self, run_id, ts, underlying: str, rows: list[dict]) -> int:
+        if not rows:
+            return 0
+        with self.conn.cursor() as cur:
+            cur.executemany(
+                "INSERT INTO option_chain_snapshots (run_id, ts, underlying, expiry, strike, option_type, token, ltp, bid, ask, "
+                "bid_qty, ask_qty, volume, oi, iv, delta, gamma, theta, vega, spot, quality) "
+                "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+                [(str(run_id), ts, underlying, r["expiry"], r["strike"], r["option_type"], r["token"], r.get("ltp"), r.get("bid"),
+                  r.get("ask"), r.get("bid_qty"), r.get("ask_qty"), r.get("volume"), r.get("oi"), r.get("iv"), r.get("delta"),
+                  r.get("gamma"), r.get("theta"), r.get("vega"), r.get("spot"), r.get("greeks_source")) for r in rows])
+        return len(rows)
+
+    def trade_results_for_run(self, run_id) -> list[dict]:
+        rows = self.conn.execute("SELECT * FROM trade_results WHERE run_id = %s ORDER BY exit_ts", (str(run_id),)).fetchall()
+        return [_norm(r) for r in rows]
+
+    def risk_decisions_for_run(self, run_id) -> list[dict]:
+        rows = self.conn.execute("SELECT * FROM risk_decisions WHERE run_id = %s ORDER BY ts, id", (str(run_id),)).fetchall()
+        return [_norm(r) for r in rows]
+
     # --- reads for EOD / parity ------------------------------------------------------------------
 
     def signals_for_run(self, run_id: uuid.UUID | str) -> list[dict]:

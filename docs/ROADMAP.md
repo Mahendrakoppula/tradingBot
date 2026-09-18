@@ -18,9 +18,19 @@ Legend: `[x]` built + unit-tested (review happens at the milestone gate) ·
 
 ## Status
 
-**2026-09-17: M1 fully built** (9 stacked branches, 508 tests). Not yet merged;
-the M1 gate needs the off-hours infra in `deploy/DEPLOY.md` §8 (t3.small resize,
-PostgreSQL 16, `TECH_DATABASE_URL` in SSM) and one live session.
+**2026-09-17: M1 merged to main and deployed** (SHADOW unit live on the box, memory
+journal until the DEPLOY.md §8 infra - t3.small resize, PostgreSQL 16,
+`TECH_DATABASE_URL` in SSM - is done; that plus one Postgres-backed session is the
+M1 gate).
+
+**2026-09-18: M2 fully built** on 9 stacked branches (`feature/m2-strategies` ->
+`m2-scoring` -> `m2-expected-move` -> `m2-options` -> `m2-stops` -> `m2-risk` ->
+`m2-execution` -> `m2-positions` -> `m2-paper-loop`). SHADOW now runs the whole
+§93 pipeline and journals every decision; `TECH_MODE=PAPER` fills approved
+signals in the in-process paper broker. Finding for M3: at Rs.50k x 0.5% one
+NIFTY lot fits ~3.3 pts of ALL-IN option risk, so most structural stops are
+rejected at 0.5% (and many at 1%) - the risk engine is doing its job; the
+capital/lot mismatch is a real constraint the paper phase must quantify.
 
 M1 deviation, deliberate: every engine runs at the **5m close only** (no 1m-driven
 CONFIRMING→TRADE_READY leg) — see `trading_bot/engine/shadow.py`. M2 revisits.
@@ -39,20 +49,20 @@ CONFIRMING→TRADE_READY leg) — see `trading_bot/engine/shadow.py`. M2 revisit
 | 7 | Price Action | [x] | M1 | `engine/price_action.py`: candle anatomy (body/wick ratios, close location, displacement), engulfing/pin/inside/doji/morning-evening star/rejection. |
 | 8 | Regime | [x] | M1 | `engine/regime.py`: 17-label taxonomy on three axes with priority order and 2-bar hysteresis (NO_TRADE/UNSTABLE immediate), transition strings. Regime-specific expectancy tracking is M3. |
 | 9 | Pre-Signal | [x] | M1 | `engine/presignal.py`: NO_SETUP→EARLY_DEVELOPMENT→PRE_SIGNAL→CONFIRMING→TRADE_READY + EXTENDED/EXHAUSTED/EXPIRED/REJECTED, 8 evidence keys, decay + TTL, counter-trend evidence bar, deterministic ids. Emits data only — no order path (AST-tested). |
-| 10 | Strategies | [~] | M2 | `framework/strategies.py`: 4 of 10 (breakout≈Compression→Breakout, trend_following≈Pullback, momentum≈Momentum Expansion, mean_reversion≈Range Extreme). ORB/Momentum trackers in `scalp_strategy.py`. **Missing**: Liquidity Sweep+BOS, MTF Confluence, VWAP Reclaim, PDH/PDL Trap, EMA20/50 Pullback; retest legs; regime/trend routing (§15). |
-| 11 | Signal Scoring / Ranking | [~] | M2 | `framework/scoring.py` 6-component `ScoreWeights`/`score()`. **Missing**: spec's 9-component 0–100 table, penalties, opportunity ranking, correlation-aware selection. |
-| 12 | Option Selection | [~] | M2 | `OptionChain`, `build_long_leg` (spot±OTM%), `get_option_greeks` endpoint (IV only parsed). **Missing**: multi-contract evaluation by delta/theta/IV/spread/OI, candidate cache (§20), "reject setup if no acceptable option". |
-| 13 | Expected Move / No-Chase / Decay | [ ] | M2 | Nothing exists (§21–24). |
-| 14 | Dynamic SL / Target / Trailing | [~] | M2 | `framework/risk.py`: `atr_stop_target`, `structure_stop_target`, `chandelier_stop`, `r_multiple_price`. **Missing**: thesis-invalidation exits, VWAP/structure trailing, the 14 exit-reason taxonomy (§32). |
-| 15 | Risk / Position Sizing / Costs | [~] | M2 | `risk.risk_based_quantity`, `evaluate_portfolio_risk`, `correlated_exposure_multiplier`; `costs.CostRates` (all-in costs). **Missing**: 0.25–1.0% hard per-trade risk with all-in cost in the risk figure, weekly loss, consecutive-loss, portfolio heat, ₹800 preference tiering (§29), EV (§30). |
-| 16 | Execution Engine | [~] | M2 | `LongOptionStrategy.enter/exit`, `place_split_order` (freeze-qty), `entry/exit_limit_price`, paper hard-gate. **Missing**: execution gate (§41), order state machine (§42), timeouts (§43), partial fills (§44), duplicate protection (§45), latency measurement (§46), signal snapshot lock + entry drift (§39–40), realistic paper simulator (§52). |
-| 17 | Portfolio / Reconciliation | [ ] | M2 | `get_order_book`/`get_trade_book` exist; **no** `get_positions`, no order-details lookup, no reconciliation loop (§54–55), no kill switches beyond daily-loss (§56). |
+| 10 | Strategies (10 families) | [x] | M2 | `engine/strategies/`: all ten §14 families v0.1, regime/alignment routing, counter-trend evidence bar, family hints. |
+| 11 | Signal Scoring / Ranking | [x] | M2 | `engine/scoring.py`: 9 components + 12 penalties, rank() with correlated-bucket exclusion. |
+| 12 | Option Selection | [x] | M2 | `engine/option_chain.py` cache (FULL quotes + broker Greeks, BS model for BFO), `engine/option_select.py` multi-contract score, `engine/bs.py`. |
+| 13 | Expected Move / No-Chase / Decay | [x] | M2 | `engine/expected_move.py` (estimate, no_chase, distance_check, non-linear option response), `option_select.decay_filter`. |
+| 14 | Dynamic SL / Target / Trailing | [x] | M2 | `engine/stops.py`: structural SL -> option scale, TP1/TP2/extended, trailing that only tightens, ThesisMonitor with the 15 exit reasons. |
+| 15 | Risk / Position Sizing / Costs | [x] | M2 | `engine/risk_engine.py`: §29 priority order, all-in per-unit sizing, EV, tiers A/B/C, account limits, CostBreakdown. |
+| 16 | Execution Engine | [x] paper | M2 | `engine/execution/`: snapshot lock + drift, gate, 12-state order machine, timeouts/partials/duplicates/latency, PaperBroker (3 profiles). Live adapter is M4. |
+| 17 | Portfolio / Reconciliation | [x] | M2 | `engine/positions.py`: PositionBook, reconcile() vs broker, KillSwitches + circuit breaker, EOD sweep. |
 | 18 | Backtest | [~] | M3 | `framework/backtest_engine.py` (bar-by-bar, spot-proxy for options), `backtest_technical.py` resampler. **Missing**: event-driven multi-TF replay through the SAME engine used live (§51 parity), option-premium proxy honesty. |
-| 19 | Journal / Dataset | [x] M1 part | M1→M2 | `engine/db/`: runs, config_versions, candles, context_snapshots, presignal_events, signals populated in M1; strategy_versions, option_chain_snapshots, risk_decisions, executions, trade_results, kill_switch_events DDL-only until M2. Rejected-signal dataset (§72) and fingerprints (§63) M2. |
-| 20 | EOD Analysis | [~] | M2 | `engine/eod.py` M1 summary (snapshots/stage counts/would-be signals by underlying/direction/regime). Nightly review agent exists (`deploy/daily_review_prompt.md`). Missing: automated EOD exit sweep (§69), per-strategy/fingerprint breakdowns, rejected-signal analysis. |
+| 19 | Journal / Dataset | [x] | M2 | All schema-v1 tables populated: signals (status), risk_decisions, executions, trade_results, kill_switch_events, option_chain_snapshots; `engine/rejections.py` §72 dataset. |
+| 20 | EOD Analysis | [~] | M2 | `engine/eod.py`: signals by status, trades/wins/gross/costs/net, exit reasons, rejections by stage. Per-fingerprint/strategy breakdowns and the nightly review are M3. |
 | 21 | Walk-Forward | [~] | M3 | `framework/walk_forward.py` (chronological, no embargo). |
 | 22 | Monte Carlo | [~] | M3 | `framework/monte_carlo.py` (bootstrap P&L, ruin). |
-| 23 | Paper Trading | [~] | M2–M3 | `DRY_RUN` gating exists; needs realistic/conservative/ideal fill models (§52) and the 4 gates (§79). |
+| 23 | Paper Trading | [x] | M2 | `engine/paper_loop.py` PaperLoop: SHADOW (journal) and PAPER (paper broker) on the same pipeline. |
 | 24 | Shadow Strategies | [ ] | M3 | Run candidate strategies in SHADOW alongside PAPER, compare (§81). |
 | 25 | Controlled Live Deployment | [ ] | M4 | Gated on §79 gates 1–4; start at ₹60–75 risk (§80). |
 | 26 | Live Observability | [~] | M4 | Telegram notifiers, systemd/journalctl, S3 sync. **Missing**: health monitoring (§87), latency/slippage dashboards. |
