@@ -109,3 +109,12 @@ def test_paper_loop_emits_health_alerts_and_heartbeat():
     loop.dal.insert_signal = lambda *a, **k: (_ for _ in ()).throw(RuntimeError("db down"))
     pl_t._trade_ready(loop, ctx)
     assert loop.health.state.db_write_failures == 1
+
+
+def test_clock_drift_only_counts_in_session():
+    closed = HealthMonitor(HealthThresholds(max_rss_mb=10_000), in_session=lambda now: False)
+    closed.state.clock_drift_seconds = 3379.0
+    assert closed.check(_t(1)) == []
+    live = HealthMonitor(HealthThresholds(max_rss_mb=10_000))
+    live.state.clock_drift_seconds = 9.0
+    assert [a.code for a in live.check(_t(1))] == ["clock_drift"]

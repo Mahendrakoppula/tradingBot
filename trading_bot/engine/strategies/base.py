@@ -157,6 +157,22 @@ def alignment_with(ctx: ContextSnapshot, direction: str, labels: frozenset = WEA
 
 
 def is_counter_trend(ctx: ContextSnapshot, direction: str) -> bool:
+    """A trade is counter-trend when it goes AGAINST the higher-timeframe
+    direction (spec §7): against the weighted alignment preference, or
+    against a daily/30m read that is itself decisive (|score| >= 0.5).
+
+    The alignment LABEL alone is not enough: align() reports COUNTER_TREND
+    whenever any lower timeframe (even the 1m) disagrees with a higher one,
+    which describes conflict, not direction. First shadow session
+    (2026-09-18): treating that label as counter-trend for both directions
+    blocked every trend family on bars like regime=BULL, 5m=BULL, 30m=NEUTRAL.
+    """
     a = ctx.alignment or {}
     pref = a.get("direction_preference", "none")
-    return (a.get("label") == "COUNTER_TREND") or (pref not in ("none", direction) and a.get("label") in WEAKLY_ALIGNED)
+    if pref not in ("none", direction):
+        return True
+    for tf in ("1d", "30m"):
+        sc = ctx.trend(tf).get("score")
+        if sc is not None and abs(sc) >= 0.5 and (sc > 0) != (direction == "up"):
+            return True
+    return False

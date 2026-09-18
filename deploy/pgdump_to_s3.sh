@@ -1,30 +1,27 @@
 #!/bin/bash
-# Nightly logical backup of the engine's PostgreSQL database to S3 (via
-# trading-bot-pgdump.timer at 16:30 IST, before the 18:00 IST instance
-# stop). The local EBS volume is the only copy otherwise. Keeps the last
-# 30 daily dumps in the bucket (older ones are deleted here, not by a
-# lifecycle rule, so the retention is visible in the repo).
+# Nightly logical backup of the engine's PostgreSQL database (via
+# trading-bot-pgdump.timer at 16:30 IST). The dump is written into
+# .state/pgdump/, which the existing trading-bot-s3-sync.timer (every 30 min)
+# copies to s3://<bucket>/trading-bot/historical/pgdump/ - the instance role
+# may write under historical/ but not elsewhere (verified 2026-09-18: a direct
+# upload to trading-bot/pgdump/ was AccessDenied). Keeps 30 local dumps; S3
+# keeps everything the sync ever copied.
 set -euo pipefail
 
-DEPLOY_BUCKET="${DEPLOY_BUCKET:-trading-bot-deploy-396913392704}"
+OUT_DIR="/opt/trading-bot/.state/pgdump"
 DB_URL="${TECH_DATABASE_URL:-}"
 if [ -z "$DB_URL" ]; then
-  # .env is assembled by fetch_secrets.sh; source only the one line we need
-  DB_URL=$(grep '^TECH_DATABASE_URL=' /opt/trading-bot/.env | cut -d= -f2- || true)
+  DB_URL=$(grep '^TECH_DATABASE_URL=' /opt/trading-bot/.env | cut -d= -f2- | tr -d '"' || true)
 fi
 if [ -z "$DB_URL" ]; then
   echo "TECH_DATABASE_URL not configured - nothing to dump" >&2
   exit 0
 fi
 
+mkdir -p "$OUT_DIR"
 STAMP=$(TZ=Asia/Kolkata date +%Y-%m-%d)
-OUT="/tmp/tradingbot-${STAMP}.dump"
-pg_dump --format=custom --no-owner --file="$OUT" "$DB_URL"
-aws s3 cp "$OUT" "s3://${DEPLOY_BUCKET}/trading-bot/pgdump/tradingbot-${STAMP}.dump" --only-show-errors
-rm -f "$OUT"
-
-# retention: keep the newest 30
-aws s3 ls "s3://${DEPLOY_BUCKET}/trading-bot/pgdump/" | awk '{print $4}' | sort | head -n -30 | while read -r key; do
-  [ -n "$key" ] && aws s3 rm "s3://${DEPLOY_BUCKET}/trading-bot/pgdump/${key}" --only-show-errors
-done
-echo "pg_dump uploaded: tradingbot-${STAMP}.dump"
+OUT="$OUT_DIR/tradingbot-${STAMP}.dump"
+pg_dump --format=custom --no-owner --file="$OUT.tmp" "$DB_URL"
+mv "$OUT.tmp" "$OUT"
+ls -1t "$OUT_DIR"/tradingbot-*.dump | tail -n +31 | xargs -r rm -f
+echo "pg_dump written: $OUT ($(du -h "$OUT" | cut -f1)); the s3-sync timer uploads .state/ within 30 min"
