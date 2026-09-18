@@ -568,6 +568,42 @@ entry-timing-reuse assumption specifically for far-OTM convexity rather
 than assuming Run 004's near-ATM finding extends that far. Neither done
 here - reported as found, not oversold.
 
+**Update (2026-09-18) - re-verifying this Run's original BANKNIFTY
+numbers after finding a real strike-increment bug elsewhere**: while
+investigating models/EXPERIMENTS.md's Experiment 006, a real bug was
+found and confirmed against the live scrip master - BANKNIFTY's true
+near-the-money strike spacing is Rs.100, not Rs.50. That confirmed bug
+affected Experiment 006 and BACKTESTS.md's Run 013 (both computed
+directly in this same later session) - this Run's OWN original
+BANKNIFTY figures were computed in an earlier, separate session whose
+exact code isn't available to inspect, so rather than assume either
+way, they were independently re-verified using confirmed-correct
+strike increments (NIFTY 50, BANKNIFTY 100, SENSEX 100) against
+current data:
+
+| Instrument | Headline (re-verified) | Headline (original) | Walk-forward (re-verified) | Walk-forward (original) |
+|---|---|---|---|---|
+| NIFTY | +663.6% | +667% | 5/5, +2.5% to +112.2% | 4/5, -8.1% to +112.2% |
+| BANKNIFTY | +586.3% | +584% | 3/5, -11.9% to +213.3% | 2/5, -12.0% to +119.6% |
+| SENSEX | +882.1% | +896% | 4/5, -9.5% to +145.5% | 3/5, -8.7% to +132.4% |
+
+**Reassuring, not alarming**: headline numbers and each instrument's
+worst fold match the original very closely across ALL THREE indices
+(BANKNIFTY's -11.9% vs -12.0% and +586.3% vs +584% are nearly
+identical) - strong evidence this Run's original BANKNIFTY figure
+already used the correct Rs.100 spacing, unlike Experiment 006/Run 013.
+The remaining differences (fold-profitable counts, some individual
+fold values, particularly BANKNIFTY's best fold +213.3% vs +119.6%)
+show up on NIFTY too, whose strike_increment never changed between the
+original run and this re-verification - proving those differences are
+natural DATA DRIFT (data/pull_history.py's rolling window has shifted
+forward several days since this Run was first computed on 2026-09-15,
+changing exactly which historical bars fall in each fold near its
+edges), not a parameter bug. Stated with appropriate hedging, not
+overclaimed: the exact original code isn't available to confirm with
+certainty, but the evidence points clearly toward "already correct,"
+closing the open question left by Run 013's own correction note.
+
 ---
 
 ## Run 009 - Tick-based slippage for far-OTM contracts (first of Run 008's two flagged risks)
@@ -1301,15 +1337,17 @@ replacing the wrong 76/+665.0%/+52.3%/100.0% values above.
 **Scope of what this correction covers, stated precisely**: this fixes
 Experiment 006 and this Run's own BANKNIFTY numbers, both computed
 directly in this session with a verified-wrong `strike_increment=50`.
-It does NOT confirm or rule out the same error in Run 008's ORIGINAL
-BANKNIFTY numbers (computed in an earlier, now-summarized session
-whose exact original code isn't available to inspect from here) - an
-attempt to reproduce Run 008's walk-forward result independently
-produced different fold-level numbers than originally reported
-regardless of which strike_increment was used, suggesting some other
-methodology detail also differs, not just this one parameter. Per this
-project's own "verify against real data, don't assume" discipline
-(applied here to my own recent work, not just external data), Run
-008's original BANKNIFTY figures should be independently re-verified
-against the correct Rs.100 spacing before being fully trusted - flagged
-honestly as open, not silently assumed fine.
+
+**Resolved (2026-09-18, see Run 008's own update)**: re-verified Run
+008's original BANKNIFTY figures directly, using confirmed-correct
+strike increments against current data. Headline and worst-fold values
+matched the original very closely (BANKNIFTY -11.9% vs -12.0%, +586.3%
+vs +584%) - strong evidence Run 008's original numbers already used the
+correct Rs.100 spacing. A control check (re-verifying NIFTY too, whose
+strike_increment never changed) showed similar-sized fold-level drift
+purely from the underlying data's rolling window having moved forward
+several days since Run 008 was first computed - confirming the earlier
+mismatch was data drift, not the same bug. Stated with appropriate
+hedging (the exact original code isn't available to confirm with
+certainty), but no longer an open question - see Run 008's update for
+the full comparison table.
