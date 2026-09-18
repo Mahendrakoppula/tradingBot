@@ -22,6 +22,11 @@ class MemoryDAL:
         self.context_snapshots: list[dict] = []
         self.presignal_events: list[dict] = []
         self.signals: list[dict] = []
+        self.risk_decisions: list[dict] = []
+        self.executions: list[dict] = []
+        self.trade_results: list[dict] = []
+        self.kill_switch_events: list[dict] = []
+        self.option_chain_snapshots: list[dict] = []
         self.migrated: list[int] = []
 
     # --- lifecycle ---------------------------------------------------------------
@@ -113,6 +118,58 @@ class MemoryDAL:
             "context_snapshot_id": context_snapshot_id,
         })
         return str(signal_id)
+
+    # --- M2 records -----------------------------------------------------------------------------------
+
+    def update_signal_status(self, signal_id, status, reason_code=None) -> None:
+        for s in self.signals:
+            if s["signal_id"] == str(signal_id):
+                s["status"] = status
+                if reason_code is not None:
+                    s["reason_code"] = reason_code
+
+    def insert_risk_decision(self, run_id, signal_id, ts, *, decision, reason_code, risk_amount, quantity, all_in_cost,
+                             expected_value, details) -> int:
+        self.risk_decisions.append({"id": len(self.risk_decisions) + 1, "run_id": str(run_id),
+                                    "signal_id": str(signal_id) if signal_id else None, "ts": ts, "decision": decision,
+                                    "reason_code": reason_code, "risk_amount": risk_amount, "quantity": quantity,
+                                    "all_in_cost": all_in_cost, "expected_value": expected_value, "details": _plain(details)})
+        return self.risk_decisions[-1]["id"]
+
+    def insert_execution(self, run_id, signal_id, ts, *, mode, side, state, broker_order_id, ordertag, requested_price, fill_price,
+                         quantity, filled_quantity, latency_ms, slippage, details) -> int:
+        self.executions.append({"id": len(self.executions) + 1, "run_id": str(run_id),
+                                "signal_id": str(signal_id) if signal_id else None, "ts": ts, "mode": mode, "side": side,
+                                "state": state, "broker_order_id": broker_order_id, "ordertag": ordertag,
+                                "requested_price": requested_price, "fill_price": fill_price, "quantity": quantity,
+                                "filled_quantity": filled_quantity, "latency_ms": latency_ms, "slippage": slippage,
+                                "details": _plain(details)})
+        return self.executions[-1]["id"]
+
+    def insert_trade_result(self, run_id, signal_id, *, entry_ts, exit_ts, entry_price, exit_price, quantity, gross_pnl, costs,
+                            net_pnl, r_multiple, exit_reason, mae, mfe, details) -> int:
+        self.trade_results.append({"id": len(self.trade_results) + 1, "run_id": str(run_id),
+                                   "signal_id": str(signal_id) if signal_id else None, "entry_ts": entry_ts, "exit_ts": exit_ts,
+                                   "entry_price": entry_price, "exit_price": exit_price, "quantity": quantity,
+                                   "gross_pnl": gross_pnl, "costs": costs, "net_pnl": net_pnl, "r_multiple": r_multiple,
+                                   "exit_reason": exit_reason, "mae": mae, "mfe": mfe, "details": _plain(details)})
+        return self.trade_results[-1]["id"]
+
+    def insert_kill_switch_event(self, run_id, ts, *, switch, action, reason, details) -> int:
+        self.kill_switch_events.append({"id": len(self.kill_switch_events) + 1, "run_id": str(run_id), "ts": ts,
+                                        "switch": switch, "action": action, "reason": reason, "details": _plain(details)})
+        return self.kill_switch_events[-1]["id"]
+
+    def insert_option_chain_snapshots(self, run_id, ts, underlying, rows) -> int:
+        for r in rows:
+            self.option_chain_snapshots.append({"run_id": str(run_id), "ts": ts, "underlying": underlying, **_plain(r)})
+        return len(rows)
+
+    def trade_results_for_run(self, run_id) -> list[dict]:
+        return [copy.deepcopy(t) for t in self.trade_results if t["run_id"] == str(run_id)]
+
+    def risk_decisions_for_run(self, run_id) -> list[dict]:
+        return [copy.deepcopy(r) for r in self.risk_decisions if r["run_id"] == str(run_id)]
 
     # --- reads --------------------------------------------------------------------------------------
 

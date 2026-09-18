@@ -88,6 +88,20 @@ NUMERIC_BOUNDS = {
     "TECH_PRESIGNAL_MIN_CONF": (0.1, 0.9),
     "TECH_LEVEL_PROXIMITY_ATR": (0.1, 2.0),
     "TECH_TELEGRAM_MAX_ALERTS_PER_HOUR": (1, 60),
+    # --- M2 pipeline / paper ---
+    "TECH_MIN_SCORE": (20, 90),
+    "TECH_PREFERRED_NET_REWARD": (100, 5000),
+    "TECH_TIER_B_MIN_SCORE": (40, 95),
+    "TECH_MAX_TRADES_PER_DAY": (1, 10),  # §2: 4-6 is a soft target, never a floor
+    "TECH_MAX_OPEN_POSITIONS": (1, 3),
+    "TECH_MAX_CONSECUTIVE_LOSSES": (2, 6),
+    "TECH_OPTION_DELTA_MIN": (0.20, 0.50),
+    "TECH_OPTION_DELTA_MAX": (0.45, 0.80),
+    "TECH_OPTION_MAX_SPREAD_PCT": (0.5, 5.0),
+    "TECH_OPTION_MIN_OI": (500, 100_000),
+    "TECH_OPTION_DTE_MAX": (1, 45),
+    "TECH_CHAIN_REFRESH_SECONDS": (15, 300),
+    "TECH_CHAIN_STRIKES_EACH_SIDE": (2, 12),
 }
 
 # Settings the tuner must never change, with the value they must keep.
@@ -100,6 +114,8 @@ PINNED = {
     # second bot: SHADOW until a human decides otherwise (spec §50/§83)
     "TECH_DRY_RUN": "true",
     "TECH_LIVE_TRADING_ENABLED": "false",
+    # expiry-day option rules must be validated separately before this flips (§24)
+    "TECH_OPTION_EXPIRY_DAY_ALLOWED": "false",
 }
 
 REQUIRED_PRESENT = ["ENABLE_TRADING", "WATCHLIST", "ENTRY_TIME", "EXIT_TIME", "TECH_MODE", "TECH_UNDERLYINGS"]
@@ -213,3 +229,12 @@ def test_tech_underlyings_are_the_three_indices_only():
     """Spec scope: NIFTY/BANKNIFTY/SENSEX index options only."""
     names = {s.strip() for s in CONFIG["TECH_UNDERLYINGS"].split(",") if s.strip()}
     assert names and names <= {"NIFTY", "BANKNIFTY", "SENSEX"}, names
+
+
+def test_tech_paper_profile_is_known_and_not_ideal():
+    """§52: ideal paper fills must never be the basis of a live decision."""
+    assert CONFIG["TECH_PAPER_PROFILE"] in ("realistic", "conservative")
+
+
+def test_tech_option_delta_band_is_ordered():
+    assert float(CONFIG["TECH_OPTION_DELTA_MIN"]) < float(CONFIG["TECH_OPTION_DELTA_MAX"])

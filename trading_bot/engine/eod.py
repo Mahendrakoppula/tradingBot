@@ -14,7 +14,17 @@ def eod_stats(dal, run_id) -> dict:
     regimes = Counter()
     for s in sigs:
         regimes[(s.get("explanation") or {}).get("Regime", "n/a").split(" ")[0]] += 1
+    by_status = Counter(s.get("status", "?") for s in sigs)
+    trades = dal.trade_results_for_run(run_id) if hasattr(dal, "trade_results_for_run") else []
+    exit_reasons = Counter((t.get("exit_reason") or "?") for t in trades)
+    gross = round(sum(float(t.get("gross_pnl") or 0) for t in trades), 2)
+    costs = round(sum(float(t.get("costs") or 0) for t in trades), 2)
+    net = round(sum(float(t.get("net_pnl") or 0) for t in trades), 2)
+    wins = sum(1 for t in trades if float(t.get("net_pnl") or 0) > 0)
     return {
+        "signals_by_status": dict(sorted(by_status.items())),
+        "trades": len(trades), "wins": wins, "gross_pnl": gross, "costs": costs, "net_pnl": net,
+        "exit_reasons": dict(sorted(exit_reasons.items())),
         "context_snapshots": dal.context_count(run_id),
         "presignal_events": len(events),
         "stage_counts": dict(sorted(by_stage.items())),
@@ -41,6 +51,11 @@ def eod_summary(dal, run_id, day: dt.date, mode: str, feed: dict | None = None, 
         lines.append("by underlying: " + ", ".join(f"{k}={v}" for k, v in s["signals_by_underlying"].items()))
         lines.append("by direction: " + ", ".join(f"{k}={v}" for k, v in s["signals_by_direction"].items()))
         lines.append("by regime: " + ", ".join(f"{k}={v}" for k, v in s["signals_by_regime"].items()))
+    if s["signals_by_status"]:
+        lines.append("signals by status: " + ", ".join(f"{k}={v}" for k, v in s["signals_by_status"].items()))
+    if s["trades"]:
+        lines.append(f"trades={s['trades']} wins={s['wins']} gross={s['gross_pnl']:+.0f} costs={s['costs']:.0f} net={s['net_pnl']:+.0f}")
+        lines.append("exits: " + ", ".join(f"{k}={v}" for k, v in s["exit_reasons"].items()))
     if feed:
         lines.append("feed: " + ", ".join(f"{k}={v}" for k, v in feed.items()))
     return "\n".join(lines)
