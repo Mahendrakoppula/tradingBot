@@ -37,7 +37,13 @@ not hidden ones:
   - If both the stop and target are breached within the same bar (a
     wide-range day), the STOP is assumed to have been hit first - the
     conservative assumption, not an attempt to guess which happened
-    first intrabar.
+    first intrabar. VALIDATED (backtesting/tie_break_validation.py,
+    BACKTESTS.md's Investigation 003): across the full 5-year history,
+    on all three indices, this assumption was never actually invoked -
+    zero trades ever closed on a bar breaching both stop and target
+    simultaneously, given risk/dynamic_stops.py's current ATR-based
+    widths. Every result in this log is unaffected by this assumption,
+    not because it was proven correct, but because it never mattered.
   - Only one position open at a time.
 """
 import datetime as dt

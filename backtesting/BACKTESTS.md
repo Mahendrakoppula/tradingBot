@@ -1104,3 +1104,56 @@ genuine fresh trading days (2026-09-11, 2026-09-15), since today's
 bad data was excluded rather than miscounted. Full suite: 399 passed,
 1 skipped (the pre-existing, expected `test_contract_selection.py`
 regression skip - unrelated).
+
+---
+
+## Investigation 003 - Validating the stop-vs-target same-bar tie-break assumption
+
+**Date**: 2026-09-18
+**Purpose**: event_loop.py's own module docstring has disclosed, since
+Run 001, an untested assumption: "If both the stop and target are
+breached within the same [daily] bar (a wide-range day), the STOP is
+assumed to have been hit first." This has sat as a conservative guess
+in every single run in this log - never checkable before, since it
+needs to know the real INTRADAY sequence of prices, and this project
+had no intraday data until Runs 011/012. Now that real FIVE_MINUTE data
+exists, this is finally testable.
+
+**Method**: `backtesting/tie_break_validation.py`. A daily exit is only
+"convention-dependent" (the tie-break rule actually changed anything)
+when `exit_reason == "stop"` AND that same exit bar's daily high/low
+would ALSO have breached target - `_check_stop_target_hit()`'s own
+stop-checked-first order guarantees a `"target"` exit_reason could only
+ever occur on an unambiguous bar (verified directly, not just asserted,
+via `tests/test_tie_break_validation.py`). For each convention-dependent
+exit, the plan was to replay the real FIVE_MINUTE bars for that
+calendar date to find which was actually breached first - the ground
+truth the daily bar alone cannot show.
+
+**Result: zero convention-dependent exits found, across the FULL
+5-year history, on all three indices** (95 NIFTY + 97 BANKNIFTY + 94
+SENSEX = 286 total closed trades, `BacktestConfig(warmup_bars=30)`,
+same config as every other run in this log). Not one single trade, in
+five years of history, ever closed on a daily bar that breached both
+stop and target simultaneously. This makes the intraday-replay step
+moot - there was nothing to check, since the scenario the tie-break
+rule exists for never actually occurred with `risk/dynamic_stops.py`'s
+current ATR-multiplier-based stop/target widths.
+
+**Verdict: fully resolved, not merely a partial first look (a rare
+exception in this log).** Unlike almost every other investigation here,
+this doesn't need caveats about a short data window or an unconfirmed
+pattern - the check covers the SAME 5-year daily history every prior
+Run in this log was computed against, not just the recent
+intraday-covered window, and the answer is definitive: the stop-first
+tie-break convention has NEVER been the deciding factor in ANY trade's
+P&L across every Run and Investigation in this entire log (001-012).
+Every prior result stands completely unaffected by this disclosed
+assumption, not because the assumption was proven correct, but because
+it was never actually invoked. `tie_break_validation.py` remains real,
+tested, working infrastructure - if `risk/dynamic_stops.py`'s stop/
+target multipliers are ever narrowed in the future (making same-day
+double-breaches possible), this module is ready to answer the question
+for real using the intraday data that exists by then, including
+replaying the actual FIVE_MINUTE sequence rather than just counting
+occurrences.

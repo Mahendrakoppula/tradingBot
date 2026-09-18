@@ -241,7 +241,18 @@ backtesting/  (Phase 12, done) event-driven backtester - processes bars
               costs/slippage - the "daily bars only" simplification is
               resolved as of Run 011, see below: process_bar() now takes
               a real calendar-day-aware is_new_day flag instead of
-              assuming every call is a new day). (Phase 13, done) walk-forward
+              assuming every call is a new day). The stop-vs-target
+              same-bar tie-break assumption (Investigation 003,
+              tie_break_validation.py) is also resolved, and unusually
+              cleanly: checked across the FULL 5-year history on all
+              three indices (not just a recent window) and found the
+              rule was NEVER actually invoked - zero trades in 286
+              closed across this whole log ever closed on a bar
+              breaching both stop and target simultaneously, given
+              risk/dynamic_stops.py's current ATR-based widths. Every
+              result in this log is unaffected by this assumption, not
+              because it was proven right, but because it never
+              mattered. (Phase 13, done) walk-forward
               validation (walk_forward.py) - non-overlapping, embargoed
               folds, each an independent backtest. monte_carlo.py adds
               bootstrap total-P&L confidence intervals and trade-
