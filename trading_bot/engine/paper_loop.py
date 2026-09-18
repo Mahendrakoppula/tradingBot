@@ -29,6 +29,7 @@ from trading_bot.engine.option_chain import CacheParams, ChainCache
 from trading_bot.engine.pipeline import Decision, PipelineParams, _reject, decide
 from trading_bot.engine.positions import KillSwitches, Position, PositionBook, circuit_breaker_reason, reconcile
 from trading_bot.engine.presignal import StageEvent
+from trading_bot.engine.recovery import recover
 from trading_bot.engine.rejections import Rejection, summarize
 from trading_bot.engine.risk_engine import AccountState, record_result
 from trading_bot.engine.shadow import TRIGGER_TF, ShadowLoop
@@ -110,6 +111,27 @@ class PaperLoop(ShadowLoop):
         self._last_reconnects = 0
         self.stats.__dict__.update({"decisions": 0, "approved": 0, "orders_sent": 0, "fills": 0, "trades_closed": 0,
                                     "net_pnl": 0.0, "gross_pnl": 0.0, "costs": 0.0})
+
+    # --- startup: §54 restart recovery ---------------------------------------------------------
+
+    def start(self) -> None:
+        super().start()
+        now = self.clock()
+        try:
+            rep = recover(self.dal, day=self.day, now=now, book=self.book, broker=self.broker, account=self.account,
+                          kills=self.kills, mode=self.mode)
+        except Exception as exc:  # noqa: BLE001 - a broken journal must not stop the session, but it must stop entries
+            jsonlog.event("recovery", "failed", severity="ERROR", error=repr(exc))
+            self.kills.kill_trading(now, f"recovery failed: {exc}")
+            self._alert(f"RECOVERY FAILED ({self.mode}): {exc} - new entries stopped", now)
+            return
+        if rep.prior_runs == 0 and rep.positions_recovered == 0 and not rep.kills_reapplied:
+            return  # a normal first start of the day
+        jsonlog.event("recovery", "done", severity="INFO" if rep.safe_to_resume else "ERROR", **{k: v for k, v in vars(rep).items() if k != "day"})
+        if not rep.safe_to_resume:
+            self.kills.kill_trading(now, "recovery unsafe: " + (", ".join(r for _, r in rep.positions_skipped) or "reconciliation mismatch"))
+            self._journal_kill("trading", "on", "recovery_unsafe")
+        self._alert(rep.summary(), now)
 
     # --- per-iteration -------------------------------------------------------------------
 
@@ -360,6 +382,7 @@ class PaperLoop(ShadowLoop):
 
     def _journal_execution(self, rec, signal_id: str, now: dt.datetime) -> None:
         req = rec.request
+        execution_id = rec.execution_id
         slip = None
         if rec.average_price is not None and req is not None and req.limit_price is not None:
             slip = round(rec.average_price - req.limit_price, 2) if req.side == "BUY" else round(req.limit_price - rec.average_price, 2)
@@ -368,7 +391,7 @@ class PaperLoop(ShadowLoop):
                                   requested_price=req.limit_price if req else None, fill_price=rec.average_price,
                                   quantity=req.quantity if req else 0, filled_quantity=rec.filled_quantity,
                                   latency_ms=rec.latency.ms("request_at", "fill_at"), slippage=slip,
-                                  details={"history": rec.history, "latency": rec.latency.as_dict(), "reason": rec.reason,
+                                  details={"execution_id": execution_id, "history": rec.history, "latency": rec.latency.as_dict(), "reason": rec.reason,
                                            "purpose": req.purpose if req else None, "profile": getattr(self.broker.p, "profile", None) if self.broker else None})
 
     # --- positions -----------------------------------------------------------------------------------
@@ -429,9 +452,10 @@ class PaperLoop(ShadowLoop):
             self.kills.kill_trading(now, "daily_loss_cap")
             self._journal_kill("trading", "on", "daily_loss_cap")
 
-    def _journal_kill(self, switch: str, action: str, reason: str) -> None:
-        self.dal.insert_kill_switch_event(self.run_id, self.clock(), switch=switch, action=action, reason=reason, details={})
-        jsonlog.event("kill_switch", action, severity="WARN", switch=switch, reason=reason)
+    def _journal_kill(self, switch: str, action: str, reason: str, target: str | None = None) -> None:
+        self.dal.insert_kill_switch_event(self.run_id, self.clock(), switch=switch, action=action, reason=reason,
+                                          details={"target": target} if target else {})
+        jsonlog.event("kill_switch", action, severity="WARN", switch=switch, reason=reason, target=target)
 
     # --- end of day ----------------------------------------------------------------------------------------
 
