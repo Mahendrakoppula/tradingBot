@@ -119,6 +119,27 @@ def cmd_backtest(cfg, dal, args) -> int:
     return 0
 
 
+class _Tee:
+    """Capture stdout so --telegram can post the same report (chunked)."""
+
+    def __init__(self, real):
+        self.real, self.buf = real, []
+
+    def write(self, s):
+        self.real.write(s)
+        self.buf.append(s)
+
+    def flush(self):
+        self.real.flush()
+
+
+def _post_telegram(text: str) -> None:
+    from trading_bot import technical_notifier
+    text = text.strip()
+    for i in range(0, len(text), 3500):
+        technical_notifier.notify(text[i:i + 3500])
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(prog="research_cli")
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -126,6 +147,7 @@ def main(argv=None) -> int:
         p = sub.add_parser(name)
         p.add_argument("--from", dest="start", required=True)
         p.add_argument("--to", dest="end", required=True)
+        p.add_argument("--telegram", action="store_true", help="also post the report to the TECH Telegram chat")
         if name == "metrics":
             p.add_argument("--segments", action="store_true")
         if name == "walkforward":
@@ -141,11 +163,22 @@ def main(argv=None) -> int:
     args = ap.parse_args(argv)
     cfg = EngineConfig.from_env()
     dal = _open(cfg)
+    tee = _Tee(sys.stdout) if getattr(args, "telegram", False) else None
+    if tee:
+        sys.stdout = tee
     try:
-        return {"metrics": cmd_metrics, "review": cmd_review, "gates": cmd_gates, "walkforward": cmd_walkforward,
-                "montecarlo": cmd_montecarlo, "backtest": cmd_backtest, "counterfactuals": cmd_counterfactuals}[args.cmd](cfg, dal, args)
+        rc = {"metrics": cmd_metrics, "review": cmd_review, "gates": cmd_gates, "walkforward": cmd_walkforward,
+              "montecarlo": cmd_montecarlo, "backtest": cmd_backtest, "counterfactuals": cmd_counterfactuals}[args.cmd](cfg, dal, args)
     finally:
         dal.close()
+        if tee:
+            sys.stdout = tee.real
+    if tee:
+        try:
+            _post_telegram("".join(tee.buf))
+        except Exception as exc:  # noqa: BLE001 - a Telegram failure must not fail the report
+            print(f"telegram post failed: {exc}", file=sys.stderr)
+    return rc
 
 
 if __name__ == "__main__":

@@ -63,9 +63,9 @@ CONFIRMING→TRADE_READY leg) — see `trading_bot/engine/shadow.py`. M2 revisit
 | 21 | Walk-Forward | [x] | M3 | `validation.walk_forward()` chronological windows + `coverage()` (§75). No fitting step by design (§84). |
 | 22 | Monte Carlo | [x] | M3 | `validation.monte_carlo()` bootstrap: final-net/dd percentiles, ruin probability, streaks, adverse-execution stress (§76). |
 | 23 | Paper Trading | [x] | M2 | `engine/paper_loop.py` PaperLoop: SHADOW (journal) and PAPER (paper broker) on the same pipeline. |
-| 24 | Shadow Strategies | [~] | M3 | SHADOW mode journals every family's decision; per-strategy kill switches exist. A per-strategy 'shadow only' flag (journal but never execute in PAPER) is the remaining piece. |
+| 24 | Shadow Strategies | [x] | M3 | SHADOW mode journals every family's decision; `TECH_SHADOW_STRATEGIES` lists families that stay journal-only in PAPER/LIVE (status valid, reason shadow_only_strategy); per-strategy kill switches. |
 | 25 | Controlled Live Deployment | [ ] | M4 | Gated on §79 gates 1–4; start at ₹60–75 risk (§80). |
-| 26 | Live Observability | [~] | M4 | Telegram notifiers, systemd/journalctl, S3 sync. **Missing**: health monitoring (§87), latency/slippage dashboards. |
+| 26 | Live Observability | [x] M4a | M4 | `engine/health.py` §87 monitor: edge-triggered alerts to Telegram (feed, data, engine stall, orders, latency, daily loss, heat, reconciliation, API/DB errors, breaker, RSS), JSON heartbeat every 60 s; `engine/recovery.py` §54 restart recovery; nightly `trading-bot-engine-review.timer` posts review + gates. Live-adapter metrics land with M4b. |
 | 27 | Continuous Research | [x] tooling | M4 | `research_cli` metrics/review/gates/walkforward/montecarlo/backtest/counterfactuals; `strategy_versions` promotion records (§83). |
 | 28 | Future AI/ML/NLP | [ ] | — | Explicitly out of V1 (§82). |
 
@@ -105,6 +105,20 @@ with gross/costs/net, reconciliation clean, zero real orders.
 M3 gate is not code: it is 4–12 weeks of PAPER sessions journaled to Postgres,
 then `research_cli gates` reporting ALL GATES PASSED, then a human promotion
 record per strategy (§83). Nothing in M3 changes engine behaviour.
+
+## M4a — observability and recovery (built 2026-09-18, three stacked branches; live adapter deliberately NOT built)
+
+| Step | Branch | Spec | Delivers |
+|---|---|---|---|
+| 1 | `feature/m4a-health` | §85 §86 §87 | `engine/health.py` HealthMonitor: edge-triggered alerts (fire / escalate / recover), Telegram under the existing rate limit, JSON heartbeat; journal write failures counted, never fatal |
+| 2 | `feature/m4a-recovery` | §54 §44 §56 | `engine/recovery.py`: positions from filled legs, plan from the locked snapshot, tallies from trade results, kill switches re-applied, reconcile; unsafe -> trading kill |
+| 3 | `feature/m4a-review-timer` | §69 §71 §79 §83 | `research_cli --telegram`; `trading-bot-engine-review.timer` 15:45 IST posts the daily review + 28-day gates; `TECH_SHADOW_STRATEGIES` (phase 24) |
+
+M4b (the live broker adapter behind the three-switch gate, one lot, Rs.60-75
+initial risk, §80) waits for `research_cli gates` to pass on real paper data and
+a human promotion record per strategy (§83). Until then nothing under
+`engine/` can reach an order endpoint, and tests/test_engine_no_orders.py
+proves it on every CI run.
 
 ## Where things live
 

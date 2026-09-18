@@ -116,3 +116,15 @@ def test_cli_runs_against_memory_dal(monkeypatch, capsys):
     assert research_cli.main(["walkforward", "--from", "2026-08-01", "--to", "2026-09-30", "--window", "7"]) == 0
     assert research_cli.main(["montecarlo", "--from", "2026-08-01", "--to", "2026-09-30", "--runs", "50"]) == 0
     assert '"ruin_probability"' in capsys.readouterr().out
+
+
+def test_cli_telegram_flag_posts_the_report(monkeypatch, capsys):
+    from trading_bot import technical_notifier
+    dal = MemoryDAL()
+    posted = []
+    monkeypatch.setattr(research_cli, "_open", lambda cfg: dal)
+    monkeypatch.setattr(technical_notifier, "notify", lambda m, html=False: posted.append(m))
+    monkeypatch.setenv("TECH_DATABASE_URL", "memory")
+    assert research_cli.main(["review", "--from", "2026-09-18", "--to", "2026-09-18", "--telegram"]) == 0
+    assert posted and posted[0].startswith("REVIEW 2026-09-18")
+    assert "REVIEW" in capsys.readouterr().out  # still printed

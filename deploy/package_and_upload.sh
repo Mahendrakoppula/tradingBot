@@ -53,6 +53,9 @@ with zipfile.ZipFile(out, 'w', zipfile.ZIP_DEFLATED) as z:
     z.write('deploy/pgdump_to_s3.sh', 'deploy/pgdump_to_s3.sh')
     z.write('deploy/trading-bot-pgdump.service', 'deploy/trading-bot-pgdump.service')
     z.write('deploy/trading-bot-pgdump.timer', 'deploy/trading-bot-pgdump.timer')
+    z.write('deploy/engine_review.sh', 'deploy/engine_review.sh')
+    z.write('deploy/trading-bot-engine-review.service', 'deploy/trading-bot-engine-review.service')
+    z.write('deploy/trading-bot-engine-review.timer', 'deploy/trading-bot-engine-review.timer')
     # nightly review/tuning agent - see deploy/setup_claude_agent.sh
     z.write('deploy/setup_claude_agent.sh', 'deploy/setup_claude_agent.sh')
     z.write('deploy/daily_review_prompt.md', 'deploy/daily_review_prompt.md')

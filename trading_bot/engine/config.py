@@ -123,6 +123,9 @@ class EngineConfig:
     option_expiry_day_allowed: bool = False
     chain_refresh_seconds: int = 60
     chain_strikes_each_side: int = 6
+    # phase 24: strategies that run the full pipeline and are journaled as valid
+    # signals but are never executed in PAPER (nor, later, LIVE)
+    shadow_strategies: tuple[str, ...] = ()
 
     @property
     def can_place_live_orders(self) -> bool:
@@ -192,6 +195,7 @@ class EngineConfig:
             option_expiry_day_allowed=_bool("TECH_OPTION_EXPIRY_DAY_ALLOWED", "false"),
             chain_refresh_seconds=_int("TECH_CHAIN_REFRESH_SECONDS", "60"),
             chain_strikes_each_side=_int("TECH_CHAIN_STRIKES_EACH_SIDE", "6"),
+            shadow_strategies=_csv("TECH_SHADOW_STRATEGIES", ""),
         )
 
 

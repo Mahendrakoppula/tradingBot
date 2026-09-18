@@ -1,0 +1,12 @@
+[Unit]
+Description=Nightly review + paper-to-live gates for the index-options engine (read-only)
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=tradingbot
+Group=tradingbot
+WorkingDirectory=/opt/trading-bot
+ExecStart=/opt/trading-bot/deploy/engine_review.sh
+SuccessExitStatus=0 1
