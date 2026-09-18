@@ -141,7 +141,8 @@ class HealthMonitor:
             out.append(("feed_flapping", "WARN", f"{len(recent)} reconnects in the last hour"))
         if s.dropped_ticks > t.max_dropped_ticks:
             out.append(("ticks_dropped", "WARN", f"{s.dropped_ticks} ticks dropped (queue full)"))
-        if s.clock_drift_seconds is not None and abs(s.clock_drift_seconds) > t.max_clock_drift_seconds:
+        # after the close the last tick keeps the 15:30 exchange stamp - only a drift IN session is a drift
+        if live and s.clock_drift_seconds is not None and abs(s.clock_drift_seconds) > t.max_clock_drift_seconds:
             out.append(("clock_drift", "CRITICAL", f"clock drift {s.clock_drift_seconds:+.1f}s (§86: stop new entries)"))
         for u, q in sorted(s.quality.items()):
             if q != "OK":

@@ -1,5 +1,5 @@
 [Unit]
-Description=Nightly pg_dump of the trading-bot engine database to S3
+Description=Nightly pg_dump of the trading-bot engine database into .state/pgdump (synced to S3 by the s3-sync timer)
 After=network-online.target postgresql.service
 Wants=network-online.target
 

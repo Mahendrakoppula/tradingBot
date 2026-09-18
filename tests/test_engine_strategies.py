@@ -239,3 +239,31 @@ def test_fingerprint_is_closed_vocabulary_and_deterministic():
     down = _ctx(session_phase="14:00-15:00", volume={"relative_volume": None, "volume_proxy": "none"})
     c2 = Candidate("X", "0.1", "SENSEX", "down", SPOT, SPOT + 10, SPOT - 30, "vwap_loss", False)
     assert fingerprint(down, c2).split("|")[-3:] == ["NO_VOLUME", "PE", "AFTERNOON"]
+
+
+def test_counter_trend_is_about_direction_not_timeframe_conflict():
+    """First shadow session finding: align() says COUNTER_TREND whenever any
+    lower TF disagrees; that must not make BOTH directions counter-trend."""
+    from trading_bot.engine.strategies.base import is_counter_trend
+    # regime BULL, 5m BULL, 30m neutral, 1m dipping -> alignment label COUNTER_TREND, preference none
+    ctx = _ctx(alignment={"label": "COUNTER_TREND", "direction_preference": "none", "weighted_score": 0.05},
+               trends={"1d": {"label": "NEUTRAL", "score": 0.1}, "30m": {"label": "NEUTRAL", "score": 0.0},
+                       "5m": {"label": "BULL", "score": 0.6}, "1m": {"label": "BEAR", "score": -0.4}})
+    assert not is_counter_trend(ctx, "up") and not is_counter_trend(ctx, "down")
+    # routing no longer blocks on counter-trend; what remains are the families' own alignment rules
+    r = route(_ctx(alignment=ctx.alignment, trends=ctx.trends, levels=_near_below("ema20", SPOT - 6),
+                   price_action={"labels": ["bullish_pin"], "anatomy": {}, "sweep": None}), "up")
+    reasons = {n.reason_code for n in r.rejections}
+    assert not any(code.startswith("counter_trend") for code in reasons), reasons
+    # and with a weak preference in the trade direction the pullback families do trade it
+    weak = dict(ctx.alignment, label="WEAK_ALIGNMENT", direction_preference="up")
+    r2 = route(_ctx(alignment=weak, trends=ctx.trends, levels=_near_below("ema20", SPOT - 6),
+                    price_action={"labels": ["bullish_pin"], "anatomy": {}, "sweep": None}), "up")
+    assert "EMA_PULLBACK" in {c.strategy for c in r2.candidates}
+    # against a decisive daily read it IS counter-trend, whatever the label says
+    strong_daily = _ctx(alignment={"label": "WEAK_ALIGNMENT", "direction_preference": "none"},
+                        trends={"1d": {"label": "BEAR", "score": -0.7}, "30m": {"label": "NEUTRAL", "score": 0.0},
+                                "5m": {"label": "BULL", "score": 0.5}, "1m": {"label": "BULL", "score": 0.3}})
+    assert is_counter_trend(strong_daily, "up") and not is_counter_trend(strong_daily, "down")
+    # against the weighted preference is counter-trend
+    assert is_counter_trend(_ctx(alignment={"label": "TREND_ALIGNMENT", "direction_preference": "down"}), "up")
