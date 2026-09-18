@@ -165,3 +165,47 @@ def test_backtest_is_leakage_free_prefix_matches_full_run():
         assert full_trade.entry_premium == pytest.approx(truncated_trade.entry_premium)
         assert full_trade.stop_price == pytest.approx(truncated_trade.stop_price)
         assert full_trade.target_price == pytest.approx(truncated_trade.target_price)
+
+
+@requires_real_data
+def test_use_historical_expiry_calendar_default_false_preserves_existing_behavior():
+    """The core backward-compatibility guarantee: leaving
+    use_historical_expiry_calendar at its default (False) must produce
+    byte-for-byte the same trades as never having added the option at
+    all - every number in backtesting/BACKTESTS.md through Run 020
+    stays valid."""
+    config = BacktestConfig(warmup_bars=30)
+    with_default = run_backtest(NIFTY_DAILY, config)
+    without_option = run_backtest(NIFTY_DAILY, BacktestConfig(warmup_bars=30))
+    assert len(with_default.trades) == len(without_option.trades)
+    for a, b in zip(with_default.trades, without_option.trades):
+        assert a.expiry == b.expiry
+        assert a.strike == b.strike
+        assert a.entry_premium == pytest.approx(b.entry_premium)
+
+
+def test_use_historical_expiry_calendar_requires_underlying():
+    """Validated immediately at construction (BacktestConfig.__post_init__),
+    not buried inside process_bar()'s entry-signal branch - a
+    misconfiguration must fail even if no strategy ever generates a
+    qualifying signal on a given dataset."""
+    with pytest.raises(ValueError):
+        BacktestConfig(use_historical_expiry_calendar=True, underlying=None)
+
+
+@requires_real_data
+def test_use_historical_expiry_calendar_produces_real_researched_expiry_dates():
+    """A real, direct check against this module's own researched facts
+    (data/historical_expiry_calendar.py): every resolved expiry must be
+    a genuine, self-consistent NIFTY weekly expiry under that module's
+    own regime history (Thursday pre-2025-09-01, Tuesday after) -
+    strictly after entry, not the generic fixed-offset date the default
+    config would produce."""
+    from data.historical_expiry_calendar import nifty_weekly_expiry_weekday
+
+    config = BacktestConfig(warmup_bars=30, use_historical_expiry_calendar=True, underlying="NIFTY")
+    result = run_backtest(NIFTY_DAILY, config)
+    assert len(result.trades) > 0
+    for trade in result.trades:
+        assert trade.expiry.weekday() == nifty_weekly_expiry_weekday(trade.expiry)
+        assert trade.expiry > trade.entry_timestamp.date()

@@ -1884,3 +1884,106 @@ attempted here. This closes out the 014-020 portfolio investigation
 arc with an honest, mechanistic understanding of the real trade-off
 involved, rather than a false "solved it" conclusion from Run 019
 alone.
+
+---
+
+## Run 021 - Real historical expiry calendar, replacing the fixed 7-day approximation
+
+**Date**: 2026-09-19
+**Purpose**: Closes event_loop.py's own long-disclosed "fixed
+days_to_expiry, no real weekly-expiry trading calendar" simplification -
+flagged since Run 001, deliberately deferred multiple times specifically
+because getting a historical expiry-regime date wrong would corrupt
+every trade's option pricing with an unverified assumption. This time,
+done with real historical research (not memory) before writing any
+code.
+
+**The historical facts, verified via web research and cross-checked
+across multiple independent sources, not assumed** - a genuinely more
+complex history than expected going in:
+- NIFTY weekly: THURSDAY until 2025-08-31, TUESDAY from 2025-09-01
+  (SEBI-mandated NSE/BSE expiry-day swap, ending a 25-year Thursday
+  convention).
+- BANKNIFTY weekly: WEDNESDAY, DISCONTINUED entirely after its last
+  weekly expiry 2024-11-13 (SEBI's one-weekly-index-per-exchange rule) -
+  monthly only from 2024-11-14 onward.
+- BANKNIFTY monthly: LAST THURSDAY of the month until 2025-08-28, LAST
+  TUESDAY from 2025-09-01 (same SEBI swap, applied to monthly contracts
+  too).
+- SENSEX weekly: THURSDAY until 2023-05-14, FRIDAY from BSE's
+  2023-05-15 Sensex/Bankex relaunch, TUESDAY from 2025-01-01 (the same
+  one-weekly-index-per-exchange consolidation), THURSDAY from
+  2025-09-01 (the same SEBI swap as NIFTY, in the opposite direction) -
+  THREE separate regime changes within this project's own 5-year
+  backtest window, not the one stable "Thursday" convention this
+  project had assumed from live-only verification (Investigation 002).
+
+**Method**: `data/historical_expiry_calendar.py` (new module, distinct
+from `data/expiry_calendar.py`'s live-only scope) resolves the real
+expiry for any historical entry date, using a day-by-day iterative
+search rather than a direct weekday jump - deliberately, so an entry in
+the last few days before any of the 4 known transition dates is handled
+correctly by checking each candidate day against the regime THAT DAY
+is actually under, not the regime on the entry date. Caught and fixed
+a real edge case this way before it shipped: an entry on BANKNIFTY's
+actual last weekly expiry day would otherwise have computed a fake,
+never-existed following Wednesday instead of correctly falling through
+to the next real monthly expiry.
+
+Wired into `backtesting/event_loop.py` as a strictly OPT-IN
+`use_historical_expiry_calendar` flag (default `False`, validated at
+`BacktestConfig` construction time) - every number in this log through
+Run 020 remains exactly reproducible; nothing is silently invalidated.
+
+**HONEST RESIDUAL LIMITATION, disclosed in the module itself**: no
+historical NSE/BSE trading-holiday calendar exists to correct for a
+real listed expiry shifting by a day around a holiday (unlike
+data/expiry_calendar.py's live version, which gets that for free from
+the real scrip master). Expect being off by up to ~1 trading day around
+holiday weeks - a materially smaller, disclosed approximation than the
+fixed-7-day convention it replaces, not a claim of perfection.
+
+**Result** (1% risk, same historical trade set as every prior Run):
+
+| Instrument | Avg. days-to-expiry (fixed vs. real) | Full-history return (fixed vs. real) | Walk-forward folds profitable (fixed vs. real) |
+|---|---|---|---|
+| NIFTY | 7.0 vs. 3.7 | +663.6% vs. +1,461.5% | 5/5 vs. 5/5 |
+| BANKNIFTY | 7.0 vs. 8.6 | +586.3% vs. +1,019.3% | 3/5 vs. 4/5 |
+| SENSEX | 7.0 vs. 3.7 | +882.1% vs. +1,718.5% | 4/5 vs. 5/5 |
+
+**A remarkably consistent result, more convincing than a full-history
+number alone**: the real calendar produced a HIGHER return in EVERY
+SINGLE walk-forward fold, for EVERY instrument, not just a better
+full-history compounding artifact. NIFTY and SENSEX both average
+~3.7 real days-to-expiry (close to the theoretically-expected ~half of
+a 7-day weekly cycle for a random entry point) instead of the fixed
+7 - options entered with correctly-shorter time-to-expiry are cheaper
+and structurally more convex, so the SAME underlying "spot crosses the
+strike" events this log has already traced (Run 008's own mechanism
+trace) produce LARGER percentage gains on a smaller base premium.
+BANKNIFTY's average DTE moves the other way (7.0 to 8.6), reflecting
+its real mixed history - roughly the first 3 years of this window were
+weekly (short DTE, like NIFTY/SENSEX), the more recent ~22 months are
+monthly-only (DTE up to ~30 days) - a real, structural regime this
+project's own strategy has never actually modeled correctly until now.
+
+**Read this as a real correctness fix producing DIFFERENT priced
+trades, not proof of a stronger underlying edge, stated as plainly as
+the result itself**: the improvement is mechanistically explained by
+option convexity/cost at a different (correct) time-to-expiry, not by
+any change to WHICH days the strategy trades or WHY. This has NOT been
+sequence-risk tested (Run 013/015's reshuffle methodology) for this
+specific configuration - the walk-forward consistency (literally every
+fold improved) is meaningfully stronger evidence than any single
+full-history number in this log, but is not a substitute for that
+check. A real, scoped-out next step, not done here.
+
+**Verdict**: the fixed-7-day approximation this log has carried since
+Run 001 is now replaced with a real, historically-researched calendar,
+opt-in and fully backward-compatible. The result is a genuine, fold-
+consistent shift toward higher returns, mechanistically explained (not
+mysterious), with the sequence-risk question honestly left open rather
+than assumed away. Every future Run using `use_historical_expiry_calendar`
+should be compared against this Run's own baseline numbers, not
+assumed to inherit Runs 001-020's already-logged (fixed-7-day)
+findings unchanged.

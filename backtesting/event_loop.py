@@ -32,8 +32,17 @@ not hidden ones:
     here would make it impossible to tell whether a strategy's raw edge
     is real, versus lot-size choices doing the work.
   - Strike = spot rounded to the nearest `strike_increment` at entry
-    (ATM). Expiry = entry date + a fixed `days_to_expiry` - no real
-    weekly-expiry trading calendar exists yet (a separate, later phase).
+    (ATM). Expiry = entry date + a fixed `days_to_expiry` by default -
+    RESOLVED as an opt-in alternative (`use_historical_expiry_calendar`,
+    default False, preserving every existing Run's exact numbers):
+    data/historical_expiry_calendar.py provides the real, researched
+    2021-2026 expiry-regime history (NIFTY's Thursday->Tuesday swap,
+    BANKNIFTY's weekly discontinuation and monthly weekday change,
+    SENSEX's three separate regime changes) instead of a single fixed
+    offset. Deliberately opt-in, not a default-flipping fix: every
+    number in backtesting/BACKTESTS.md through Run 020 was produced
+    with the fixed offset, and changing the default would silently
+    invalidate all of it without a new, separately-logged comparison.
   - If both the stop and target are breached within the same bar (a
     wide-range day), the STOP is assumed to have been hit first - the
     conservative assumption, not an attempt to guess which happened
@@ -52,6 +61,7 @@ from dataclasses import dataclass, field
 import pandas as pd
 
 from backtesting.trade_record import Trade
+from data.historical_expiry_calendar import resolve_historical_expiry
 from features.theoretical_options import theoretical_option_snapshot
 from market_state.classifier import classify_market_state
 from market_state.volatility import atr as compute_atr
@@ -84,6 +94,23 @@ class BacktestConfig:
     # invalidate already-logged results without a new entry explaining why.
     use_contract_selector: bool = False
     contract_selector_offsets: tuple[int, ...] = (-2, -1, 0, 1, 2)
+    # Default False preserves days_to_expiry's exact fixed-offset behavior
+    # every number in backtesting/BACKTESTS.md through Run 020 was produced
+    # with - flip to True only as a deliberate, separately-logged
+    # comparison (data/historical_expiry_calendar.py's real, researched
+    # 2021-2026 expiry-regime history), never as a silent default change.
+    # `underlying` must be set to "NIFTY"/"BANKNIFTY"/"SENSEX" when this
+    # is True - there is no instrument-agnostic historical expiry.
+    use_historical_expiry_calendar: bool = False
+    underlying: str | None = None
+
+    def __post_init__(self) -> None:
+        # Validated at construction time, not deep inside process_bar()'s
+        # entry-signal branch - a config with this misconfiguration should
+        # fail immediately and always, not only on a backtest run where a
+        # strategy happens to generate a qualifying signal.
+        if self.use_historical_expiry_calendar and self.underlying is None:
+            raise ValueError("BacktestConfig.underlying must be set when use_historical_expiry_calendar=True")
 
 
 @dataclass
@@ -210,7 +237,10 @@ def process_bar(
 
     entry_price = float(bar["close"])
     entry_date = bar["timestamp"].date() if hasattr(bar["timestamp"], "date") else bar["timestamp"]
-    expiry = entry_date + dt.timedelta(days=config.days_to_expiry)
+    if config.use_historical_expiry_calendar:
+        expiry = resolve_historical_expiry(config.underlying, entry_date)  # BacktestConfig.__post_init__ already guarantees underlying is set here
+    else:
+        expiry = entry_date + dt.timedelta(days=config.days_to_expiry)
 
     if config.use_contract_selector:
         candidate = select_contract(

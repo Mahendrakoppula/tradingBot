@@ -288,11 +288,29 @@ portfolio/    (done) aggregated delta/gamma/vega/theta across NIFTY/
 backtesting/  (Phase 12, done) event-driven backtester - processes bars
               strictly in order, leakage-free (see event_loop.py's
               docstring for its remaining first-pass simplifications:
-              one conceptual unit not lot-sized, fixed 7-day expiry, no
-              costs/slippage - the "daily bars only" simplification is
-              resolved as of Run 011, see below: process_bar() now takes
-              a real calendar-day-aware is_new_day flag instead of
-              assuming every call is a new day). The stop-vs-target
+              one conceptual unit not lot-sized, no costs/slippage -
+              the "daily bars only" simplification is resolved as of
+              Run 011, see below: process_bar() now takes a real
+              calendar-day-aware is_new_day flag instead of assuming
+              every call is a new day). The "fixed 7-day expiry, no real
+              weekly-expiry calendar" simplification is resolved too
+              (Run 021, data/historical_expiry_calendar.py) - built on
+              real historical research (NIFTY Thursday->Tuesday
+              2025-09-01; BANKNIFTY weekly Wednesday discontinued
+              2024-11-13, monthly-only after with its own Thursday-
+              >Tuesday monthly-weekday change; SENSEX THREE separate
+              regime changes - Thursday->Friday 2023-05-15->Tuesday
+              2025-01-01->Thursday 2025-09-01), not memory. Opt-in
+              (`use_historical_expiry_calendar`, default False,
+              validated at config-construction time) - every prior
+              Run's numbers stay exactly reproducible. Result: a
+              remarkably consistent shift toward higher returns in
+              EVERY walk-forward fold for EVERY instrument (not just a
+              full-history artifact), mechanistically explained (real,
+              correctly-shorter time-to-expiry options are cheaper and
+              more convex, not a different or stronger trading signal) -
+              explicitly NOT yet sequence-risk tested for this specific
+              configuration, a real, scoped-out next step. The stop-vs-target
               same-bar tie-break assumption (Investigation 003,
               tie_break_validation.py) is also resolved, and unusually
               cleanly: checked across the FULL 5-year history on all
