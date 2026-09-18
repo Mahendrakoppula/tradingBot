@@ -59,6 +59,30 @@ CONFIRMING→TRADE_READY leg) — see `trading_bot/engine/shadow.py`. M2 revisit
 | 27 | Continuous Research | [~] | M4 | Nightly agent + framework runners. |
 | 28 | Future AI/ML/NLP | [ ] | — | Explicitly out of V1 (§82). |
 
+## M2 build order — PAPER (one PR each, every one green on CI)
+
+Same engine in SHADOW/PAPER/LIVE (§51). M2 adds the decision pipeline after
+TRADE_READY (§93 STRATEGY ROUTING … EXIT) and a paper broker. **Nothing in M2
+can reach a real order endpoint**: `PaperBroker` is the only broker, the AST
+guard stays on `engine/`, and `LiveBroker` (M4) is the single allow-listed
+exception when it lands.
+
+| Step | Branch | Spec | Delivers |
+|---|---|---|---|
+| 1 | `feature/m2-strategies` | §14 §15 §63 | `engine/strategies/`: 10 families as versioned `Candidate` / `NoTrade` evaluators with objective entry/confirmation/invalidation/target refs on the UNDERLYING; regime+alignment routing table; fingerprint builder; extra context fields (recent sweeps/regimes, VWAP cross). |
+| 2 | `feature/m2-scoring` | §16 §17 §35 | `engine/scoring.py` 9-component 0–100 + penalties; opportunity ranking, correlated-index exclusion. |
+| 3 | `feature/m2-expected-move` | §21 §22 §23 §37 | `engine/expected_move.py`: remaining move (ATR × time-of-day × regime), no-chase, blocked-target check, non-linear option response (delta/gamma). |
+| 4 | `feature/m2-options` | §19 §20 §24 | `engine/option_chain.py` candidate cache (chain + FULL quotes + Greeks, Black-Scholes IV/Greeks fallback for SENSEX), `engine/option_select.py` multi-contract scoring, decay filter. Reject setup if no acceptable option. |
+| 5 | `feature/m2-stops` | §26 §28 §31 §32 | `engine/stops.py`: structural SL (underlying → option via delta), market-driven targets, trailing (structure/ATR/VWAP/EMA), thesis monitor, 15 exit reasons. |
+| 6 | `feature/m2-risk` | §25 §27 §29 §30 §33 §34 | `engine/risk_engine.py`: all-in cost (CostRates + spread + slippage), sizing after SL with lot rounding, EV, tiers A/B/C with the ₹800 preference, account/daily/weekly/streak/heat limits → APPROVED/REJECTED/REDUCE_SIZE/WAIT_*; RiskSchema rows. |
+| 7 | `feature/m2-execution` | §39–§46 §52 §47 | `engine/execution/`: snapshot lock, entry drift, execution gate, order state machine + timeouts + partial fills + duplicate guard + latency; `PaperBroker` realistic/conservative/ideal; broker interface. |
+| 8 | `feature/m2-positions` | §54–§57 §69 §62 §70 §72 | positions + thesis-monitor loop, reconciliation vs the (paper) broker, kill switches + circuit breaker, EOD exit sweep, trade results/journal, rejected-signal dataset. |
+| 9 | `feature/m2-paper-loop` | §38 §51 §53 §60–§65 | loop wiring: TRADE_READY → pipeline → paper order → management; `TECH_MODE=PAPER`; schema v2; config + bounds; EOD summary with P&L/costs; Telegram. |
+
+M2 gate: a full paper session with realistic fills, every signal (taken or
+rejected) journaled with its 20-key explanation and risk decision, EOD report
+with gross/costs/net, reconciliation clean, zero real orders.
+
 ## Where things live
 
 | Area | Module |

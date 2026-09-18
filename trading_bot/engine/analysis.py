@@ -31,6 +31,8 @@ RECENT_LABELS_KEEP = 10
 PERCENTILE_LOOKBACK = 100
 EMA_CROSS_LOOKBACK = 20
 TOUCH_TOLERANCE_ATR = 0.2
+RECENT_SWEEPS_KEEP = 6
+RECENT_REGIMES_KEEP = 8
 
 
 @dataclass
@@ -42,6 +44,11 @@ class AnalysisState:
     prev_regime: MarketRegime | None = None
     level_touches: dict[str, int] = field(default_factory=dict)
     touch_day: dt.date | None = None
+    # short histories the strategy families read (spec §14): recent sweeps
+    # with the bar they happened on, recent regime primaries, previous VWAP
+    recent_sweeps: list[dict] = field(default_factory=list)
+    recent_regimes: list[str] = field(default_factory=list)
+    prev_vwap: float | None = None
 
 
 @dataclass(frozen=True)
@@ -210,6 +217,11 @@ def build_context(
     sweep = liquidity_sweep(bar, [(n, l) for n, l in levels if n not in ("ema20", "ema50", "ema200")], atr_v)
     pa = {"labels": labels, "anatomy": dataclasses.asdict(anatomy(bar, atr_v)),
           "sweep": dataclasses.asdict(sweep) if sweep else None}
+    if sweep:
+        state.recent_sweeps.append({**dataclasses.asdict(sweep), "bar_index": i, "wick": bar["high"] if sweep.side == "above" else bar["low"]})
+        del state.recent_sweeps[:-RECENT_SWEEPS_KEEP]
+    # drop sweeps from a previous day's bar numbering when the store rolls
+    recent_sweeps = [sw for sw in state.recent_sweeps if sw["bar_index"] <= i]
 
     # --- regime ---------------------------------------------------------------------------------------
     t5 = trends.get(trigger_tf)
@@ -233,17 +245,20 @@ def build_context(
         rl.append(t.label)
         del rl[:-RECENT_LABELS_KEEP]
     state.prev_regime = regime
+    state.recent_regimes.append(regime.primary)
+    del state.recent_regimes[:-RECENT_REGIMES_KEEP]
+    prev_vwap, state.prev_vwap = state.prev_vwap, vwap_v
 
     return ContextSnapshot(
         ts=now, underlying=underlying, trigger_tf=trigger_tf, spot=spot, session_phase=session_phase(now.time()),
         quality=quality, bar_index=i if bar_index is None else bar_index,
         trends={tf: dataclasses.asdict(t) for tf, t in trends.items()},
         alignment=dataclasses.asdict(alignment),
-        regime=dataclasses.asdict(regime),
+        regime={**dataclasses.asdict(regime), "recent_primaries": list(state.recent_regimes)},
         structure={
             "last_event": dataclasses.asdict(last_event) if last_event else None,
             "events_count": len(events), "mss": mss, "swing_high": last_hi, "swing_low": last_lo,
-            "in_swing_range": in_swing_range,
+            "in_swing_range": in_swing_range, "recent_sweeps": recent_sweeps,
         },
         levels=level_map,
         price_action=pa,
@@ -251,6 +266,7 @@ def build_context(
             "rsi": rsi_v, "macd_hist": _last(hist), "adx": _last(adx_s), "atr": atr_v,
             "atr_pct": _last(atr_pct_series), "atr_percentile": atr_pct, "bb_width_pct": _last(bbw),
             "bb_width_percentile": bbw_pct, "ema20": ema20, "ema50": ema50, "ema200": ema200, "vwap": vwap_v,
+            "vwap_prev": prev_vwap, "close_prev": float(c5[i - 1]["close"]) if i > 0 else None,
             "ema20_cross_count": cross_count,
         },
         volume=vol,
