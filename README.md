@@ -417,26 +417,34 @@ backtesting/  (Phase 12, done) event-driven backtester - processes bars
               exactly correct in the degenerate single-instrument case
               (bit-for-bit match with the existing simulation). Real
               3-way concurrency occurs at least once across the 5-year
-              history, and the pooled account reaches ~97% of the
-              ABSOLUTE ending capital three separate pools would reach
-              combined, using only 1/3 the total capital (Rs.50,000 vs
-              Rs.150,000) - a genuine capital-efficiency finding.
-              Explicitly NOT claiming the pooled headline return itself
-              is validated: it carries the same sequence-risk caveat
-              Run 013 already proved dominates these compounding
-              curves, likely amplified by pooling three instruments'
-              trades into one shared trajectory. Run 015 tested this
-              directly (riffle-shuffling how the three instruments' own
-              real trade sequences interleave, 5,000 times) - CONFIRMED,
-              more starkly than Run 013's own single-instrument finding:
-              reshuffled mean is -3.9% (essentially flat, even slightly
-              negative), vs. the reported +2,265.0% headline, and 100%
-              of reshuffles did worse than observed. Pooling doesn't
-              just carry single-instrument sequence risk, it stacks
-              three individually-lucky historical orderings into one
-              shared timeline, amplifying it substantially. Run 014's
-              structural finding (real concurrency, capital efficiency)
-              stands; its specific headline percentage does not.
+              history. Run 014's OBSERVED headline made pooling look
+              capital-efficient (~97% of three pools' combined ending
+              capital from 1/3 the capital) - but Run 015
+              (riffle-shuffling how the three instruments' real trade
+              sequences interleave, 5,000 times) proved that headline
+              is an extreme, non-representative outcome even more so
+              than Run 013's single-instrument findings: reshuffled
+              mean -3.9% vs. the reported +2,265.0%, 100% of reshuffles
+              worse than observed. Run 016 then checked the capital-
+              efficiency claim itself under fair, typical (reshuffled-
+              mean) conditions rather than comparing two lucky draws -
+              **it does NOT survive**: three independent pools'
+              reshuffled-mean combined return is +140.4%, vs. the
+              pooled account's -3.9%. A real, structural reason,
+              confirmed not just observed: sharing ONE capital pool
+              means a bad early stretch in ANY instrument triggers
+              risk/equity_protection.py's drawdown tier for the WHOLE
+              pool, dragging down sizing for all three - three separate
+              pools don't transmit one instrument's bad luck to the
+              others this way. This does not mean pooling is inherently
+              bad, only that THIS mechanism (one shared drawdown-tier
+              gate) is - a genuinely different design (e.g. per-
+              instrument risk budgets off a shared pool, or portfolio-
+              level Greek limits that actually block trades) might
+              behave differently, but that's unbuilt future work, not
+              a re-reading of what exists. Real concurrency (the
+              structural finding) stands; capital efficiency (the
+              headline claim) is retracted, not merely caveated.
               BACKTESTS.md logs every run honestly, including a real bug
               it caught (daily risk state never resetting between bars)
               and the corrected, still-mixed result after fixing it -

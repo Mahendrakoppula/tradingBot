@@ -1548,3 +1548,82 @@ now-well-understood headline number, only more so. The capital-
 efficiency insight (comparable outcome from a third of the capital)
 remains worth investigating further, but not via this specific
 historical interleaving's percentage return.
+
+---
+
+## Run 016 - Was the capital-efficiency finding itself just two lucky draws?
+
+**Date**: 2026-09-18
+**Purpose**: Direct follow-up to Run 015's own flagged item. Run 014's
+"capital efficiency" claim (the pooled account reaches ~97% of three
+independent pools' combined ending capital using 1/3 the capital) was
+built by comparing the pooled run's OBSERVED (real historical) outcome
+against the independent pools' OWN observed outcomes - but Run 013
+already proved each independent pool's observed outcome is itself
+near the lucky tail of its own possible orderings, and Run 015 just
+proved the pooled outcome is even more so. Comparing two lucky draws
+against each other proves nothing about a real structural advantage -
+this checks whether the SAME comparison holds under TYPICAL (reshuffled
+mean) conditions instead of real historical luck on both sides.
+
+**Method**: no new code - a direct, apples-to-apples recombination of
+numbers already computed and logged in Run 013 (each instrument's own
+`monte_carlo_equity_sequence()` reshuffled mean, independently) and
+Run 015 (the portfolio's own `monte_carlo_portfolio_sequence()`
+reshuffled mean), both expressed as % return on their own starting
+capital so the comparison isn't distorted by the 3x difference in
+total capital deployed.
+
+**Result**:
+
+| | Starting capital | Observed (lucky) | Reshuffled mean (typical) |
+|---|---|---|---|
+| NIFTY (independent) | Rs.50,000 | Rs.381,786 | Rs.80,187 |
+| BANKNIFTY (independent) | Rs.50,000 | Rs.343,138 | Rs.198,170 |
+| SENSEX (independent) | Rs.50,000 | Rs.491,026 | Rs.82,225 |
+| **3 independent pools, combined** | **Rs.150,000** | **Rs.1,215,950 (+710.6%)** | **Rs.360,582 (+140.4%)** |
+| **Portfolio (pooled)** | **Rs.50,000** | **Rs.1,182,479 (+2,265.0%)** | **Rs.48,050 (-3.9%)** |
+
+**The finding reverses completely once compared fairly.** Under the
+observed, lucky historical draws, pooling looked like it captured
+almost the same absolute gain from a third of the capital (Run 014's
+headline). Under TYPICAL conditions (reshuffled mean, the honest number
+per Run 013/015's own established discipline), pooling looks
+dramatically WORSE: -3.9% pooled vs. +140.4% combined for three
+independent pools. The original "capital efficiency" finding was itself
+an artifact of comparing two different lucky draws against each other,
+not a real structural property of pooling.
+
+**A real, structural mechanism explains this, not just noise**: sharing
+ONE capital pool means a bad early stretch in ANY single instrument (in
+a given reshuffled interleaving) triggers `risk/equity_protection.py`'s
+drawdown-based tier downgrade for the WHOLE shared pool - reducing the
+risk budget for ALL THREE instruments' subsequent trades, not just the
+one that lost. With three separate pools, a bad stretch in one
+instrument's own sequence only downgrades that instrument's own tier,
+leaving the other two sized normally against their own, undamaged
+capital. Pooling ties the instruments' fates together through the
+SIZING/TIER mechanism itself, even though their underlying price moves
+may be far less correlated - a genuine structural cost of a naive
+shared-capital-with-shared-tier design, not an artifact of this
+specific test.
+
+**Verdict: Run 014's capital-efficiency finding does NOT survive a fair
+comparison and should be considered retracted, not merely caveated.**
+This is a rare case in this log of a finding built on real code and
+real data still being wrong once examined more carefully - not because
+of a bug, but because the comparison itself (lucky vs. lucky) was the
+wrong one to draw a structural conclusion from. Under the honest,
+reshuffled-mean view, this specific pooled configuration (1% risk,
+shared drawdown-based tiers) looks WORSE than three independent
+Rs.50,000 pools, not better. This does not mean pooling capital across
+instruments is inherently a bad idea - it means THIS mechanism for
+doing it (one shared equity-protection tier gating all three
+instruments together) transmits single-instrument bad luck across the
+whole account in a way three separate pools would not. A genuinely
+different pooling design - e.g., per-instrument risk budgets sized off
+a shared pool without a single shared drawdown-tier gate, or explicit
+portfolio-level Greek concentration limits (portfolio/greek_aggregation.py,
+still never actually used to BLOCK a trade in any Run in this log) -
+might behave differently, but that is new, unbuilt work, not a
+re-reading of what exists today.
