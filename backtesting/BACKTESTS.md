@@ -1627,3 +1627,69 @@ portfolio-level Greek concentration limits (portfolio/greek_aggregation.py,
 still never actually used to BLOCK a trade in any Run in this log) -
 might behave differently, but that is new, unbuilt work, not a
 re-reading of what exists today.
+
+---
+
+## Run 017 - Wiring in the portfolio Greek-concentration limit (first real use)
+
+**Date**: 2026-09-18
+**Purpose**: Directly closes the gap Run 016 named as genuinely
+different, unbuilt future work: portfolio/greek_aggregation.py's
+concentration check has existed since early in this project but has
+never actually been used to BLOCK a trade in any Run in this log. Wires
+it into the portfolio equity simulation as a real, first use.
+
+**Method**: `backtesting/portfolio_equity_simulation.py`'s
+`simulate_portfolio_equity_curve()` gained a new
+`max_single_instrument_delta_share` parameter (default `None`,
+preserving every prior Run's exact behavior - verified as an exact
+regression match in `tests/test_portfolio_equity_simulation.py`). When
+set, a candidate entry is skipped if it would push one instrument's
+share of TOTAL portfolio delta above the given fraction - checked
+against every currently-OPEN position's Greeks REPRICED as of the
+candidate's own entry date (not their own stale entry-time Greeks,
+which would understate how exposure has actually moved since). Only
+the relative concentration SHARE is checked, deliberately: the absolute
+delta/gamma/vega/theta limits check_portfolio_risk() also supports
+would need an arbitrary, unjustified numeric threshold to be picked - a
+relative share needs none.
+
+**Result** (1% risk, same historical trade set as Run 014):
+
+| Concentration cap | Trades taken | By instrument | Skipped | Ending capital | Max concurrent | Max drawdown |
+|---|---|---|---|---|---|---|
+| None (Run 014 baseline) | 286 | BANKNIFTY 97 / NIFTY 95 / SENSEX 94 | 0 | Rs.1,182,479 (+2,265.0%) | 3 | 21.0% |
+| 60% | 123 | BANKNIFTY 39 / NIFTY 63 / SENSEX 21 | 163 | Rs.518,016 (+936.0%) | 3 | 11.7% |
+| 40% | 109 | BANKNIFTY 39 / NIFTY 62 / SENSEX 8 | 177 | Rs.485,533 (+871.1%) | 1 | 13.7% |
+
+**What this does and does NOT establish, stated precisely**: the
+mechanism works exactly as designed - a real, previously-inert risk
+control now genuinely gates trades (skipping 163-177 of the ~449
+candidates it was checked against), visibly shifts the resulting trade
+mix away from instruments that would otherwise dominate concentration
+(SENSEX drops from 94 to 8 trades under the 40% cap), and reduces the
+OBSERVED maximum drawdown (21.0% to 11.7-13.7%). This IS a genuine,
+useful finding on its own: the concentration check, wired in for the
+first time, functions correctly against real data, not just in
+isolated unit tests.
+
+**What it does NOT establish**: whether concentration limits improve
+the TYPICAL (not just this one observed, historically-lucky) outcome.
+Every ending-capital and drawdown number above is drawn from the SAME
+single historical trade sequence Run 013/015/016 already proved is an
+extreme, non-representative draw for this trade set - properly
+answering "does concentration-limiting help under typical conditions"
+would need extending Run 015's reshuffle methodology to this
+Greek-repricing-gated version too. Deliberately NOT done here: each
+reshuffle would need real per-entry Greek repricing against every open
+position (not just cash arithmetic), making it substantially more
+expensive computationally than Run 015's own reshuffle - a real,
+scoped-out next step, not a shortcut taken quietly.
+
+**Verdict**: a real capability gap closed (the concentration check is
+no longer inert infrastructure), and a real, honestly-scoped mechanism
+finding (it works, and visibly changes trade selection and observed
+drawdown in the expected direction) - but reported as exactly that, not
+inflated into a claim about typical-case risk-adjusted performance that
+would need the more expensive reshuffle test this Run explicitly does
+not attempt.

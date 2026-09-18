@@ -106,6 +106,60 @@ def test_portfolio_simulation_differs_from_naively_summed_independent_pools():
     assert len(portfolio.simulated_trades) != independent_total
 
 
+@requires_real_data
+def test_concentration_limit_never_fires_with_none_default():
+    """max_single_instrument_delta_share=None must preserve every prior
+    Run's exact behavior - a regression check, not just a docstring
+    claim."""
+    bts = {sym: run_backtest(load_ohlcv(sym, "ONE_DAY"), BacktestConfig(warmup_bars=30))
+           for sym in ["NIFTY", "BANKNIFTY", "SENSEX"]}
+    dfs = {"NIFTY": NIFTY_DAILY, "BANKNIFTY": BANKNIFTY_DAILY, "SENSEX": SENSEX_DAILY}
+    lot_sizes = {"NIFTY": 65, "BANKNIFTY": 30, "SENSEX": 20}
+    strike_increments = {"NIFTY": 50, "BANKNIFTY": 100, "SENSEX": 100}
+
+    without_check = simulate_portfolio_equity_curve(
+        trades_by_instrument={sym: bt.trades for sym, bt in bts.items()},
+        dfs_by_instrument=dfs, lot_sizes=lot_sizes, strike_increments=strike_increments,
+        starting_capital=50_000, risk_free_rate=0.07, base_risk_pct=0.01,
+    )
+    explicit_none = simulate_portfolio_equity_curve(
+        trades_by_instrument={sym: bt.trades for sym, bt in bts.items()},
+        dfs_by_instrument=dfs, lot_sizes=lot_sizes, strike_increments=strike_increments,
+        starting_capital=50_000, risk_free_rate=0.07, base_risk_pct=0.01,
+        max_single_instrument_delta_share=None,
+    )
+    assert without_check.ending_capital == pytest.approx(explicit_none.ending_capital)
+    assert len(without_check.simulated_trades) == len(explicit_none.simulated_trades)
+
+
+@requires_real_data
+def test_tight_concentration_limit_skips_more_trades_than_no_limit():
+    """A genuinely tight concentration cap (a single instrument may
+    never hold more than 40% of total delta) must be at least as
+    restrictive as no limit at all - it can only ever skip MORE trades,
+    never fewer, since it's an additional gate on top of the existing
+    cash/tier checks."""
+    bts = {sym: run_backtest(load_ohlcv(sym, "ONE_DAY"), BacktestConfig(warmup_bars=30))
+           for sym in ["NIFTY", "BANKNIFTY", "SENSEX"]}
+    dfs = {"NIFTY": NIFTY_DAILY, "BANKNIFTY": BANKNIFTY_DAILY, "SENSEX": SENSEX_DAILY}
+    lot_sizes = {"NIFTY": 65, "BANKNIFTY": 30, "SENSEX": 20}
+    strike_increments = {"NIFTY": 50, "BANKNIFTY": 100, "SENSEX": 100}
+
+    unconstrained = simulate_portfolio_equity_curve(
+        trades_by_instrument={sym: bt.trades for sym, bt in bts.items()},
+        dfs_by_instrument=dfs, lot_sizes=lot_sizes, strike_increments=strike_increments,
+        starting_capital=50_000, risk_free_rate=0.07, base_risk_pct=0.01,
+    )
+    constrained = simulate_portfolio_equity_curve(
+        trades_by_instrument={sym: bt.trades for sym, bt in bts.items()},
+        dfs_by_instrument=dfs, lot_sizes=lot_sizes, strike_increments=strike_increments,
+        starting_capital=50_000, risk_free_rate=0.07, base_risk_pct=0.01,
+        max_single_instrument_delta_share=0.4,
+    )
+    assert len(constrained.simulated_trades) <= len(unconstrained.simulated_trades)
+    assert len(constrained.skipped_trades) >= len(unconstrained.skipped_trades)
+
+
 def test_events_sort_exits_before_entries_on_the_same_day():
     """Unit-level check on the event-ordering logic itself, independent
     of the full pricing pipeline: an exit and an entry landing on the

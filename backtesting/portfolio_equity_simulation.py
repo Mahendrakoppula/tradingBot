@@ -50,6 +50,7 @@ from backtesting.tick_slippage import tick_slippage_cost
 from backtesting.trade_record import Trade
 from execution.transaction_costs import TransactionCostRates, option_round_trip_cost
 from features.theoretical_options import theoretical_option_snapshot
+from portfolio.greek_aggregation import Position, PortfolioRiskLimits, aggregate_portfolio_greeks, check_portfolio_risk
 from risk.equity_protection import classify_equity_tier
 from risk.position_sizing import capital_at_risk_for_trade
 from strategies.contract_selection import DEFAULT_MAX_OTM_STEPS, select_affordable_contract
@@ -111,6 +112,7 @@ def simulate_portfolio_equity_curve(
     max_lots: int | None = None,
     rates: TransactionCostRates = TransactionCostRates(),
     tick_spread: float = 0.0,
+    max_single_instrument_delta_share: float | None = None,
 ) -> PortfolioEquitySimulationResult:
     """`trades_by_instrument` should hold each instrument's own
     backtesting.event_loop.run_backtest() output, computed
@@ -120,7 +122,22 @@ def simulate_portfolio_equity_curve(
     calendar-date mapping (true for NIFTY/BANKNIFTY/SENSEX's real
     ONE_DAY data - verified directly, not assumed) so `entry_index`/
     `exit_index` are comparable across instruments without a separate
-    date-alignment step."""
+    date-alignment step.
+
+    `max_single_instrument_delta_share`: if given, wires in
+    portfolio/greek_aggregation.py's concentration check - a candidate
+    entry is skipped (not just sized down) if it would push one
+    instrument's share of TOTAL portfolio delta exposure above this
+    fraction, checked against every currently-open position's Greeks
+    REPRICED as of the candidate's own entry date (not their own stale
+    entry-time Greeks, which is what a real risk check needs - exposure
+    changes over a position's life as spot/time move). Only the
+    concentration share is checked, deliberately: unlike the absolute
+    delta/gamma/vega/theta limits check_portfolio_risk() also supports,
+    a relative share needs no arbitrary, unjustified absolute Greek
+    threshold to be picked - `None` (the default) preserves every prior
+    Run's exact behavior, this check has never been exercised in this
+    log before now."""
     events = []
     for instrument, trades in trades_by_instrument.items():
         for trade in trades:
@@ -207,6 +224,29 @@ def simulate_portfolio_equity_curve(
             # to capture, not possible in the single-instrument case.
             skipped.append((instrument, trade))
             continue
+
+        if max_single_instrument_delta_share is not None and open_positions:
+            positions = []
+            for open_instr, pos in open_positions.items():
+                current_snapshot = theoretical_option_snapshot(
+                    dfs_by_instrument[open_instr], trade.entry_index, pos.strike,
+                    pos.trade.expiry, pos.trade.direction, risk_free_rate, vol_window,
+                )
+                if current_snapshot is not None:
+                    positions.append(Position(instrument=open_instr, option_type=pos.trade.direction, quantity=pos.quantity, greeks=current_snapshot.greeks))
+            positions.append(Position(instrument=instrument, option_type=trade.direction, quantity=quantity, greeks=candidate.snapshot.greeks))
+
+            check = check_portfolio_risk(
+                aggregate_portfolio_greeks(positions),
+                PortfolioRiskLimits(
+                    max_abs_delta=float("inf"), max_abs_gamma=float("inf"),
+                    max_abs_vega=float("inf"), max_abs_theta=float("inf"),
+                    max_single_instrument_delta_share=max_single_instrument_delta_share,
+                ),
+            )
+            if not check.within_limits:
+                skipped.append((instrument, trade))
+                continue
 
         cash -= entry_cost
         open_positions[instrument] = OpenPortfolioPosition(

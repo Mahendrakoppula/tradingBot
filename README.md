@@ -441,10 +441,24 @@ backtesting/  (Phase 12, done) event-driven backtester - processes bars
               gate) is - a genuinely different design (e.g. per-
               instrument risk budgets off a shared pool, or portfolio-
               level Greek limits that actually block trades) might
-              behave differently, but that's unbuilt future work, not
-              a re-reading of what exists. Real concurrency (the
-              structural finding) stands; capital efficiency (the
-              headline claim) is retracted, not merely caveated.
+              behave differently. Real concurrency (the structural
+              finding) stands; capital efficiency (the headline claim)
+              is retracted, not merely caveated. Run 017 then wired in
+              the second alternative: portfolio/greek_aggregation.py's
+              concentration check, which had existed since early in the
+              project but never actually blocked a trade in any Run
+              until now (`max_single_instrument_delta_share`, checked
+              against every open position's Greeks REPRICED as of each
+              new candidate's own date). Works exactly as designed -
+              visibly shifts trade mix away from over-concentrated
+              instruments (SENSEX 94->8 trades under a 40% cap) and
+              reduces observed max drawdown (21.0% -> 11.7-13.7%) - but
+              explicitly NOT claimed to improve TYPICAL performance,
+              only this one observed (already-known-lucky) historical
+              draw; properly testing that would need extending Run
+              015's reshuffle to this Greek-repricing-gated version too,
+              scoped out as a real, more expensive next step, not done
+              here.
               BACKTESTS.md logs every run honestly, including a real bug
               it caught (daily risk state never resetting between bars)
               and the corrected, still-mixed result after fixing it -
