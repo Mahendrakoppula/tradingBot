@@ -425,8 +425,18 @@ backtesting/  (Phase 12, done) event-driven backtester - processes bars
               is validated: it carries the same sequence-risk caveat
               Run 013 already proved dominates these compounding
               curves, likely amplified by pooling three instruments'
-              trades into one shared trajectory - sequence-risk testing
-              the portfolio curve is the flagged, not-yet-done next step.
+              trades into one shared trajectory. Run 015 tested this
+              directly (riffle-shuffling how the three instruments' own
+              real trade sequences interleave, 5,000 times) - CONFIRMED,
+              more starkly than Run 013's own single-instrument finding:
+              reshuffled mean is -3.9% (essentially flat, even slightly
+              negative), vs. the reported +2,265.0% headline, and 100%
+              of reshuffles did worse than observed. Pooling doesn't
+              just carry single-instrument sequence risk, it stacks
+              three individually-lucky historical orderings into one
+              shared timeline, amplifying it substantially. Run 014's
+              structural finding (real concurrency, capital efficiency)
+              stands; its specific headline percentage does not.
               BACKTESTS.md logs every run honestly, including a real bug
               it caught (daily risk state never resetting between bars)
               and the corrected, still-mixed result after fixing it -

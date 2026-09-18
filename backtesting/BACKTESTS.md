@@ -1473,3 +1473,78 @@ every other compounding-equity-curve number in this log, and that
 caveat has NOT yet been separately verified for the portfolio case.
 Report the mechanism and the capital-efficiency insight; do not quote
 the +2,265.0% headline as a validated return.
+
+---
+
+## Run 015 - Sequence-risk validation of the portfolio equity curve
+
+**Date**: 2026-09-18
+**Purpose**: The concrete next step Run 014 explicitly flagged - its
+pooled headline return (+2,265.0%) carries the same sequence-risk
+caveat Run 013 proved dominates single-instrument compounding curves,
+plausibly amplified by pooling. This tests that directly.
+
+**Why Run 013's own reshuffle doesn't extend directly**: Run 013
+reorders a single, strictly sequential list of non-overlapping trades -
+valid because one instrument never has two open positions at once. A
+portfolio has THREE such sequential streams (each individually
+non-overlapping, per event_loop.py's own rule) that genuinely overlap
+IN TIME with each other - that concurrency is the entire subject of Run
+014. Reshuffling "all trades" as one flat list without preserving each
+instrument's own internal order would create impossible same-instrument
+overlaps and erase the very thing being tested.
+
+**Method, stated precisely**: `backtesting/portfolio_sequence_risk.py`.
+Riffle-shuffles the INTERLEAVING of the three instruments' own (real,
+historically-ordered) trade sequences - like shuffling three already-
+sorted decks together: each deck's internal order is preserved exactly,
+only their pacing relative to each other is randomized. Held fixed:
+each instrument's own relative trade order, and every trade's real
+entry_premium/exit_premium/strike/duration (priced once from real
+historical data). Varied: the logical arrival time of each instrument's
+trades relative to the other two, which determines what overlaps happen
+and when, and therefore how capital gets allocated. Real calendar dates
+are abandoned for a logical timeline (duration in bars is preserved,
+WHEN a sequence starts is what's randomized) - the same abstraction
+Run 013's own reshuffle already relies on.
+
+**Result** (Run 014's exact portfolio configuration, 5,000 reshuffles):
+
+| | Value |
+|---|---|
+| Observed (real interleaving) | +2,265.0% |
+| Reshuffled mean | **-3.9%** |
+| Reshuffled 90% CI | -8.5% to +20.9% |
+| Reshuffles worse than observed | **100.0%** |
+
+**This is more extreme than Run 013's single-instrument finding, not
+just consistent with it.** Run 013 found NIFTY/SENSEX/BANKNIFTY's
+INDIVIDUAL historical orderings were already near the best-case tail of
+their own possible sequences (reshuffled means +52-64%, still solidly
+positive). Here, the reshuffled MEAN is NEGATIVE - a typical
+interleaving of these same three real trade sequences would produce a
+roughly break-even-to-small-loss outcome, not the reported +2,265.0%
+gain. This makes sense once stated plainly: the portfolio's headline
+combines THREE instruments' individually-already-lucky historical
+orderings into one shared, compounding timeline - stacking favorable
+sequencing three times over, rather than diluting it. Confirms
+precisely what Run 014's own writeup warned was plausible but unproven:
+pooling doesn't just carry single-instrument sequence risk, it
+amplifies it substantially.
+
+**Verdict: Run 014's pooled headline return is now conclusively
+confirmed as an extreme, non-representative outcome, more so than any
+single-instrument compounding number in this entire log.** The
+reshuffled mean (essentially flat, -3.9%) - not the observed +2,265.0% -
+is the honest, decision-relevant estimate of what this exact set of
+real, historically-priced trades would typically produce if pooled
+under a different, equally plausible interleaving. This does not undo
+Run 014's real, structural finding (genuine 3-way concurrency occurs,
+and portfolio pooling is a more realistic model of an actual single
+account than three artificial separate pools) - it means the SPECIFIC
+compounding trajectory Run 014 reported must never be quoted or trusted
+as a representative outcome, on the same footing as Run 008's own
+now-well-understood headline number, only more so. The capital-
+efficiency insight (comparable outcome from a third of the capital)
+remains worth investigating further, but not via this specific
+historical interleaving's percentage return.
