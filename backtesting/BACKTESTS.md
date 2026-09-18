@@ -1157,3 +1157,78 @@ double-breaches possible), this module is ready to answer the question
 for real using the intraday data that exists by then, including
 replaying the actual FIVE_MINUTE sequence rather than just counting
 occurrences.
+
+---
+
+## Run 013 - Sequence-risk validation of the REAL compounding equity curve
+
+**Date**: 2026-09-18
+**Purpose**: Closes a real, standing gap between Run 003 and Run 008.
+Run 003's `monte_carlo_trade_sequence()` reshuffles raw one-conceptual-
+unit P&Ls and recomputes a simple cumulative-sum drawdown - valid for
+that idealized view, but never applied to `equity_simulation.py`'s REAL
+account curve, where reordering trades genuinely changes the OUTCOME,
+not just the drawdown path: lot sizing, equity-protection tier gating,
+and affordability itself all depend on CURRENT capital, which is
+path-dependent under compounding. Run 008's own headline numbers
+(+583% to +2144%) were explicitly flagged as "NOT to be trusted... they're
+inflated by continuous compounding" - this directly tests that, and
+quantifies it for the first time instead of just asserting it.
+
+**Method**: `backtesting/equity_sequence_risk.py`'s
+`monte_carlo_equity_sequence()` - reshuffles the ORDER of Run 008's own
+already-simulated trades (5,000 reshuffles) and replays the compounding
+arithmetic (tier classification, risk-based lot sizing, cost, running
+capital) under each new order.
+
+**A real, honest limitation stated up front, not buried**: each
+trade's strike/entry premium/exit premium is held FIXED at whatever the
+original affordability search chose (which itself depended on the
+ORIGINAL capital path) - this test does not re-run strike selection
+under each counterfactual capital trajectory, since doing so for 5,000
+reshuffles x ~90 trades would be prohibitively slow and isn't necessary
+to isolate the specific question asked here: given the SAME set of
+priced trades, does the ORDER they occur in change the outcome? It is
+an established technique already used elsewhere in this log (Run 003's
+own reshuffle test has the identical character - testing a fixed set of
+outcomes under different orderings, not re-deriving whether those
+outcomes would still occur in a different context).
+
+**Result** (Run 008's exact configuration: 1% risk-per-trade,
+affordability-aware strikes, Rs.50,000 starting capital):
+
+| Instrument | n trades | Observed (real order) | Reshuffled mean | Reshuffled 90% CI | Reshuffles worse than observed |
+|---|---|---|---|---|---|
+| NIFTY | 95 | Rs.381,786 (+663.6%) | Rs.80,187 (+60.4%) | +27.6% to +144.5% | **100.0%** |
+| BANKNIFTY | 76 | Rs.382,492 (+665.0%) | Rs.76,137 (+52.3%) | +7.4% to +168.0% | **100.0%** |
+| SENSEX | 93 | Rs.491,026 (+882.1%) | Rs.82,225 (+64.4%) | +35.9% to +121.0% | **100.0%** |
+
+**This is one of the most consequential findings in this entire log.**
+Every single one of 5,000 random reshuffles, for all three indices,
+produced LESS ending capital than what the real historical trade order
+actually produced. The real chronological sequence was not a
+representative outcome of this trade set - it landed at, or beyond, the
+best-case tail of every plausible ordering tried. A "typical" (mean)
+reordering of the exact same trades produces roughly +52% to +64%, an
+order of magnitude more modest than the +583% to +882% headline numbers
+Run 008 reported and explicitly flagged as untrustworthy. This
+quantifies exactly what Run 008 could only assert qualitatively: the
+headline compounding return is overwhelmingly explained by WHEN the big
+winning trades happened to fall in the real sequence (early, so they
+compounded into larger position sizes for everything after), not by the
+underlying trade-level edge itself.
+
+**Verdict: Run 008's own compounding headline numbers are now
+conclusively confirmed as an artifact of favorable sequencing, not a
+representative estimate of this strategy's real return distribution.**
+The reshuffled mean (+52-64%) - not the observed historical order - is
+the honest, decision-relevant number for what this exact set of trades
+would typically be expected to produce under compounding. This does not
+mean the underlying trades were bad (many other Runs in this log
+already established the raw, pre-compounding edge is real if modest,
+e.g. Run 002R's walk-forward folds) - it means the SPECIFIC compounding
+trajectory reported as Run 008's headline result should never be
+quoted or trusted as a representative outcome, only as one lucky
+realization out of many. Every future compounding-equity-curve result
+in this log (Runs 007-010) should be read with this same caveat unless
+separately sequence-risk-tested.

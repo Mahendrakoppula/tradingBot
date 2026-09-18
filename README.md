@@ -1,6 +1,6 @@
 # Codex — Autonomous ML-Driven Index Options Trading System
 
-Status: **Phase 9, 14, and 15 done, Phase 17/18 structural backbone done, global/derivatives/news context engines done, Phase 7 in progress** (of 18). **IMPORTANT: Run 007 (backtesting/BACKTESTS.md) found the spec's own Rs.50,000 capital cannot afford even one lot of NIFTY/BANKNIFTY/SENSEX options at ATM at a conservative risk-per-trade percentage, given real current lot sizes/premiums. Run 008's affordability-aware strike selection is a genuine partial fix (Rs.50,000 CAN now participate, far-OTM), but its own headline returns are explicitly flagged as untrustworthy (inflated by continuous compounding) - read both entries before assuming this capital figure is workable as stated.** (Phase 1: scaffolding/config/
+Status: **Phase 9, 14, and 15 done, Phase 17/18 structural backbone done, global/derivatives/news context engines done, Phase 7 in progress** (of 18). **IMPORTANT: Run 007 (backtesting/BACKTESTS.md) found the spec's own Rs.50,000 capital cannot afford even one lot of NIFTY/BANKNIFTY/SENSEX options at ATM at a conservative risk-per-trade percentage, given real current lot sizes/premiums. Run 008's affordability-aware strike selection is a genuine partial fix (Rs.50,000 CAN now participate, far-OTM), but its own headline returns are explicitly flagged as untrustworthy (inflated by continuous compounding) - read both entries before assuming this capital figure is workable as stated. Run 013 QUANTIFIES exactly how untrustworthy: reshuffling the order of Run 008's own trades 5,000 times, EVERY SINGLE reshuffle produced less ending capital than the real historical order, on all three indices - the reshuffled mean (+52-64%) is roughly an order of magnitude more modest than Run 008's headline (+583-882%), which sits at the best-case tail of possible orderings, not a representative outcome.** (Phase 1: scaffolding/config/
 logging/notifications/deploy - done. Phase 2: historical OHLCV data
 pipeline + quality engine - done, and real data has now actually been
 pulled (data/raw/, gitignored - see "Local development" below to
@@ -362,7 +362,19 @@ backtesting/  (Phase 12, done) event-driven backtester - processes bars
               untouched. Honestly, only 2 fresh trading days exist so far
               (nowhere near Run 011's smallest fold of ~21 days) - no
               result reported, deliberately, rather than compute one from
-              2 days; revisit after ~20+ fresh days accumulate.
+              2 days; revisit after ~20+ fresh days accumulate. Run 013
+              (equity_sequence_risk.py) closes a gap between Run 003's
+              raw-P&L reshuffle test and Run 008's real compounding
+              curve: reshuffling the ORDER of Run 008's own trades 5,000
+              times (values held fixed, only the sequence varies) shows
+              100% of reshuffles did WORSE than the real historical
+              order, on all three indices - the reshuffled mean
+              (+52-64%) is roughly 10x more modest than Run 008's
+              headline (+583-882%), which sits at the best-case tail of
+              possible orderings. Quantifies, for the first time, what
+              Run 008 could only assert: its headline number is an
+              artifact of favorable sequencing, not a representative
+              outcome - the reshuffled mean is the honest number.
               BACKTESTS.md logs every run honestly, including a real bug
               it caught (daily risk state never resetting between bars)
               and the corrected, still-mixed result after fixing it -
