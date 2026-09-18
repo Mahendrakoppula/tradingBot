@@ -164,3 +164,31 @@ def test_plain_and_hash_helpers():
     assert plain({"a": {1, 2}, "d": dt.date(2026, 9, 16)}) == {"a": [1, 2], "d": "2026-09-16"}
     assert config_hash({"x": 1, "y": 2}) == config_hash({"y": 2, "x": 1})
     assert len(config_hash({})) == 32
+
+
+@pytest.mark.parametrize("name,factory", list(_dals()))
+def test_m3_range_reads_and_strategy_versions(name, factory):
+    dal = _open(factory)
+    try:
+        rid = uuid.uuid4()
+        dal.insert_run(rid, "PAPER", _t(8, 0))
+        dal.insert_signal(rid, signal_id=uuid.uuid4(), setup_id=None, ts=_t(9, 30), mode="PAPER", underlying="NIFTY", direction="up",
+                          stage="RISK_ENGINE", status="risk_rejected", explanation={}, snapshot={}, reason_code="one_lot_exceeds_max_risk")
+        dal.insert_trade_result(rid, None, entry_ts=_t(10, 0), exit_ts=_t(10, 30), entry_price=150.0, exit_price=155.0, quantity=75,
+                                gross_pnl=375.0, costs=60.0, net_pnl=315.0, r_multiple=1.5, exit_reason="TARGET_1", mae=-50.0, mfe=400.0,
+                                details={"strategy": "ORB"})
+        dal.insert_execution(rid, None, _t(10, 0), mode="PAPER", side="BUY", state="POSITION_ACTIVE", broker_order_id="P1", ordertag="t",
+                             requested_price=150.5, fill_price=150.7, quantity=75, filled_quantity=75, latency_ms=700, slippage=0.2, details={})
+        dal.insert_kill_switch_event(rid, _t(11, 0), switch="trading", action="on", reason="daily_loss_cap", details={})
+        day0, day1 = _t(0, 0), _t(23, 59)
+        assert len(dal.runs_between(day0, day1)) == 1 and dal.runs_between(day1, day1) == []
+        assert dal.signals_between(day0, day1)[0]["status"] == "risk_rejected"
+        tr = dal.trade_results_between(day0, day1)
+        assert len(tr) == 1 and float(tr[0]["net_pnl"]) == 315.0 and tr[0]["details"]["strategy"] == "ORB"
+        assert dal.executions_between(day0, day1)[0]["state"] == "POSITION_ACTIVE"
+        assert dal.kill_events_between(day0, day1)[0]["reason"] == "daily_loss_cap"
+        vid = dal.insert_strategy_version("ORB", "0.1", {"decision": "shadow_only"})
+        assert dal.insert_strategy_version("ORB", "0.1", {"decision": "paper"}) == vid
+        assert dal.strategy_versions()[0]["params"]["decision"] == "paper"
+    finally:
+        dal.close()
