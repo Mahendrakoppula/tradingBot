@@ -293,8 +293,15 @@ class PaperLoop(ShadowLoop):
                       decision="approved" if self.execute else "would_trade", strategy=d.candidate.strategy,
                       score=d.score.total, option=d.option.contract.tradingsymbol, quantity=d.risk.quantity,
                       tier=d.risk.tier, ev=d.risk.expected_value, explanation=explanation)
-        head = "PAPER ORDER" if self.execute else f"WOULD TRADE ({self.mode}, no order)"
+        shadow_only = d.candidate.strategy in set(getattr(self.cfg, "shadow_strategies", ()) or ())
+        head = "PAPER ORDER" if (self.execute and not shadow_only) else f"WOULD TRADE ({'shadow-only strategy' if shadow_only else self.mode}, no order)"
         self._alert(f"{head}\n{u} {ev.direction.upper()} {d.option.contract.tradingsymbol} x{d.risk.quantity} @ ~{d.option.ask:.2f}\n\n{render(explanation)}", ctx.ts)
+        if shadow_only:
+            # phase 24: a valid signal deliberately not executed - kept as `valid` with the reason recorded
+            self.stats.__dict__["shadow_only"] = self.stats.__dict__.get("shadow_only", 0) + 1
+            self._journal(self.dal.update_signal_status, d.signal_id, "valid", "shadow_only_strategy")
+            jsonlog.event("pipeline", "shadow_only", underlying=u, signal_id=d.signal_id, strategy=d.candidate.strategy)
+            return
         if self.execute:
             self._enter(d, ctx, now)
 

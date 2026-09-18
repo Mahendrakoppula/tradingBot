@@ -1,0 +1,10 @@
+[Unit]
+Description=Engine review at 15:45 IST (10:15 UTC) on weekdays, after the session and before the pg_dump
+
+[Timer]
+OnCalendar=Mon..Fri 10:15
+AccuracySec=1min
+Persistent=true
+
+[Install]
+WantedBy=timers.target

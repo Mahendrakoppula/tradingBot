@@ -25,7 +25,7 @@ COMMAND_ID=$(aws ssm send-command \
     'unzip -oq /opt/trading-bot/app.zip -d /opt/trading-bot',
     'rm -f /opt/trading-bot/app.zip',
     '/opt/trading-bot/.venv/bin/pip install --quiet -r /opt/trading-bot/requirements.txt',
-    'chmod +x /opt/trading-bot/deploy/fetch_secrets.sh /opt/trading-bot/deploy/sync_state_to_s3.sh /opt/trading-bot/deploy/pgdump_to_s3.sh /opt/trading-bot/deploy/setup_postgres.sh',
+    'chmod +x /opt/trading-bot/deploy/fetch_secrets.sh /opt/trading-bot/deploy/sync_state_to_s3.sh /opt/trading-bot/deploy/pgdump_to_s3.sh /opt/trading-bot/deploy/setup_postgres.sh /opt/trading-bot/deploy/engine_review.sh',
     'chown -R tradingbot:tradingbot /opt/trading-bot',
     'cp /opt/trading-bot/deploy/trading-bot-bootstrap.service /etc/systemd/system/trading-bot-bootstrap.service',
     'cp /opt/trading-bot/deploy/trading-bot.service /etc/systemd/system/trading-bot.service',
@@ -34,6 +34,8 @@ COMMAND_ID=$(aws ssm send-command \
     'cp /opt/trading-bot/deploy/trading-bot-s3-sync.timer /etc/systemd/system/trading-bot-s3-sync.timer',
     'cp /opt/trading-bot/deploy/trading-bot-pgdump.service /etc/systemd/system/trading-bot-pgdump.service',
     'cp /opt/trading-bot/deploy/trading-bot-pgdump.timer /etc/systemd/system/trading-bot-pgdump.timer',
+    'cp /opt/trading-bot/deploy/trading-bot-engine-review.service /etc/systemd/system/trading-bot-engine-review.service',
+    'cp /opt/trading-bot/deploy/trading-bot-engine-review.timer /etc/systemd/system/trading-bot-engine-review.timer',
     'if [ -f /opt/trading-bot/deploy/trading-bot-review.service ]; then cp /opt/trading-bot/deploy/trading-bot-review.service /etc/systemd/system/trading-bot-review.service; fi',
     'if [ -f /opt/trading-bot/deploy/trading-bot-review.timer ]; then cp /opt/trading-bot/deploy/trading-bot-review.timer /etc/systemd/system/trading-bot-review.timer; fi',
     'systemctl daemon-reload',
@@ -41,6 +43,7 @@ COMMAND_ID=$(aws ssm send-command \
     'if [ -f /etc/systemd/system/trading-bot-review.timer ]; then systemctl enable --now trading-bot-review.timer; fi',
     'systemctl start trading-bot.service',
     'systemctl enable --now trading-bot-pgdump.timer',
+    'systemctl enable --now trading-bot-engine-review.timer',
     'systemctl enable --now trading-bot-technical.service'
   ]" \
   --query "Command.CommandId" --output text)

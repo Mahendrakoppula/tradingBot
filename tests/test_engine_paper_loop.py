@@ -207,3 +207,15 @@ def test_session_elapsed():
     assert session_elapsed(dt.datetime(2026, 9, 16, 9, 15, tzinfo=IST)) == 0.0
     assert session_elapsed(dt.datetime(2026, 9, 16, 15, 30, tzinfo=IST)) == 1.0
     assert abs(session_elapsed(dt.datetime(2026, 9, 16, 12, 22, 30, tzinfo=IST)) - 0.5) < 0.01
+
+
+def test_shadow_only_strategy_is_journaled_but_not_executed():
+    import dataclasses as _dc
+    loop, clock = _loop(execute=True, profile="ideal")
+    loop.cfg = _dc.replace(loop.cfg, shadow_strategies=("TREND_PULLBACK", "EMA_PULLBACK", "MTF_CONFLUENCE"))
+    ctx = pipe_t._ctx()
+    _trade_ready(loop, ctx)
+    assert loop.stats.approved == 1 and loop.stats.orders_sent == 0 and loop.book.open == {}
+    assert loop.stats.__dict__["shadow_only"] == 1
+    sig = loop.dal.signals[0]
+    assert sig["status"] == "valid" and sig["reason_code"] == "shadow_only_strategy"
