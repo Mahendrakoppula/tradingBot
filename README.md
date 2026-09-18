@@ -258,7 +258,12 @@ execution/    (done, always simulated - see below) order placement +
 portfolio/    (done) aggregated delta/gamma/vega/theta across NIFTY/
               BANKNIFTY/SENSEX positions, with a concentration check so
               a single instrument can't quietly dominate total exposure
-              even while every individual position looks fine
+              even while every individual position looks fine. The
+              scenario this module was built for - all three instruments
+              genuinely sharing one capital pool - is now actually
+              exercised in a real backtest by
+              backtesting/portfolio_equity_simulation.py (Run 014, see
+              backtesting/ below), not just standalone infrastructure
 backtesting/  (Phase 12, done) event-driven backtester - processes bars
               strictly in order, leakage-free (see event_loop.py's
               docstring for its remaining first-pass simplifications:
@@ -400,7 +405,28 @@ backtesting/  (Phase 12, done) event-driven backtester - processes bars
               of possible orderings. Quantifies, for the first time, what
               Run 008 could only assert: its headline number is an
               artifact of favorable sequencing, not a representative
-              outcome - the reshuffled mean is the honest number.
+              outcome - the reshuffled mean is the honest number. Run
+              014 (portfolio_equity_simulation.py) closes the biggest
+              remaining structural gap: every prior Run treats
+              NIFTY/BANKNIFTY/SENSEX as three INDEPENDENT Rs.50,000
+              accounts, never one real account where all three compete
+              for the same capital. Reuses each instrument's own
+              entry/exit timing unchanged, adds a genuinely new
+              mechanic (tracking cash actually locked up in open
+              positions, not just capital settled at exit) - verified
+              exactly correct in the degenerate single-instrument case
+              (bit-for-bit match with the existing simulation). Real
+              3-way concurrency occurs at least once across the 5-year
+              history, and the pooled account reaches ~97% of the
+              ABSOLUTE ending capital three separate pools would reach
+              combined, using only 1/3 the total capital (Rs.50,000 vs
+              Rs.150,000) - a genuine capital-efficiency finding.
+              Explicitly NOT claiming the pooled headline return itself
+              is validated: it carries the same sequence-risk caveat
+              Run 013 already proved dominates these compounding
+              curves, likely amplified by pooling three instruments'
+              trades into one shared trajectory - sequence-risk testing
+              the portfolio curve is the flagged, not-yet-done next step.
               BACKTESTS.md logs every run honestly, including a real bug
               it caught (daily risk state never resetting between bars)
               and the corrected, still-mixed result after fixing it -

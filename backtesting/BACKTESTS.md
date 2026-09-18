@@ -1351,3 +1351,125 @@ mismatch was data drift, not the same bug. Stated with appropriate
 hedging (the exact original code isn't available to confirm with
 certainty), but no longer an open question - see Run 008's update for
 the full comparison table.
+
+---
+
+## Run 014 - Portfolio-level equity simulation: one shared capital pool, not three
+
+**Date**: 2026-09-18
+**Purpose**: Closes the biggest remaining structural gap in this
+backtesting system. Every Run through 013 treats NIFTY/BANKNIFTY/
+SENSEX as three INDEPENDENT Rs.50,000 accounts, each with its own
+capital, tiers, and affordability search. A real account is ONE pool
+of capital all three instruments' signals compete for simultaneously -
+portfolio/greek_aggregation.py's concentration check was built for
+exactly this scenario but has never been wired into an actual,
+capital-constrained backtest until now.
+
+**Method**: `backtesting/portfolio_equity_simulation.py`'s
+`simulate_portfolio_equity_curve()`. Deliberately reuses each
+instrument's entry/exit TIMING decisions UNCHANGED from independently-
+run `backtesting.event_loop.run_backtest()` calls, exactly as every
+prior Run already does - Investigation 001/Run 004 established strike
+choice (and by extension, capital availability) is orthogonal to entry
+timing, so there's no need to re-decide WHEN to trade, only whether a
+shared, finite pool of capital can afford a trade the moment it wants
+to enter, given what OTHER instruments' currently-open positions may
+already have locked up. Verified directly (not assumed) that NIFTY/
+BANKNIFTY/SENSEX's real ONE_DAY data shares the EXACT same 1,241-day
+trading calendar, so trades from all three merge into one true
+chronological event stream by row index alone, no date-reindexing
+needed.
+
+**The key new mechanic, absent from every prior Run because it never
+mattered with only one instrument at a time**: a bought option's
+premium is paid in CASH at entry and only returned (plus/minus P&L) at
+exit. With genuine concurrency, three simultaneously-open positions
+really do lock up real cash a fourth signal cannot spend twice - this
+module tracks free cash explicitly, unlike equity_simulation.py's
+single-instrument loop, which only ever needed "current capital" and
+"free cash" to be the same number.
+
+**Honest limitation, stated up front**: equity-protection tier
+classification and risk budgeting use FREE CASH, not mark-to-market
+portfolio equity (free cash + current value of open positions) - a
+conservative simplification that understates true equity while
+positions are open, chosen because repricing every open position at
+every event would add real complexity without changing the qualitative
+question this Run exists to answer.
+
+**Correctness check, not just a result**: with only one instrument
+populated, the shared-cash accounting reduces to EXACTLY the same
+capital trajectory as the existing single-instrument
+`simulate_equity_curve_with_affordable_contracts()` - verified as an
+exact numeric match (`tests/test_portfolio_equity_simulation.py`), not
+an approximation, since entry_cost is deducted at entry and refunded in
+full (plus/minus net P&L) at exit, which algebraically nets to the same
+"+= net_pnl" the single-instrument version does directly.
+
+**Result** (1% risk-per-trade, real lot sizes/strike increments, full
+5-year history):
+
+| | Trades | Skipped | Ending capital | Return | Starting capital |
+|---|---|---|---|---|---|
+| NIFTY (independent) | 95 | 0 | Rs.381,786 | +663.6% | Rs.50,000 |
+| BANKNIFTY (independent) | 94 | 3 | Rs.343,138 | +586.3% | Rs.50,000 |
+| SENSEX (independent) | 93 | 1 | Rs.491,026 | +882.1% | Rs.50,000 |
+| **Three independent pools, combined** | **282** | **4** | **Rs.1,215,950** | **+710.6%** | **Rs.150,000 total** |
+| **Portfolio (one shared pool)** | **286** | **0** | **Rs.1,182,479** | **+2,265.0%** | **Rs.50,000 total** |
+
+Max concurrent positions in the portfolio run: **3** (all three
+instruments genuinely held positions simultaneously at least once) -
+confirming real concurrency actually occurs with this trade set, not
+just a theoretical possibility.
+
+**Two genuine, non-obvious findings, not assumed ahead of time**:
+1. The portfolio afforded MORE total trades (286 vs 282) than the sum
+   of three independent pools, including recovering all 4 trades any
+   independent pool had to skip as unaffordable. Pooled capital isn't
+   simply "more constrained" by concurrency (which is real - 3
+   simultaneous positions did occur) - it also compounds FASTER in
+   aggregate, since a gain in any one instrument boosts capital
+   available to all three, not just its own instrument's separate,
+   smaller pool. Which effect dominates was not obvious ahead of time
+   and isn't a general law - it's an empirical property of this
+   specific trade set and risk level.
+2. Despite genuine 3-way concurrency, ZERO trades were skipped for lack
+   of cash in the portfolio run. By the time real overlap occurred, the
+   shared pool had already compounded large enough that cash
+   contention, while structurally real (the mechanic this Run exists to
+   model), never actually bound in practice for this specific
+   historical run and risk level.
+
+**The capital-efficiency case, stated plainly**: the portfolio reaches
+nearly the SAME absolute ending capital (Rs.1,182,479 vs Rs.1,215,950,
+97% as much) starting from ONE THIRD the total capital (Rs.50,000 vs
+Rs.150,000) - a genuinely different, and more realistic, picture of
+what this trade set can do with the spec's own stated Rs.50,000
+starting capital than any single-instrument Run in this log has shown.
+
+**The same sequence-risk caveat Run 013 established applies here too,
+likely even more so - NOT independently re-tested in this Run**: this
+is a single, continuously-compounding, non-independent-fold headline
+number, exactly the kind Run 013 already proved is frequently dominated
+by favorable trade-order sequencing rather than real edge. Pooling
+three instruments' trades into one shared, compounding trajectory
+plausibly AMPLIFIES this same risk (more trades sharing one compounding
+path means more opportunities for early-sequence luck to compound
+through the whole curve) - not diminishes it. The +2,265.0% figure
+above must NOT be read as validated or even directionally reliable
+until sequence-risk tested the same way Run 013 tested the single-
+instrument case. This is the concrete, explicitly flagged next step,
+not done here.
+
+**Verdict**: the structural capability this log has been missing since
+Run 001 now exists and is verified correct (exact match in the
+degenerate single-instrument case, genuine concurrency confirmed in the
+real multi-instrument case). The capital-efficiency finding (comparable
+absolute return from a third of the capital) is a real, structurally-
+grounded result, not a fluke of pricing - but the specific headline
+percentage carries the same well-established sequence-risk caveat as
+every other compounding-equity-curve number in this log, and that
+caveat has NOT yet been separately verified for the portfolio case.
+Report the mechanism and the capital-efficiency insight; do not quote
+the +2,265.0% headline as a validated return.
