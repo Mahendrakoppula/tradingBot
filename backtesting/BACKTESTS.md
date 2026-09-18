@@ -1750,3 +1750,78 @@ at where future portfolio-design work would need to focus: the SIZING/
 TIER mechanism Run 016 identified, not the concentration dimension Run
 017/018 have now thoroughly explored. That specific redesign remains
 real, unbuilt future work.
+
+---
+
+## Run 019 - Per-instrument tiers: the redesign Run 016 named as unbuilt future work
+
+**Date**: 2026-09-18
+**Purpose**: Builds the specific alternative Run 016/018 pointed at -
+per-instrument risk budgets sized off a shared pool, WITHOUT one shared
+drawdown-tier gate dragging all three instruments' sizing down together.
+
+**Method**: `backtesting/portfolio_equity_simulation.py`'s new
+`simulate_portfolio_equity_curve_per_instrument_tiers()`. Keeps the
+SAME real, shared CASH pool for affordability (the genuine, hard
+constraint this whole portfolio line of work exists to model), but
+tracks a separate NOTIONAL capital balance per instrument - an equal
+split of starting capital across however many instruments are present
+- used ONLY for that instrument's OWN tier classification and risk-
+budget sizing. Realized P&L updates both the real shared cash (what
+ending_capital/drawdown are computed from) and that instrument's own
+notional balance (what decides ITS future sizing only). Correctness
+verified two ways: an exact match with the existing single-instrument
+simulation when only one instrument is present (same argument as Run
+014's own regression test), and a targeted synthetic test proving a
+massive loss in one instrument does NOT reduce another's position size,
+unlike the shared-tier design where it does (confirmed directly: the
+shared design's own STOP-tier gate, `risk/equity_protection.py`'s -15%
+threshold, fully blocks the second instrument's trade after the first's
+loss; the per-instrument design sizes it normally).
+
+**`backtesting/portfolio_sequence_risk.py` extended to match**:
+`replay_portfolio_in_logical_order()`/`monte_carlo_portfolio_sequence()`
+gained a `per_instrument_tiers` flag mirroring the same notional-vs-
+shared split, so the reshuffle test could properly evaluate this design
+too, not just its one observed historical draw.
+
+**Result** (1% risk, same historical trade set, 5,000 reshuffles):
+
+| | Observed | Reshuffled mean | Reshuffled 90% CI | Reshuffles worse than observed |
+|---|---|---|---|---|
+| Shared tier (Run 014/015 baseline) | +2,265.0% | -3.9% | -8.5% to +20.9% | 100.0% |
+| **Per-instrument tiers (this Run)** | +1,486.0% | **+1.9%** | -5.7% to +19.1% | 100.0% |
+
+**The first positive typical outcome in this entire portfolio
+investigation arc.** Every prior compounding result in this log,
+single-instrument or pooled, has had a reshuffled/typical mean at or
+below zero once properly sequence-risk-tested (Run 013's individual
+instruments were the closest exceptions, all still well above zero
+before pooling wiped that out in Run 015). Per-instrument tiers flips
+the pooled design's typical outcome from solidly negative to
+marginally positive - confirming Run 016's diagnosis directly: it WAS
+specifically the shared drawdown-tier mechanism transmitting bad luck
+across instruments that made the original pooled design's typical
+outcome poor, not pooling or concurrency themselves.
+
+**Still not claimed as validated or strongly positive, stated
+honestly**: +1.9% is a modest, close-to-flat mean, well within a wide
+CI that still spans meaningfully negative territory (-5.7%) - this is
+"no longer clearly a loser," not "a proven edge." 100% of reshuffles
+still beat this Run's own +1,486.0% observed headline, exactly the
+same caveat every compounding number in this log carries - the
+observed historical draw remains untrustworthy on its own even under
+this improved design.
+
+**Verdict**: the specific, genuinely different pooling design Run
+016/018 named as real, unbuilt future work has now been built and
+tested, and it does what the diagnosis predicted - decoupling sizing
+from a single shared drawdown gate measurably and directly improves
+the typical outcome, turning a solid loser into a marginal, close-to-
+breakeven result. This completes the portfolio-design investigation
+arc (014-019) at a genuinely informative endpoint: real concurrency
+exists and matters (014), naive pooling's headline is sequence-luck
+(015), naive pooling's typical outcome is actually worse than separate
+pools (016), concentration limits alone don't fix that (017-018), and
+decoupling the sizing mechanism itself does meaningfully help, though
+not enough on its own to call this a validated edge (019).

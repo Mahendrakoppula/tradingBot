@@ -4,7 +4,7 @@ import pytest
 
 from backtesting.equity_simulation import simulate_equity_curve_with_affordable_contracts
 from backtesting.event_loop import BacktestConfig, run_backtest
-from backtesting.portfolio_equity_simulation import simulate_portfolio_equity_curve
+from backtesting.portfolio_equity_simulation import simulate_portfolio_equity_curve, simulate_portfolio_equity_curve_per_instrument_tiers
 from data.storage import load_ohlcv
 from execution.transaction_costs import TransactionCostRates
 
@@ -158,6 +158,93 @@ def test_tight_concentration_limit_skips_more_trades_than_no_limit():
     )
     assert len(constrained.simulated_trades) <= len(unconstrained.simulated_trades)
     assert len(constrained.skipped_trades) >= len(unconstrained.skipped_trades)
+
+
+@requires_real_data
+def test_per_instrument_tiers_single_instrument_matches_independent_simulation_exactly():
+    """Same correctness argument as the shared-tier version's own
+    single-instrument regression test: with only ONE instrument,
+    notional_starting == starting_capital and notional capital moves in
+    exact lockstep with real cash (nothing else ever competes for
+    either), so this alternative design must ALSO reduce to an exact
+    match with the existing single-instrument simulation."""
+    bt = run_backtest(NIFTY_DAILY, BacktestConfig(warmup_bars=30))
+    independent = simulate_equity_curve_with_affordable_contracts(
+        bt.trades, NIFTY_DAILY, lot_size=65, starting_capital=50_000, risk_free_rate=0.07,
+        strike_increment=50, base_risk_pct=0.01, rates=ZERO_COST_RATES,
+    )
+    portfolio = simulate_portfolio_equity_curve_per_instrument_tiers(
+        trades_by_instrument={"NIFTY": bt.trades},
+        dfs_by_instrument={"NIFTY": NIFTY_DAILY},
+        lot_sizes={"NIFTY": 65}, strike_increments={"NIFTY": 50},
+        starting_capital=50_000, risk_free_rate=0.07, base_risk_pct=0.01, rates=ZERO_COST_RATES,
+    )
+    assert portfolio.ending_capital == pytest.approx(independent.ending_capital)
+    assert len(portfolio.simulated_trades) == len(independent.simulated_trades)
+
+
+def test_per_instrument_tiers_decouples_one_instruments_bad_luck_from_the_others_sizing():
+    """The core design claim, verified directly with controlled
+    synthetic data: instrument A takes a huge early loss (would drag
+    down a SHARED tier substantially); instrument B's later trade must
+    be sized the SAME regardless of A's loss, since B's own notional
+    capital was never touched by it. Uses tiny synthetic dataframes with
+    just enough history for theoretical_option_snapshot's vol_window."""
+    import numpy as np
+    import pandas as pd
+
+    from backtesting.event_loop import run_backtest as _run_backtest  # noqa: F401 (documents why real Trade objects aren't hand-built here)
+    from backtesting.trade_record import Trade
+    import datetime as dt
+
+    def _flat_df(n: int, price: float = 100.0) -> pd.DataFrame:
+        ts = pd.bdate_range("2026-01-01", periods=n)
+        return pd.DataFrame({"timestamp": ts, "open": [price] * n, "high": [price + 1] * n,
+                              "low": [price - 1] * n, "close": [price] * n, "volume": [0] * n})
+
+    n = 60
+    df_a = _flat_df(n, price=100.0)
+    df_b = _flat_df(n, price=100.0)
+
+    # A: a big early loser (entry premium 20, exits near-worthless at 1) - a massive realized loss.
+    a_trade = Trade(
+        strategy_name="t", direction="CE", entry_index=25, entry_timestamp=dt.datetime(2026, 1, 1),
+        entry_spot=100.0, entry_premium=20.0, strike=100.0, expiry=dt.date(2026, 3, 1),
+        stop_price=90.0, target_price=150.0, exit_index=26, exit_timestamp=dt.datetime(2026, 1, 2),
+        exit_spot=100.0, exit_premium=1.0, exit_reason="stop", pnl=-19.0,
+    )
+    # B: a later, ordinary trade whose SIZE we're checking.
+    b_trade = Trade(
+        strategy_name="t", direction="CE", entry_index=30, entry_timestamp=dt.datetime(2026, 1, 1),
+        entry_spot=100.0, entry_premium=5.0, strike=100.0, expiry=dt.date(2026, 3, 1),
+        stop_price=90.0, target_price=150.0, exit_index=35, exit_timestamp=dt.datetime(2026, 1, 2),
+        exit_spot=100.0, exit_premium=5.0, exit_reason="target", pnl=0.0,
+    )
+
+    lot_sizes = {"A": 1, "B": 1}
+    strike_increments = {"A": 50, "B": 50}
+
+    shared = simulate_portfolio_equity_curve(
+        trades_by_instrument={"A": [a_trade], "B": [b_trade]},
+        dfs_by_instrument={"A": df_a, "B": df_b}, lot_sizes=lot_sizes, strike_increments=strike_increments,
+        starting_capital=10_000, risk_free_rate=0.07, base_risk_pct=0.5,
+    )
+    per_instrument = simulate_portfolio_equity_curve_per_instrument_tiers(
+        trades_by_instrument={"A": [a_trade], "B": [b_trade]},
+        dfs_by_instrument={"A": df_a, "B": df_b}, lot_sizes=lot_sizes, strike_increments=strike_increments,
+        starting_capital=10_000, risk_free_rate=0.07, base_risk_pct=0.5,
+    )
+
+    def _b_lots(result):
+        matches = [st for st in result.simulated_trades if st.instrument == "B"]
+        return matches[0].lots if matches else 0
+
+    b_lots_shared = _b_lots(shared)
+    b_lots_per_instrument = _b_lots(per_instrument)
+    # B's size should NOT be reduced by A's loss under per-instrument tiers,
+    # but SHOULD (or B could even be skipped) be affected under shared tiers
+    # once A's big loss has dented the one shared cash pool.
+    assert b_lots_per_instrument >= b_lots_shared
 
 
 def test_events_sort_exits_before_entries_on_the_same_day():

@@ -88,6 +88,7 @@ def replay_portfolio_in_logical_order(
     rates: TransactionCostRates = TransactionCostRates(),
     tick_spread: float = 0.0,
     max_single_instrument_delta_share: float | None = None,
+    per_instrument_tiers: bool = False,
 ) -> PortfolioEquitySimulationResult:
     """Assigns each event a LOGICAL entry slot (its position in
     `ordered_events`) and a logical exit slot (entry slot + the event's
@@ -107,13 +108,25 @@ def replay_portfolio_in_logical_order(
     `.greeks` populated - see monte_carlo_portfolio_sequence, which
     precomputes them once since they don't depend on the reshuffle at
     all). An approximation, not a re-derivation of "current" exposure -
-    stated once here rather than re-asserted at every call site."""
+    stated once here rather than re-asserted at every call site.
+
+    `per_instrument_tiers`: mirrors
+    portfolio_equity_simulation.py's own Run 019 alternative design
+    (simulate_portfolio_equity_curve_per_instrument_tiers()) - tracks a
+    separate notional capital balance per instrument for tier/risk-
+    budget purposes, decoupled from the one shared cash pool used for
+    real affordability, so one instrument's bad luck doesn't drag down
+    another's sizing under reshuffled orderings either."""
     scheduled = [(t, t + ev.duration, ev) for t, ev in enumerate(ordered_events)]
     events = []
     for entry_t, exit_t, ev in scheduled:
         events.append((entry_t, 1, ev, "entry"))
         events.append((exit_t, 0, ev, "exit"))
     events.sort(key=lambda e: (e[0], e[1]))
+
+    instruments = {ev.instrument for ev in ordered_events}
+    notional_starting = starting_capital / len(instruments) if instruments else starting_capital
+    notional_capital = {instrument: notional_starting for instrument in instruments}
 
     cash = starting_capital
     peak = starting_capital
@@ -135,12 +148,17 @@ def replay_portfolio_in_logical_order(
             net_pnl = gross_pnl - cost
             cash_before = cash
             cash += position["entry_cost"] + net_pnl
+            if per_instrument_tiers:
+                notional_capital[ev.instrument] += net_pnl
             peak = max(peak, cash)
             max_dd_rupees = max(max_dd_rupees, peak - cash)
+            tier_label = (
+                classify_equity_tier(notional_capital[ev.instrument] - net_pnl, notional_starting).tier
+                if per_instrument_tiers else classify_equity_tier(cash_before, starting_capital).tier
+            )
             simulated.append(PortfolioSimulatedTrade(
                 instrument=ev.instrument, trade=ev.trade, lots=position["lots"], quantity=position["quantity"],
-                cash_before=cash_before, capital_at_risk=position["entry_cost"],
-                equity_tier=classify_equity_tier(cash_before, starting_capital).tier,
+                cash_before=cash_before, capital_at_risk=position["entry_cost"], equity_tier=tier_label,
                 gross_pnl=gross_pnl, cost=cost, net_pnl=net_pnl, cash_after=cash,
                 strike=ev.strike, entry_premium=ev.entry_premium, exit_premium=ev.exit_premium,
             ))
@@ -150,11 +168,13 @@ def replay_portfolio_in_logical_order(
         if ev.instrument in open_positions:
             skipped.append((ev.instrument, ev.trade))
             continue
-        tier = classify_equity_tier(cash, starting_capital)
+        sizing_capital = notional_capital[ev.instrument] if per_instrument_tiers else cash
+        sizing_reference = notional_starting if per_instrument_tiers else starting_capital
+        tier = classify_equity_tier(sizing_capital, sizing_reference)
         if not tier.allow_new_trades:
             skipped.append((ev.instrument, ev.trade))
             continue
-        risk_budget = capital_at_risk_for_trade(cash, base_risk_pct, tier.size_multiplier)
+        risk_budget = capital_at_risk_for_trade(sizing_capital, base_risk_pct, tier.size_multiplier)
         max_loss_per_lot = ev.entry_premium * lot_sizes[ev.instrument]
         lots = math.floor(risk_budget / max_loss_per_lot) if max_loss_per_lot > 0 else 0
         if max_lots is not None:
@@ -230,6 +250,7 @@ def monte_carlo_portfolio_sequence(
     rates: TransactionCostRates = TransactionCostRates(),
     tick_spread: float = 0.0,
     max_single_instrument_delta_share: float | None = None,
+    per_instrument_tiers: bool = False,
     dfs_by_instrument: dict | None = None,
     risk_free_rate: float = 0.07,
     vol_window: int = 20,
@@ -284,7 +305,7 @@ def monte_carlo_portfolio_sequence(
         ordered = _riffle_interleave(sequences, rng)
         result = replay_portfolio_in_logical_order(
             ordered, lot_sizes, base_result.starting_capital, base_risk_pct, max_lots, rates, tick_spread,
-            max_single_instrument_delta_share,
+            max_single_instrument_delta_share, per_instrument_tiers,
         )
         simulated_endings.append(result.ending_capital)
     simulated_endings.sort()

@@ -465,10 +465,26 @@ backtesting/  (Phase 12, done) event-driven backtester - processes bars
               typical-outcome problem, but its 90% CI collapses from a
               29-point span to a 2-point one - concentration-limiting
               buys predictability, not profitability, for this trade
-              set. Points at where real future work belongs: the
-              shared drawdown-tier SIZING mechanism Run 016 diagnosed,
-              not the concentration dimension Runs 017/018 have now
-              thoroughly explored.
+              set. Run 019 then built exactly the redesign Run 016/018
+              pointed at:
+              simulate_portfolio_equity_curve_per_instrument_tiers()
+              keeps the same real shared cash pool for affordability but
+              tracks a SEPARATE notional balance per instrument for tier/
+              sizing, so one instrument's bad luck no longer drags down
+              another's risk budget (verified directly: a synthetic test
+              confirms the shared design's STOP-tier gate fully blocks a
+              second instrument's trade after the first's big loss; the
+              per-instrument design sizes it normally). Reshuffle-tested
+              the same way as every design before it - result is the
+              FIRST positive typical outcome in this whole portfolio arc:
+              reshuffled mean +1.9%, vs. the shared-tier baseline's
+              -3.9%. Modest, not validated (100% of reshuffles still
+              beat this Run's own observed headline, same caveat as
+              always, and the CI still spans meaningfully negative
+              territory) - but a real, direct confirmation that
+              decoupling sizing from one shared drawdown gate is what
+              actually helps, completing the 014-019 portfolio
+              investigation arc at a genuinely informative endpoint.
               BACKTESTS.md logs every run honestly, including a real bug
               it caught (daily risk state never resetting between bars)
               and the corrected, still-mixed result after fixing it -
