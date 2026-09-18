@@ -1232,3 +1232,44 @@ quoted or trusted as a representative outcome, only as one lucky
 realization out of many. Every future compounding-equity-curve result
 in this log (Runs 007-010) should be read with this same caveat unless
 separately sequence-risk-tested.
+
+**Update (2026-09-18) - robustness check: does this hold across risk
+levels and realistic transaction costs, or is it specific to Run 008's
+exact 1% config?** NIFTY only (Run 013 already confirmed near-identical
+behavior across all three indices for the base case; matches Run 009's
+own precedent of using NIFTY for a detailed parameter sweep).
+
+Risk-level sweep (zero slippage, 3,000 reshuffles each):
+
+| Risk per trade | Observed | Reshuffled mean | Reshuffled 90% CI | Reshuffles worse than observed |
+|---|---|---|---|---|
+| 0.5% | +352.8% | +40.3% | +20.9% to +101.6% | 100.0% |
+| 1.0% | +663.6% | +60.6% | +27.6% to +152.0% | 100.0% |
+| 2.0% | +837.9% | +74.4% | +43.5% to +152.2% | 100.0% |
+| 5.0% | +801.5% | +218.0% | +40.8% to +707.2% | 96.3% |
+
+Tick-slippage sweep (fixed 1% risk, Run 009's own tested tick levels,
+3,000 reshuffles each):
+
+| Tick spread (round-trip) | Observed | Reshuffled mean | Reshuffles worse than observed |
+|---|---|---|---|
+| Rs.0.00 | +663.6% | +60.6% | 100.0% |
+| Rs.1.00 | +663.0% | +60.6% | 100.0% |
+| Rs.2.50 | +662.0% | +60.5% | 100.0% |
+| Rs.5.00 | +660.5% | +60.3% | 100.0% |
+
+**The finding is robust, not an artifact of one specific configuration.**
+Sequence risk stays essentially total (100% of reshuffles worse) from
+0.5% through 2% risk-per-trade, and remains dominant even at 5% risk
+(96.3%) - though the reshuffled distribution widens dramatically there
+(CI span 40.8% to 707.2%, vs. a much tighter spread at lower risk),
+consistent with equity-protection tier gating and position sizing
+interacting more chaotically with trade order once risk-per-trade gets
+aggressive. Realistic transaction costs change almost nothing: the
+tick-slippage sweep is nearly IDENTICAL across the full Rs.0-5/unit
+range Run 009 tested, since a per-trade slippage cost is a small,
+roughly uniform drag regardless of sequencing - it doesn't change WHICH
+order is favorable, only shaves a small, consistent amount off every
+outcome. Confirms this isn't a fragile, config-specific result: any
+reasonable risk level or slippage assumption in this log's own tested
+range shows the same conclusion.
