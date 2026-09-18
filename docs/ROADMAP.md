@@ -57,16 +57,16 @@ CONFIRMING→TRADE_READY leg) — see `trading_bot/engine/shadow.py`. M2 revisit
 | 15 | Risk / Position Sizing / Costs | [x] | M2 | `engine/risk_engine.py`: §29 priority order, all-in per-unit sizing, EV, tiers A/B/C, account limits, CostBreakdown. |
 | 16 | Execution Engine | [x] paper | M2 | `engine/execution/`: snapshot lock + drift, gate, 12-state order machine, timeouts/partials/duplicates/latency, PaperBroker (3 profiles). Live adapter is M4. |
 | 17 | Portfolio / Reconciliation | [x] | M2 | `engine/positions.py`: PositionBook, reconcile() vs broker, KillSwitches + circuit breaker, EOD sweep. |
-| 18 | Backtest | [~] | M3 | `framework/backtest_engine.py` (bar-by-bar, spot-proxy for options), `backtest_technical.py` resampler. **Missing**: event-driven multi-TF replay through the SAME engine used live (§51 parity), option-premium proxy honesty. |
+| 18 | Backtest | [x] | M3 | `engine/research/backtest.py` through PaperLoop; model option chain (BS, spot-only); no-lookahead test. Real option-chain history accrues from `option_chain_snapshots` for a later, better model. |
 | 19 | Journal / Dataset | [x] | M2 | All schema-v1 tables populated: signals (status), risk_decisions, executions, trade_results, kill_switch_events, option_chain_snapshots; `engine/rejections.py` §72 dataset. |
-| 20 | EOD Analysis | [~] | M2 | `engine/eod.py`: signals by status, trades/wins/gross/costs/net, exit reasons, rejections by stage. Per-fingerprint/strategy breakdowns and the nightly review are M3. |
-| 21 | Walk-Forward | [~] | M3 | `framework/walk_forward.py` (chronological, no embargo). |
-| 22 | Monte Carlo | [~] | M3 | `framework/monte_carlo.py` (bootstrap P&L, ruin). |
+| 20 | EOD Analysis | [x] | M3 | `engine/eod.py` session summary + `engine/research/review.py` daily review (§71), rejected-signal analysis (§72). Nightly automation of the review is M4 observability. |
+| 21 | Walk-Forward | [x] | M3 | `validation.walk_forward()` chronological windows + `coverage()` (§75). No fitting step by design (§84). |
+| 22 | Monte Carlo | [x] | M3 | `validation.monte_carlo()` bootstrap: final-net/dd percentiles, ruin probability, streaks, adverse-execution stress (§76). |
 | 23 | Paper Trading | [x] | M2 | `engine/paper_loop.py` PaperLoop: SHADOW (journal) and PAPER (paper broker) on the same pipeline. |
-| 24 | Shadow Strategies | [ ] | M3 | Run candidate strategies in SHADOW alongside PAPER, compare (§81). |
+| 24 | Shadow Strategies | [~] | M3 | SHADOW mode journals every family's decision; per-strategy kill switches exist. A per-strategy 'shadow only' flag (journal but never execute in PAPER) is the remaining piece. |
 | 25 | Controlled Live Deployment | [ ] | M4 | Gated on §79 gates 1–4; start at ₹60–75 risk (§80). |
 | 26 | Live Observability | [~] | M4 | Telegram notifiers, systemd/journalctl, S3 sync. **Missing**: health monitoring (§87), latency/slippage dashboards. |
-| 27 | Continuous Research | [~] | M4 | Nightly agent + framework runners. |
+| 27 | Continuous Research | [x] tooling | M4 | `research_cli` metrics/review/gates/walkforward/montecarlo/backtest/counterfactuals; `strategy_versions` promotion records (§83). |
 | 28 | Future AI/ML/NLP | [ ] | — | Explicitly out of V1 (§82). |
 
 ## M2 build order — PAPER (one PR each, every one green on CI)
@@ -93,6 +93,19 @@ M2 gate: a full paper session with realistic fills, every signal (taken or
 rejected) journaled with its 20-key explanation and risk decision, EOD report
 with gross/costs/net, reconciliation clean, zero real orders.
 
+## M3 build order — validation (built 2026-09-18, four stacked branches)
+
+| Step | Branch | Spec | Delivers |
+|---|---|---|---|
+| 1 | `feature/m3-metrics` | §77 §63 | `engine/research/metrics.py`: full metric set on net P&L, segmentation, fingerprint stats with a `reliable` flag |
+| 2 | `feature/m3-backtest` | §73 §84 | `engine/research/backtest.py`: replay a date range through the SAME PaperLoop + paper broker; spot-only model option chain; no-lookahead test |
+| 3 | `feature/m3-validation` | §75 §76 §79 §81 | walk-forward windows + coverage, Monte Carlo (dd/ruin/streaks/slippage stress), parameter sensitivity, execution parity, the four gates |
+| 4 | `feature/m3-review` | §71 §72 §83 | daily review, rejected-signal analysis, underlying-only counterfactuals kept separate, promotion record -> `strategy_versions`; `python -m trading_bot.research_cli` |
+
+M3 gate is not code: it is 4–12 weeks of PAPER sessions journaled to Postgres,
+then `research_cli gates` reporting ALL GATES PASSED, then a human promotion
+record per strategy (§83). Nothing in M3 changes engine behaviour.
+
 ## Where things live
 
 | Area | Module |
@@ -112,4 +125,5 @@ with gross/costs/net, reconciliation clean, zero real orders.
 | Postgres schema / DAL / memory twin | `engine/db/` |
 | Loop, replay, EOD, instruments | `engine/shadow.py`, `engine/replay.py`, `engine/eod.py`, `engine/instruments.py` |
 | Entry point | `run_technical.py` |
+| Research / validation | `engine/research/` (metrics, backtest, validation, review), `research_cli.py` |
 | Safety guard | `tests/test_engine_no_orders.py`, `tests/test_config_bounds.py` |

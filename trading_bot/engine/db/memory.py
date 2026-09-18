@@ -27,6 +27,7 @@ class MemoryDAL:
         self.trade_results: list[dict] = []
         self.kill_switch_events: list[dict] = []
         self.option_chain_snapshots: list[dict] = []
+        self.strategy_version_rows: list[dict] = []
         self.migrated: list[int] = []
 
     # --- lifecycle ---------------------------------------------------------------
@@ -170,6 +171,35 @@ class MemoryDAL:
 
     def risk_decisions_for_run(self, run_id) -> list[dict]:
         return [copy.deepcopy(r) for r in self.risk_decisions if r["run_id"] == str(run_id)]
+
+    # --- M3 research reads -------------------------------------------------------------------------------
+
+    def runs_between(self, start, end) -> list[dict]:
+        return sorted([copy.deepcopy(r) for r in self.runs.values() if start <= r["started_at"] < end], key=lambda r: r["started_at"])
+
+    def signals_between(self, start, end) -> list[dict]:
+        return sorted([copy.deepcopy(s) for s in self.signals if start <= s["ts"] < end], key=lambda r: (r["ts"], r["underlying"], r["direction"]))
+
+    def trade_results_between(self, start, end) -> list[dict]:
+        return sorted([copy.deepcopy(t) for t in self.trade_results if start <= t["exit_ts"] < end], key=lambda r: r["exit_ts"])
+
+    def executions_between(self, start, end) -> list[dict]:
+        return [copy.deepcopy(e) for e in self.executions if start <= e["ts"] < end]
+
+    def kill_events_between(self, start, end) -> list[dict]:
+        return [copy.deepcopy(k) for k in self.kill_switch_events if start <= k["ts"] < end]
+
+    def insert_strategy_version(self, strategy, version, params) -> int:
+        for r in self.strategy_version_rows:
+            if r["strategy"] == strategy and r["version"] == version:
+                r["params"] = _plain(params)
+                return r["id"]
+        self.strategy_version_rows.append({"id": len(self.strategy_version_rows) + 1, "strategy": strategy, "version": version,
+                                           "params": _plain(params)})
+        return self.strategy_version_rows[-1]["id"]
+
+    def strategy_versions(self) -> list[dict]:
+        return sorted((copy.deepcopy(r) for r in self.strategy_version_rows), key=lambda r: (r["strategy"], r["version"]))
 
     # --- reads --------------------------------------------------------------------------------------
 

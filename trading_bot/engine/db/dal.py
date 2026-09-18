@@ -251,6 +251,38 @@ class Database:
         rows = self.conn.execute("SELECT * FROM risk_decisions WHERE run_id = %s ORDER BY ts, id", (str(run_id),)).fetchall()
         return [_norm(r) for r in rows]
 
+    # --- M3 research reads (date ranges across runs) ---------------------------------------------
+
+    def _between(self, table: str, ts_col: str, start: dt.datetime, end: dt.datetime, order: str) -> list[dict]:
+        rows = self.conn.execute(f"SELECT * FROM {table} WHERE {ts_col} >= %s AND {ts_col} < %s ORDER BY {order}",
+                                 (start, end)).fetchall()
+        return [_norm(r) for r in rows]
+
+    def runs_between(self, start, end) -> list[dict]:
+        return self._between("runs", "started_at", start, end, "started_at")
+
+    def signals_between(self, start, end) -> list[dict]:
+        return self._between("signals", "ts", start, end, "ts, underlying, direction")
+
+    def trade_results_between(self, start, end) -> list[dict]:
+        return self._between("trade_results", "exit_ts", start, end, "exit_ts")
+
+    def executions_between(self, start, end) -> list[dict]:
+        return self._between("executions", "ts", start, end, "ts, id")
+
+    def kill_events_between(self, start, end) -> list[dict]:
+        return self._between("kill_switch_events", "ts", start, end, "ts, id")
+
+    def insert_strategy_version(self, strategy: str, version: str, params: dict) -> int:
+        row = self.conn.execute(
+            "INSERT INTO strategy_versions (strategy, version, params) VALUES (%s, %s, %s) "
+            "ON CONFLICT (strategy, version) DO UPDATE SET params = EXCLUDED.params RETURNING id",
+            (strategy, version, _jsonb(params))).fetchone()
+        return int(row["id"])
+
+    def strategy_versions(self) -> list[dict]:
+        return [_norm(r) for r in self.conn.execute("SELECT * FROM strategy_versions ORDER BY strategy, version").fetchall()]
+
     # --- reads for EOD / parity ------------------------------------------------------------------
 
     def signals_for_run(self, run_id: uuid.UUID | str) -> list[dict]:
