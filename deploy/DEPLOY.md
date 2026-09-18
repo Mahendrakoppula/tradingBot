@@ -161,63 +161,60 @@ DEPLOY_BUCKET=<bucket> DELETE_BUCKET=1 ./deploy/teardown_aws.sh   # removes ever
 Doesn't currently delete the OIDC provider, GitHub Actions role, or SSM
 parameters - clean those up separately if fully decommissioning.
 
-## 8. Second bot: PostgreSQL + instance resize (one-time, M1)
+## 8. Second bot: PostgreSQL (done 2026-09-18) and the optional instance resize
 
-The index-options engine (`trading_bot.run_technical`, SHADOW mode, zero
-orders) journals every candle, context snapshot, pre-signal event and
-would-be signal to a **local PostgreSQL 16** on the same instance. Two bot
-processes plus Postgres do not fit a t3.micro (1 GB), so the box is resized
-to **t3.small (2 GB)** first. All of this happens **outside market hours**
-(after 18:00 IST or before 08:00 IST) because the resize is a stop/start of
-the instance the daily bot runs on.
+The index-options engine (`trading_bot.run_technical`) journals every candle,
+context snapshot, pre-signal event, decision, risk verdict, execution and
+trade result to a **local PostgreSQL 16** on the instance.
 
-1. **Resize** (instance must be stopped; with broader-than-deployer credentials):
-   ```
-   aws ec2 stop-instances --instance-ids <INSTANCE_ID>
-   aws ec2 wait instance-stopped --instance-ids <INSTANCE_ID>
-   aws ec2 modify-instance-attribute --instance-id <INSTANCE_ID> --instance-type '{"Value":"t3.small"}'
-   aws ec2 start-instances --instance-ids <INSTANCE_ID>
-   aws ec2 wait instance-status-ok --instance-ids <INSTANCE_ID>
-   ```
-   The EventBridge start/stop schedule is unchanged; the EBS volume and all
-   `.state/` data survive a resize.
+**Auth model: peer auth over the Unix socket.** The bots run as OS user
+`tradingbot`; the database role `tradingbot` authenticates because the kernel
+vouches for the connecting process's identity. There is no password and
+nothing secret, so the connection string is ordinary config in
+`deploy/config.env`:
 
-2. **Install Postgres + create the role/db** via SSM Run Command (root), after
-   the next deploy has shipped `deploy/setup_postgres.sh` to the box:
-   ```
-   aws ssm send-command --instance-ids <INSTANCE_ID> --document-name AWS-RunShellScript \
-     --parameters 'commands=["bash /opt/trading-bot/deploy/setup_postgres.sh <DB_PASSWORD>"]'
-   ```
-   Idempotent - safe to re-run. Listens on localhost only; the security
-   group exposes nothing.
+```
+TECH_DATABASE_URL=postgresql:///tradingbot?host=/var/run/postgresql
+```
 
-3. **Connection string into SSM** (same pattern as the Telegram tokens, needs
-   `ssm:PutParameter` - the deployer user does not have it):
-   ```
-   aws ssm put-parameter --name /trading-bot/TECH_DATABASE_URL --type SecureString --overwrite \
-     --value 'postgresql://tradingbot:<DB_PASSWORD>@127.0.0.1:5432/tradingbot'
-   ```
-   `fetch_secrets.sh` pulls every `/trading-bot/*` parameter into `.env` at
-   boot, so nothing else is needed. Without it the engine still runs but
-   journals to memory only (it says so in its startup log).
+`postgresql.conf` listens on localhost only and the security group exposes
+nothing but SSM. Unset the variable and the engine journals to memory only
+(it says so in its startup log).
 
-4. **Enable**: the next CI deploy (or `redeploy.sh`) copies the unit files,
-   `systemctl enable --now trading-bot-technical.service` (after
-   `trading-bot.service` - the unit has `After=trading-bot.service` to
-   stagger the two logins on the shared SmartAPI key, and `MemoryMax=600M`)
-   and `trading-bot-pgdump.timer` (16:30 IST, before the 18:00 stop; keeps
-   30 daily dumps under `s3://<bucket>/trading-bot/pgdump/`).
+**Install / re-run (idempotent, root via SSM Run Command, any time):**
+```
+aws ssm send-command --instance-ids <INSTANCE_ID> --document-name AWS-RunShellScript   --parameters 'commands=["bash /opt/trading-bot/deploy/setup_postgres.sh"]'
+```
+The script sizes itself from MemTotal: on the current 1 GB t3.micro it first
+adds a 1 GB swapfile (so the install can never OOM the running bots) and uses
+`shared_buffers=32MB`; on a 2 GB box it uses 128MB. It was run on
+2026-09-18 during market hours with both bots active: PostgreSQL 16.15, peer
+auth verified, memory available afterwards ~190-290 MB.
 
-5. **Verify the first session** (M1 acceptance gate):
-   ```
-   sudo journalctl -u trading-bot-technical -f            # banner "SHADOW MODE | LIVE ORDER PLACEMENT DISABLED"
-   sudo journalctl -u trading-bot-technical -o cat | grep '"component":"warmup"'   # calls + seconds
-   sudo -u postgres psql tradingbot -c "select count(*) from context_snapshots where ts::date = current_date"
-   sudo -u postgres psql tradingbot -c "select underlying, direction, to_stage, count(*) from presignal_events where ts::date = current_date group by 1,2,3 order by 1,2,3"
-   sudo -u postgres psql tradingbot -c "select ts, underlying, direction, status from signals where ts::date = current_date"
-   systemctl is-active trading-bot                         # the daily bot must be unaffected
-   aws s3 ls s3://<bucket>/trading-bot/pgdump/             # after 16:30 IST
-   ```
-   Replay a stored day through the same engine for the §51 parity check:
-   `TECH_MODE=BACKTEST TECH_REPLAY_DATE=YYYY-MM-DD python -m trading_bot.run_technical`
-   then diff `signals`/`context_snapshots` across the two `run_id`s.
+**Optional resize t3.micro -> t3.small** (needs `ec2:ModifyInstanceAttribute`,
+which the deployer user does NOT have; the instance must be stopped, so do it
+after the 18:00 IST scheduled stop - then nothing has to be stopped by hand):
+```
+aws ec2 modify-instance-attribute --instance-id <INSTANCE_ID> --instance-type '{"Value":"t3.small"}'
+```
+The EBS volume and all data survive. Re-run `setup_postgres.sh` afterwards so
+Postgres picks up the larger sizing.
+
+**Backups:** `trading-bot-pgdump.timer` (16:30 IST) runs `pgdump_to_s3.sh`
+as `tradingbot` over the same socket URL; 30 daily dumps kept under
+`s3://<bucket>/trading-bot/pgdump/`.
+
+**Verify a session (M1/M2 acceptance):**
+```
+sudo -u tradingbot psql "postgresql:///tradingbot?host=/var/run/postgresql"
+  select run_id, mode, status, started_at from runs order by started_at desc limit 3;
+  select count(*) from context_snapshots where ts::date = current_date;
+  select stage, status, reason_code, count(*) from signals where ts::date = current_date group by 1,2,3 order by 4 desc;
+  select underlying, direction, to_stage, count(*) from presignal_events where ts::date = current_date group by 1,2,3;
+systemctl is-active trading-bot                         # the daily bot must be unaffected
+aws s3 ls s3://<bucket>/trading-bot/pgdump/             # after 16:30 IST
+```
+Research over the journal: `python -m trading_bot.research_cli review --from YYYY-MM-DD --to YYYY-MM-DD`
+(runs on the box as `tradingbot` with the `.env` loaded; see `research_cli.py`).
+Replay a stored day through the same engine for the §51 parity check:
+`TECH_MODE=BACKTEST TECH_REPLAY_DATE=YYYY-MM-DD python -m trading_bot.run_technical`.
