@@ -1,6 +1,6 @@
 # Codex — Autonomous ML-Driven Index Options Trading System
 
-Status: **Phase 9, 14, and 15 done, Phase 17/18 structural backbone done, global/derivatives/news context engines done, Phase 7 in progress** (of 18). **IMPORTANT: Run 007 (backtesting/BACKTESTS.md) found the spec's own Rs.50,000 capital cannot afford even one lot of NIFTY/BANKNIFTY/SENSEX options at ATM at a conservative risk-per-trade percentage, given real current lot sizes/premiums. Run 008's affordability-aware strike selection is a genuine partial fix (Rs.50,000 CAN now participate, far-OTM), but its own headline returns are explicitly flagged as untrustworthy (inflated by continuous compounding) - read both entries before assuming this capital figure is workable as stated. Run 013 QUANTIFIES exactly how untrustworthy: reshuffling the order of Run 008's own trades 5,000 times, EVERY SINGLE reshuffle produced less ending capital than the real historical order, on all three indices - the reshuffled mean (+52-64%) is roughly an order of magnitude more modest than Run 008's headline (+583-882%), which sits at the best-case tail of possible orderings, not a representative outcome.** (Phase 1: scaffolding/config/
+Status: **Phase 9, 14, and 15 done, Phase 17/18 structural backbone done, global/derivatives/news context engines done, Phase 7 in progress** (of 18). **IMPORTANT: Run 007 (backtesting/BACKTESTS.md) found the spec's own Rs.50,000 capital cannot afford even one lot of NIFTY/BANKNIFTY/SENSEX options at ATM at a conservative risk-per-trade percentage, given real current lot sizes/premiums. Run 008's affordability-aware strike selection is a genuine partial fix (Rs.50,000 CAN now participate, far-OTM), but its own headline returns are explicitly flagged as untrustworthy (inflated by continuous compounding) - read both entries before assuming this capital figure is workable as stated. Run 013 QUANTIFIES exactly how untrustworthy: reshuffling the order of Run 008's own trades 5,000 times, the large majority of reshuffles (86-100%, per instrument) produced less ending capital than the real historical order - the reshuffled mean (NIFTY/SENSEX +60-64%, BANKNIFTY +296% after a strike-spacing bug fix - see Run 013's own correction note) is well below Run 008's headline (+583-882%), which sits toward the best-case tail of possible orderings, not a representative outcome.** (Phase 1: scaffolding/config/
 logging/notifications/deploy - done. Phase 2: historical OHLCV data
 pipeline + quality engine - done, and real data has now actually been
 pulled (data/raw/, gitignored - see "Local development" below to
@@ -207,7 +207,20 @@ models/       (Phase 7, in progress) ML training. Model 1/8 (regime
               result. Reported as a promising but unconfirmed lead, not
               a validated improvement - explaining BANKNIFTY's
               consistent divergence is the real next step before
-              trusting the NIFTY/SENSEX pattern.
+              trusting the NIFTY/SENSEX pattern. Investigated that next
+              step: found (via the live scrip master, not assumed) that
+              Experiment 006 used the WRONG BANKNIFTY strike spacing
+              (Rs.50 instead of the real Rs.100). Re-ran with the fix -
+              result is nearly identical at every horizon, cleanly
+              RULING OUT a wrong strike as the explanation (realized_vol
+              doesn't depend on strike, and gamma/vega barely move over
+              a Rs.50 gap on a ~Rs.55,000 underlying). The divergence
+              remains genuinely unexplained by this bug, strengthening
+              the case that it's a real structural difference, not an
+              artifact - still open. The SAME bug mattered much more for
+              BACKTESTS.md's Run 013 (equity-curve sequence risk), where
+              it changed which trades were even affordable - see that
+              Run's own correction note.
               models/feature_engineering.py provides vectorized, causal,
               whole-series equivalents of market_state/'s per-point
               classifiers, needed to make training-set construction
@@ -367,11 +380,12 @@ backtesting/  (Phase 12, done) event-driven backtester - processes bars
               raw-P&L reshuffle test and Run 008's real compounding
               curve: reshuffling the ORDER of Run 008's own trades 5,000
               times (values held fixed, only the sequence varies) shows
-              100% of reshuffles did WORSE than the real historical
-              order, on all three indices - the reshuffled mean
-              (+52-64%) is roughly 10x more modest than Run 008's
-              headline (+583-882%), which sits at the best-case tail of
-              possible orderings. Quantifies, for the first time, what
+              86-100% of reshuffles (per instrument) did WORSE than the
+              real historical order - the reshuffled mean (NIFTY/SENSEX
+              +60-64%, BANKNIFTY +296% after a strike-spacing bug fix -
+              see Run 013's own correction note) is well below Run 008's
+              headline (+583-882%), which sits toward the best-case tail
+              of possible orderings. Quantifies, for the first time, what
               Run 008 could only assert: its headline number is an
               artifact of favorable sequencing, not a representative
               outcome - the reshuffled mean is the honest number.

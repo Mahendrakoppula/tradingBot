@@ -341,3 +341,54 @@ consistent divergence (a real, structural difference between a broad
 index and a sectoral one, or simply this specific feature construction
 not suiting it) before treating the NIFTY/SENSEX pattern as anything
 more than a promising but unconfirmed lead.
+
+---
+
+## Follow-up (2026-09-18) - investigating Experiment 006's BANKNIFTY divergence, and a bug found along the way
+
+**Purpose**: Experiment 006's own stated next step - explain BANKNIFTY's
+consistent failure to clear the promotion threshold at every horizon,
+before treating the NIFTY/SENSEX pattern as more than an unconfirmed
+lead. The most concrete, verifiable hypothesis checked first: was
+BANKNIFTY's ATM strike (used to compute the theoretical gamma/vega
+features) even being computed correctly?
+
+**A real bug found, verified against the live scrip master rather than
+assumed**: BANKNIFTY's real near-the-money strike spacing is Rs.100,
+not Rs.50 - confirmed by querying live instrument data directly (the
+smallest gap between consecutive real listed strikes). Experiment 006's
+BANKNIFTY run used `strike_increment=50`, the wrong value (NIFTY's 50
+and SENSEX's 100 were both already correct).
+
+**Re-ran the full horizon sweep for BANKNIFTY with the corrected
+`strike_increment=100`**:
+
+| Horizon | Beat baseline (corrected) | Mean AUC (corrected) | Promote? | (original, wrong value) |
+|---|---|---|---|---|
+| 1 bar | 2/8 | 0.524 | No | 2/8, AUC 0.521, no |
+| 3 bars | 3/8 | 0.485 | No | 2/8, AUC 0.488, no |
+| 5 bars | 3/8 | 0.493 | No | 3/8, AUC 0.485, no |
+| 10 bars | 4/8 | 0.530 | No | 4/8, AUC 0.531, no |
+| 20 bars | 4/8 | 0.490 | No | 3/8, AUC 0.495, no |
+
+**Verdict: the bug is real but its impact here is negligible - this
+cleanly RULES OUT a wrong strike as the explanation for BANKNIFTY's
+divergence.** The corrected numbers are nearly identical to the
+original (wrong-strike) ones at every horizon. This makes sense in
+hindsight: `realized_vol` doesn't depend on strike at all, and
+gamma/vega vary smoothly and slowly with strike near the money on an
+underlying trading around Rs.55,000-56,000 - a Rs.50 difference in
+strike (roughly 0.09% of spot) barely moves either Greek. BANKNIFTY's
+divergence from NIFTY/SENSEX therefore remains genuinely unexplained by
+this feature-computation bug, strengthening (not weakening) the
+hypothesis that it reflects a real, structural difference between a
+sectoral index and the two broad-market indices - still an open
+question, not resolved here, but one less possible artifact to blame it
+on.
+
+**The bug was still real and worth fixing**: it also affected
+backtesting/BACKTESTS.md's Run 013 (which reused the same wrong
+BANKNIFTY strike_increment for its equity-curve sequence-risk test) -
+there, unlike here, the impact was material, since it changed which
+trades were even affordable, not just a smoothly-varying feature value.
+See Run 013's own correction note for details.

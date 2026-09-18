@@ -1273,3 +1273,43 @@ order is favorable, only shaves a small, consistent amount off every
 outcome. Confirms this isn't a fragile, config-specific result: any
 reasonable risk level or slippage assumption in this log's own tested
 range shows the same conclusion.
+
+**Correction (2026-09-18) - a real bug found while investigating
+Experiment 006's BANKNIFTY divergence (models/EXPERIMENTS.md), verified
+against the live scrip master, not assumed from memory**: BANKNIFTY's
+real near-the-money strike spacing is Rs.100, NOT Rs.50 - confirmed by
+querying the live instrument list directly (`diffs seen: [100.0, ...]`
+for BANKNIFTY vs `[50.0, ...]` for NIFTY and `[100.0, ...]` for SENSEX).
+The BANKNIFTY row in this Run's own result table above used
+`strike_increment=50` - the wrong value. NIFTY (50) and SENSEX (100)
+were both already correct.
+
+Re-run with the corrected value (BANKNIFTY, 1% risk, 5,000 reshuffles):
+n trades simulated changes from 76 to **94** (the coarser, correct real
+spacing made more strikes affordable, not fewer), observed ending
+capital Rs.343,138 (+586.3%, close to the original +665.0%), but
+**reshuffled mean jumps to +296.3%** (vs. the wrong value's +52.3%) and
+**fraction of reshuffles worse than observed drops to 86.1%** (vs. the
+wrong value's misleadingly clean 100.0%) - a materially different
+number, not a rounding-level correction. The qualitative conclusion
+(the real order is meaningfully better than a typical reshuffle) still
+holds for BANKNIFTY, just less starkly than originally reported - the
+corrected BANKNIFTY row should read: **n=94, observed +586.3%,
+reshuffled mean +296.3%, reshuffles worse than observed 86.1%**,
+replacing the wrong 76/+665.0%/+52.3%/100.0% values above.
+
+**Scope of what this correction covers, stated precisely**: this fixes
+Experiment 006 and this Run's own BANKNIFTY numbers, both computed
+directly in this session with a verified-wrong `strike_increment=50`.
+It does NOT confirm or rule out the same error in Run 008's ORIGINAL
+BANKNIFTY numbers (computed in an earlier, now-summarized session
+whose exact original code isn't available to inspect from here) - an
+attempt to reproduce Run 008's walk-forward result independently
+produced different fold-level numbers than originally reported
+regardless of which strike_increment was used, suggesting some other
+methodology detail also differs, not just this one parameter. Per this
+project's own "verify against real data, don't assume" discipline
+(applied here to my own recent work, not just external data), Run
+008's original BANKNIFTY figures should be independently re-verified
+against the correct Rs.100 spacing before being fully trusted - flagged
+honestly as open, not silently assumed fine.
