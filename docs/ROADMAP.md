@@ -106,6 +106,13 @@ R2: 20) AND the counterfactuals favour it (≥55% target-first). READY is a prom
 for a human to build a shadow-only vNext and promote it with a §83 record - the
 engine never applies a candidate itself.
 
+**Post-gate expansion candidates (not part of V1's evidence; each is its own
+system with its own gates):**
+
+| # | Candidate | State | Notes |
+|---|---|---|---|
+| C1 | **CRUDEOILM options on MCX** (crude-oil mini, 10 bbl) through the same engine | spike built 2026-09-21 on `feature/mcx-crude-spike`, **shadow-only**, enabled 2026-09-21 evening as a data-collection decision by the operator (`deploy/mcx.env` `TECH_MCX_ENABLED=true`; first crude session 2026-09-22) | Locked V1 decision is index options only (spec §1); the paper gates need 100+ valid opportunities from ONE system, so crude runs as a separate process (`trading-bot-mcx.service`) against a separate database (`tradingbot_mcx`) and never mixes with the index journal. What the spike adds: session profiles in `engine/clock.py` (MCX 09:00-23:30 IST, 23:55 in US winter, phases Asia/Europe/US-open/US), the near-month future as price reference + volume (`TECH_VOLUME_PROXY=self`, rolled 2 days before expiry), `OPTFUT` chains, an `mcx` cost profile (CTT 0.05% sell, MCX txn 0.0418% - verify against a contract note), `TECH_SESSION`/`TECH_COST_PROFILE`/`TECH_FUTURE_ROLL_DAYS`. Known limits: the EventBridge schedule stops the instance at 18:00 IST, so the US session (where crude trades) is unobserved until that moves to ~00:00; monthly options only (nearest expiry up to ~30 DTE, `TECH_OPTION_DTE_MAX=35`); Greeks are model (Black-Scholes on the future, no broker Greeks on MCX); at Rs.50k x 0.5% one mini lot allows ~Rs.25/bbl of option move - expect `one_lot_exceeds_max_risk` to dominate, which is exactly what the shadow will measure. Enable only after Gate 2 on the index engine, or earlier as a pure data-collection decision by the operator; promotion out of shadow needs its own §83 record. |
+
 **Outstanding on the operator:** rotate the Anthropic API key and GitHub PAT
 that were exposed in journald (fixed 2026-09-17, values still need rotating).
 
@@ -208,6 +215,7 @@ proves it on every CI run.
 | 2026-09-21 | `feature/refinement-tracking` | `research_cli refinements` + R3/R4; per-family routing verdicts and trend scores journaled with every rejected signal; `TECH_COUNTER_TREND_VETO_TFS` (set empty), `TECH_COUNTER_TREND_MIN_EVIDENCE` |
 | 2026-09-21 | `feature/rejection-ledger` | rejection ledger in `research_cli review` (with explanation/ATR fallbacks for day-one rows) |
 | 2026-09-21 | `fix/breaker-flap` | circuit breaker judged on the worst quality across underlyings |
+| 2026-09-21 | `feature/mcx-crude-spike` | C1: session profiles, MCX instruments/options/costs, `trading-bot-mcx.service` + `mcx.env` (enabled, shadow), `ensure_mcx_db.sh`, pgdump of both databases |
 
 ## Where things live
 

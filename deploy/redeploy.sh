@@ -21,15 +21,17 @@ COMMAND_ID=$(aws ssm send-command \
   --parameters "commands=[
     'systemctl stop trading-bot.service',
     'systemctl stop trading-bot-technical.service || true',
+    'systemctl stop trading-bot-mcx.service || true',
     'aws s3 cp s3://${DEPLOY_BUCKET}/trading-bot/app.zip /opt/trading-bot/app.zip',
     'unzip -oq /opt/trading-bot/app.zip -d /opt/trading-bot',
     'rm -f /opt/trading-bot/app.zip',
     '/opt/trading-bot/.venv/bin/pip install --quiet -r /opt/trading-bot/requirements.txt',
-    'chmod +x /opt/trading-bot/deploy/fetch_secrets.sh /opt/trading-bot/deploy/sync_state_to_s3.sh /opt/trading-bot/deploy/pgdump_to_s3.sh /opt/trading-bot/deploy/setup_postgres.sh /opt/trading-bot/deploy/engine_review.sh',
+    'chmod +x /opt/trading-bot/deploy/fetch_secrets.sh /opt/trading-bot/deploy/sync_state_to_s3.sh /opt/trading-bot/deploy/pgdump_to_s3.sh /opt/trading-bot/deploy/setup_postgres.sh /opt/trading-bot/deploy/engine_review.sh /opt/trading-bot/deploy/ensure_mcx_db.sh',
     'chown -R tradingbot:tradingbot /opt/trading-bot',
     'cp /opt/trading-bot/deploy/trading-bot-bootstrap.service /etc/systemd/system/trading-bot-bootstrap.service',
     'cp /opt/trading-bot/deploy/trading-bot.service /etc/systemd/system/trading-bot.service',
     'cp /opt/trading-bot/deploy/trading-bot-technical.service /etc/systemd/system/trading-bot-technical.service',
+    'cp /opt/trading-bot/deploy/trading-bot-mcx.service /etc/systemd/system/trading-bot-mcx.service',
     'cp /opt/trading-bot/deploy/trading-bot-s3-sync.service /etc/systemd/system/trading-bot-s3-sync.service',
     'cp /opt/trading-bot/deploy/trading-bot-s3-sync.timer /etc/systemd/system/trading-bot-s3-sync.timer',
     'cp /opt/trading-bot/deploy/trading-bot-pgdump.service /etc/systemd/system/trading-bot-pgdump.service',
@@ -44,7 +46,8 @@ COMMAND_ID=$(aws ssm send-command \
     'systemctl start trading-bot.service',
     'systemctl enable --now trading-bot-pgdump.timer',
     'systemctl enable --now trading-bot-engine-review.timer',
-    'systemctl enable --now trading-bot-technical.service'
+    'systemctl enable --now trading-bot-technical.service',
+    'if grep -q ^TECH_MCX_ENABLED=true /opt/trading-bot/deploy/mcx.env; then /opt/trading-bot/deploy/ensure_mcx_db.sh && systemctl enable --now trading-bot-mcx.service; else systemctl disable --now trading-bot-mcx.service || true; fi'
   ]" \
   --query "Command.CommandId" --output text)
 

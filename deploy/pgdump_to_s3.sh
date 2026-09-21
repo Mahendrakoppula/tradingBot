@@ -25,3 +25,13 @@ pg_dump --format=custom --no-owner --file="$OUT.tmp" "$DB_URL"
 mv "$OUT.tmp" "$OUT"
 ls -1t "$OUT_DIR"/tradingbot-*.dump | tail -n +31 | xargs -r rm -f
 echo "pg_dump written: $OUT ($(du -h "$OUT" | cut -f1)); the s3-sync timer uploads .state/ within 30 min"
+
+# MCX crude-oil spike journal (deploy/mcx.env), when that database exists
+MCX_URL=$(grep '^TECH_DATABASE_URL=' /opt/trading-bot/deploy/mcx.env 2>/dev/null | cut -d= -f2- | tr -d '"' || true)
+if [ -n "$MCX_URL" ] && psql "$MCX_URL" -Atc 'select 1' >/dev/null 2>&1; then
+  OUT_MCX="$OUT_DIR/tradingbot_mcx-${STAMP}.dump"
+  pg_dump --format=custom --no-owner --file="$OUT_MCX.tmp" "$MCX_URL"
+  mv "$OUT_MCX.tmp" "$OUT_MCX"
+  ls -1t "$OUT_DIR"/tradingbot_mcx-*.dump | tail -n +31 | xargs -r rm -f
+  echo "pg_dump written: $OUT_MCX ($(du -h "$OUT_MCX" | cut -f1))"
+fi

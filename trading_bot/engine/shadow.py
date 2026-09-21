@@ -23,6 +23,7 @@ from trading_bot.engine import jsonlog
 from trading_bot.engine.analysis import AnalysisState, EngineParams, build_context
 from trading_bot.engine.candles import BarAggregator, Candle, CandleStore
 from trading_bot.engine.clock import TF_MINUTES, session_close_at
+from trading_bot.engine.instruments import is_commodity
 from trading_bot.engine.eod import eod_summary
 from trading_bot.engine.explain import build_explanation, render
 from trading_bot.engine.presignal import PreSignalConfig, PreSignalTracker, StageEvent
@@ -204,7 +205,8 @@ class ShadowLoop:
         self.stats.quality[q.status] = self.stats.quality.get(q.status, 0) + 1
         candles = self._slices(inst.token)
         proxy = self.proxy_of.get(u)
-        vcandles = self._slices(proxy.token) if proxy is not None else None
+        # index: volume from the near-month future; commodity: the price reference IS a future
+        vcandles = self._slices(proxy.token) if proxy is not None else (candles if is_commodity(u) else None)
         state = self.states.setdefault(u, AnalysisState())
         bar_index = len(candles[TRIGGER_TF]) - 1
         try:

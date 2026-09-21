@@ -30,6 +30,13 @@ Mode = Literal["BACKTEST", "RESEARCH", "PAPER", "SHADOW", "LIVE"]
 MODES: tuple[str, ...] = ("BACKTEST", "RESEARCH", "PAPER", "SHADOW", "LIVE")
 
 TIMEFRAMES: tuple[str, ...] = ("1m", "5m", "30m", "1d")
+SESSIONS: tuple[str, ...] = ("NSE", "MCX")
+# per-session defaults for the clock settings (TECH_* overrides still win)
+_SESSION_DEFAULTS = {
+    "NSE": {"eod_cutoff": "15:20", "session_end": "15:30", "eod_summary_time": "15:35"},
+    "MCX": {"eod_cutoff": "23:15", "session_end": "23:30", "eod_summary_time": "23:35"},
+}
+COST_PROFILES: tuple[str, ...] = ("nfo", "mcx")
 
 
 def _hhmm(value: str) -> dt.time:
@@ -130,6 +137,10 @@ class EngineConfig:
     # ("30m", "1d", both, or none) and how many evidence keys a counter-trend setup needs
     counter_trend_veto_tfs: tuple[str, ...] = ("30m",)
     counter_trend_min_evidence: int = 6
+    # --- exchange session (one per process): NSE index options or the MCX commodity spike ---
+    session: str = "NSE"  # clock.SESSION_PROFILES key
+    cost_profile: str = "nfo"  # costs.CostRates.for_profile
+    future_roll_days: int = 2  # commodities: price reference rolls to the next future this many days before expiry
 
     @property
     def can_place_live_orders(self) -> bool:
@@ -144,6 +155,13 @@ class EngineConfig:
         mode = os.environ.get("TECH_MODE", "SHADOW").strip().upper()
         if mode not in MODES:
             raise RuntimeError(f"TECH_MODE={mode!r} is not one of {MODES}")
+        session = os.environ.get("TECH_SESSION", "NSE").strip().upper()
+        if session not in SESSIONS:
+            raise RuntimeError(f"TECH_SESSION={session!r} is not one of {SESSIONS}")
+        cost_profile = os.environ.get("TECH_COST_PROFILE", "mcx" if session == "MCX" else "nfo").strip().lower()
+        if cost_profile not in COST_PROFILES:
+            raise RuntimeError(f"TECH_COST_PROFILE={cost_profile!r} is not one of {COST_PROFILES}")
+        clock_defaults = _SESSION_DEFAULTS[session]
         weights = (
             _float("TECH_ALIGN_W_DAILY", "0.25"), _float("TECH_ALIGN_W_30M", "0.30"),
             _float("TECH_ALIGN_W_5M", "0.30"), _float("TECH_ALIGN_W_1M", "0.15"),
@@ -160,9 +178,9 @@ class EngineConfig:
             risk_per_trade_pct=_float("TECH_RISK_PER_TRADE_PCT", "0.005"),
             daily_loss_cap_pct=_float("TECH_DAILY_LOSS_CAP_PCT", "0.02"),
             weekly_loss_cap_pct=_float("TECH_WEEKLY_LOSS_CAP_PCT", "0.05"),
-            eod_cutoff=_hhmm(os.environ.get("TECH_EOD_CUTOFF", "15:20")),
-            session_end=_hhmm(os.environ.get("TECH_SESSION_END", "15:30")),
-            eod_summary_time=_hhmm(os.environ.get("TECH_EOD_SUMMARY_TIME", "15:35")),
+            eod_cutoff=_hhmm(os.environ.get("TECH_EOD_CUTOFF", clock_defaults["eod_cutoff"])),
+            session_end=_hhmm(os.environ.get("TECH_SESSION_END", clock_defaults["session_end"])),
+            eod_summary_time=_hhmm(os.environ.get("TECH_EOD_SUMMARY_TIME", clock_defaults["eod_summary_time"])),
             warmup_days_1m=_int("TECH_WARMUP_DAYS_1M", "7"),
             warmup_days_5m=_int("TECH_WARMUP_DAYS_5M", "21"),
             warmup_days_30m=_int("TECH_WARMUP_DAYS_30M", "90"),
@@ -202,6 +220,9 @@ class EngineConfig:
             shadow_strategies=_csv("TECH_SHADOW_STRATEGIES", ""),
             counter_trend_veto_tfs=tuple(t.strip().lower() for t in os.environ.get("TECH_COUNTER_TREND_VETO_TFS", "30m").split(",") if t.strip()),
             counter_trend_min_evidence=_int("TECH_COUNTER_TREND_MIN_EVIDENCE", "6"),
+            session=session,
+            cost_profile=cost_profile,
+            future_roll_days=_int("TECH_FUTURE_ROLL_DAYS", "2"),
         )
 
 

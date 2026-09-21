@@ -19,12 +19,12 @@ from typing import Callable
 from trading_bot.costs import CostRates
 from trading_bot.engine import jsonlog
 from trading_bot.engine.candles import Candle
-from trading_bot.engine.clock import SESSION_CLOSE, SESSION_OPEN, in_session
+from trading_bot.engine.clock import in_session, session_close, session_open
 from trading_bot.engine.context import ContextSnapshot
 from trading_bot.engine.execution import GateParams, OrderRequest, OrderStateMachine, PaperBroker, execution_gate
 from trading_bot.engine.explain import render
 from trading_bot.engine.health import HealthMonitor, HealthThresholds, format_alert
-from trading_bot.engine.instruments import FUTURES_EXCHANGE
+from trading_bot.engine.instruments import OPTIONS_EXCHANGE
 from trading_bot.engine.option_chain import CacheParams, ChainCache
 from trading_bot.engine.pipeline import Decision, PipelineParams, _reject, decide
 from trading_bot.engine.positions import KillSwitches, Position, PositionBook, circuit_breaker_reason, reconcile, worst_quality
@@ -41,8 +41,8 @@ log = logging.getLogger(__name__)
 
 
 def session_elapsed(now: dt.datetime) -> float:
-    start = now.replace(hour=SESSION_OPEN.hour, minute=SESSION_OPEN.minute, second=0, microsecond=0)
-    end = now.replace(hour=SESSION_CLOSE.hour, minute=SESSION_CLOSE.minute, second=0, microsecond=0)
+    start = now.replace(hour=session_open().hour, minute=session_open().minute, second=0, microsecond=0)
+    end = now.replace(hour=session_close().hour, minute=session_close().minute, second=0, microsecond=0)
     total = (end - start).total_seconds()
     return max(0.0, min(1.0, (now - start).total_seconds() / total)) if total > 0 else 1.0
 
@@ -59,7 +59,7 @@ class ChainService:
         self.limiter = limiter
         self.caches: dict[str, ChainCache] = {}
         for u, exch in spot_exchange.items():
-            chain = OptionChain(scrip_rows, u, FUTURES_EXCHANGE.get(exch, "NFO"))
+            chain = OptionChain(scrip_rows, u, OPTIONS_EXCHANGE.get(exch, "NFO"))
             self.caches[u] = ChainCache(u, chain, params)
         self.errors = 0
 

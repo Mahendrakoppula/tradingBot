@@ -15,12 +15,9 @@ multipliers with measured behaviour.
 import datetime as dt
 from dataclasses import dataclass
 
-from trading_bot.engine.clock import SESSION_CLOSE, SESSION_OPEN
+from trading_bot.engine.clock import session_open
 from trading_bot.engine.context import ContextSnapshot
 from trading_bot.engine.strategies.base import Candidate, sign
-
-_SESSION_MINUTES = (SESSION_CLOSE.hour * 60 + SESSION_CLOSE.minute) - (SESSION_OPEN.hour * 60 + SESSION_OPEN.minute)
-
 
 @dataclass(frozen=True)
 class MoveParams:
@@ -59,7 +56,7 @@ class ExpectedMove:
 
 def time_fraction(now: dt.datetime, params: MoveParams) -> float:
     end = now.replace(hour=params.eod_cutoff.hour, minute=params.eod_cutoff.minute, second=0, microsecond=0)
-    start = now.replace(hour=SESSION_OPEN.hour, minute=SESSION_OPEN.minute, second=0, microsecond=0)
+    start = now.replace(hour=session_open().hour, minute=session_open().minute, second=0, microsecond=0)
     total = (end - start).total_seconds()
     left = (end - now).total_seconds()
     return max(0.0, min(1.0, left / total)) if total > 0 else 0.0

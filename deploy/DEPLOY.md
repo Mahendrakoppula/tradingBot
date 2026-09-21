@@ -218,3 +218,31 @@ Research over the journal: `python -m trading_bot.research_cli review --from YYY
 (runs on the box as `tradingbot` with the `.env` loaded; see `research_cli.py`).
 Replay a stored day through the same engine for the §51 parity check:
 `TECH_MODE=BACKTEST TECH_REPLAY_DATE=YYYY-MM-DD python -m trading_bot.run_technical`.
+
+## 9. MCX crude-oil spike (shadow-only, off by default)
+
+`deploy/trading-bot-mcx.service` runs the same engine (`run_technical`) on the
+MCX session (09:00-23:30 IST) for `CRUDEOILM` options, in SHADOW mode against
+its own database `tradingbot_mcx` - see docs/ROADMAP.md "C1". The unit is
+installed by every deploy but only **enabled** when `deploy/mcx.env` says
+`TECH_MCX_ENABLED=true`; the deploy then also runs `deploy/ensure_mcx_db.sh`
+(creates the database + its peer-auth line, idempotent). Flip the flag on a
+branch and merge; flipping it back disables the unit on the next deploy.
+
+The unit layers `deploy/mcx.env` over `/opt/trading-bot/.env`, so secrets and
+every TECH_* setting not repeated there come from the index engine. It logs
+in 45 s after boot (third login on the shared SmartAPI key). Memory cap
+300 MB - on the 1 GB t3.micro that is the third Python process next to
+PostgreSQL; watch `free -m` for the first days or do the t3.small resize
+above first.
+
+Known limit: the EventBridge schedule stops the instance at 18:00 IST, so the
+spike sees only the Asian/European hours until the stop moves later (the US
+session, 17:00-23:30 IST, is where crude actually trades). The engine takes
+the 18:00 SIGTERM as a normal end of day.
+
+Reading it: the nightly `engine_review.sh` runs against the index database only;
+for crude run the same commands with the MCX environment:
+```
+sudo -u tradingbot bash -c 'set -a; . /opt/trading-bot/.env; . /opt/trading-bot/deploy/mcx.env; set +a;   /opt/trading-bot/.venv/bin/python -m trading_bot.research_cli review --from <date> --to <date>'
+```

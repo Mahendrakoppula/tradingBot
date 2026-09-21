@@ -56,6 +56,7 @@ class PipelineParams:
                               max_open_positions=cfg.max_open_positions, max_spread_pct=cfg.option_max_spread_pct,
                               preferred_net_reward=cfg.preferred_net_reward, tier_b_enabled=cfg.tier_b_enabled,
                               tier_b_min_score=cfg.tier_b_min_score),
+            rates=CostRates.for_profile(getattr(cfg, "cost_profile", "nfo")),
             min_score=cfg.min_score,
             counter_trend_min_evidence=cfg.counter_trend_min_evidence,
         )
