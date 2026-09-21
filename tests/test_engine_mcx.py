@@ -143,10 +143,11 @@ def _env(path: Path) -> dict[str, str]:
     return out
 
 
-def test_mcx_env_is_shadow_only_and_isolated_from_the_index_engine():
+def test_mcx_env_never_live_and_isolated_from_the_index_engine():
     mcx = _env(ROOT / "deploy" / "mcx.env")
     idx = _env(ROOT / "deploy" / "config.env")
-    assert mcx["TECH_MODE"] == "SHADOW" and mcx["TECH_DRY_RUN"] == "true" and mcx["TECH_LIVE_TRADING_ENABLED"] == "false"
+    # SHADOW or PAPER only - LIVE on MCX needs its own promotion record (spec 83); dry-run stays pinned
+    assert mcx["TECH_MODE"] in ("SHADOW", "PAPER") and mcx["TECH_DRY_RUN"] == "true" and mcx["TECH_LIVE_TRADING_ENABLED"] == "false"
     assert mcx["TECH_SESSION"] == "MCX" and mcx["TECH_COST_PROFILE"] == "mcx" and mcx["TECH_VOLUME_PROXY"] == "self"
     assert mcx["TECH_MCX_ENABLED"] in ("true", "false")
     assert all(is_commodity(u) for u in mcx["TECH_UNDERLYINGS"].split(","))
