@@ -16,10 +16,11 @@ Legend: `[x]` built + unit-tested (review happens at the milestone gate) ·
 | **M3 — validation** | phases 18, 21–24: backtest parity through the same loop, walk-forward, Monte Carlo, shadow strategies, the four §79 paper gates | 4–12 weeks of paper (§78), gates 1–4 passed |
 | **M4 — controlled live** | phases 25–27: one-lot cap, Rs.60–75 initial risk (§80), health monitoring (§87) | human decision; `TECH_MODE=LIVE` is a reviewed commit that also turns the nightly tuner off |
 
-## Status (as of 2026-09-18, end of day)
+## Status (as of 2026-09-21, end of day - first PAPER session)
 
-**Built: 26 of 29 phases. Validated: none yet.** Everything through M4a is merged
-to `main` and running on the instance in SHADOW mode with a PostgreSQL journal.
+**Built: 26 of 29 phases. Validated: none yet. PAPER mode live since 2026-09-21.**
+Everything through M4a is merged to `main` and running on the instance in PAPER
+mode with a PostgreSQL journal.
 The two phases not built are deliberate: 25 (live deployment) waits for the §79
 gates to pass on real paper data plus a §83 promotion record per strategy; 28
 (AI/ML) is outside V1 by the spec's own rule (§92 #51).
@@ -27,9 +28,9 @@ gates to pass on real paper data plus a §83 promotion record per strategy; 28
 "Built" is not "validated". Phases 18-24 exist as code, but their gates are
 empirical - weeks of paper sessions, 100+ valid opportunities, walk-forward
 stability, Monte Carlo ruin probability, execution parity - and no paper session
-has run yet. From here the work is running, reading the nightly review, and
-making two decisions with data: the capital / risk-per-trade question, then
-`TECH_MODE=PAPER`.
+had run before 2026-09-21. From here the work is running, reading the nightly
+review (now with a per-signal rejection ledger and the R1-R4 tracker), and
+making the capital / risk-per-trade decision with data.
 
 | Milestone | State | Evidence |
 |---|---|---|
@@ -37,6 +38,7 @@ making two decisions with data: the capital / risk-per-trade question, then
 | M2 PAPER (code) | merged + deployed 2026-09-18 | full §93 pipeline runs live on every TRADE_READY; paper broker exists; `TECH_MODE` still SHADOW |
 | M3 validation (tooling) | merged 2026-09-18 | `research_cli` metrics/review/gates/walkforward/montecarlo/backtest; **gate not attempted** (no paper data) |
 | M4a observability | merged + deployed 2026-09-18 | health alerts to Telegram, JSON heartbeat, restart recovery, review timer 15:45 IST |
+| PAPER switch | `TECH_MODE=PAPER` merged 2026-09-18, first session 2026-09-21 | 225 snapshots, 213 pre-signal events, 7 TRADE_READY -> 7 signals, **0 reached the risk engine** (5 routing, 1 no-chase, 1 ranking); 0 paper orders |
 | M4b live adapter | **not built** | blocked on M3 gate (§74 "never skip validation") |
 
 **Infrastructure done 2026-09-18:** PostgreSQL 16.15 on the instance, peer auth
@@ -52,12 +54,36 @@ as counter-trend for both directions. Fixed the same evening (direction-aware,
 §7). Monday 2026-09-21 is the first session that can show real pipeline
 throughput.
 
+**First paper session (2026-09-21):** the pipeline ran end to end on every
+TRADE_READY but nothing traded. Daily -0.7 vs 30m +0.6 all day made every
+setup counter-trend for one timeframe or the other, so all five routing
+rejections were `no_strategy_match`; the other two died at NO_CHASE (0.71 ATR
+remaining < 0.75) and RANKING (score 22). Underlying-only counterfactuals: the
+four longs (with the 30m) all reached target first, the three shorts (against
+it) all stopped first - one day, not a conclusion. Shipped the same day, all on
+`main` and deployed for Tuesday:
+- `TECH_COUNTER_TREND_VETO_TFS=` (empty): a confirmed 5m setup trades on its
+  own confirmation; higher timeframes shape the score only (R3 below).
+- Rejection ledger in the nightly review: every rejected signal with stage,
+  reason, each family's verdict, trend scores and what the underlying did next.
+- Candidate-refinement tracker R1-R4 in the 15:45 post (counts + counterfactuals,
+  never auto-applied).
+- Fixes: Monday boot race (SSM secrets fetched before network-online, login 403
+  colliding with the daily bot) and the circuit breaker flapping when one
+  underlying's clean bar reset a breaker another underlying's gap had tripped.
+- Health monitor observed working: SENSEX missed four 1m bars at 15:16, breaker
+  tripped 15:25 and recovered at close; no engine errors during the session.
+
 **Open questions the paper phase must answer before M4b:**
 1. At Rs.50k x 0.5% one NIFTY lot fits ~3.3 pts of all-in option risk; most
    structural stops need more. Expect `RISK_ENGINE: one_lot_exceeds_max_risk`
-   to dominate; decide capital vs risk-per-trade (both within §25's ranges).
-2. How often COUNTER_TREND / regime gating still blocks setups after the fix.
-3. Whether SENSEX (model Greeks, wider spreads) is worth keeping in the set.
+   to dominate once setups get past routing; decide capital vs risk-per-trade
+   (both within §25's ranges). Not decided on 2026-09-21: nothing reached the
+   risk engine, so there is no sizing evidence yet.
+2. Whether the empty veto (5m sovereign) raises throughput without the shorts-
+   against-the-30m failure pattern seen on 2026-09-21 - R3 counts it nightly.
+3. Whether SENSEX (model Greeks, wider spreads, the only underlying with a data
+   gap on day one) is worth keeping in the set.
 
 **Candidate refinements (from paper-session observations - not applied; §71
 "never change the strategy because of one trade or one day". Each needs to recur in
@@ -65,15 +91,17 @@ the nightly reviews before it becomes a versioned change with a promotion record
 
 | # | Observed | Candidate change | Evidence so far |
 |---|---|---|---|
-| R1 | 2026-09-21 NIFTY 09:40-10:10: double top at PDH 23389 (two bearish pins, `repeated_tests`), pre-signal reached TRADE_READY on the neckline close at 10:10, but `PDH_PDL_TRAP` returned `trap_without_confirmation` because it also demands a bearish candle pattern or swing BOS on the trigger bar. The tracker's own `confirmation_closed` (close back through the level after the sweep) is the classic trap confirmation. Counterfactual: the short ran 16 pts then a 100-pt rally - shallow reversal in a STRONG_BULL 5m regime. | Let `PDH_PDL_TRAP` (and `LIQUIDITY_SWEEP_BOS`) accept "close back through the swept level after >=2 tests" as confirmation, optionally with a relative-volume condition, as strategy v0.2 behind a promotion record. | 1 occurrence |
-| R3 | 2026-09-21: the daily was strongly bearish (-0.7) while the 30m rose all day (+0.6); every 30m-aligned long was vetoed as counter-trend by the daily alone, so nothing traded. Operator decision the same day: the 30m is the veto timeframe for an intraday option buyer, the daily keeps its say through scoring. Shipped as config `TECH_COUNTER_TREND_VETO_TFS` (was effectively `30m,1d`), set EMPTY the same day at the operator's request: a confirmed 5m setup trades on its own confirmation, higher timeframes only shape the score. | Already applied as config (§88 "counter-trend threshold"); the tracker keeps counting how often the OLD rule would have vetoed a 30m-aligned trade and what the underlying did after, so the change can be judged - or reverted - on evidence. | 1 session; applied 2026-09-21 |
-| R4 | Every engine runs on 5m closes only (M1 deviation): the trigger is seen at the bar close and confirmation at the next close, so a confirmed setup is entered 5-10 minutes after a tape-watcher would. Pre-signal itself is the context rule the spec requires and stays. | A 1m-driven confirmation leg: evidence gathered on the 5m, the CONFIRMING->TRADE_READY transition checked on 1m closes. Tracked by counting setups rejected as extended / move-mostly-done (NO_CHASE, breakout/range extension) and whether the move continued. | 0 occurrences so far |
-| R2 | 2026-09-18/21: with the daily strongly bearish and the 30m rallying, every setup is counter-trend one way or the other, so only the reversal families can trade and only with 6 evidence keys. | Review the 6-key counter-trend bar and the 0.75 ATR no-chase floor once ~2 weeks of paper decisions show how often they are the binding constraint. | 2 sessions |
+| R1 | 2026-09-21 NIFTY 09:40-10:10: double top at PDH 23389 (two bearish pins, `repeated_tests`), pre-signal reached TRADE_READY on the neckline close at 10:10, but `PDH_PDL_TRAP` returned `trap_without_confirmation` because it also demands a bearish candle pattern or swing BOS on the trigger bar. The tracker's own `confirmation_closed` (close back through the level after the sweep) is the classic trap confirmation. Counterfactual: the short ran 16 pts then a 100-pt rally - shallow reversal in a STRONG_BULL 5m regime. | Let `PDH_PDL_TRAP` (and `LIQUIDITY_SWEEP_BOS`) accept "close back through the swept level after >=2 tests" as confirmation, optionally with a relative-volume condition, as strategy v0.2 behind a promotion record. | 1 observed by eye; tracker 0 (day-one rows predate the per-family `routing` field it counts from) |
+| R3 | 2026-09-21: the daily was strongly bearish (-0.7) while the 30m rose all day (+0.6); every 30m-aligned long was vetoed as counter-trend by the daily alone, so nothing traded. Operator decision the same day: the 30m is the veto timeframe for an intraday option buyer, the daily keeps its say through scoring. Shipped as config `TECH_COUNTER_TREND_VETO_TFS` (was effectively `30m,1d`), set EMPTY the same day at the operator's request: a confirmed 5m setup trades on its own confirmation, higher timeframes only shape the score. | Already applied as config (§88 "counter-trend threshold"); the tracker keeps counting how often the OLD rule would have vetoed a 30m-aligned trade and what the underlying did after, so the change can be judged - or reverted - on evidence. | 1 session; applied 2026-09-21 (tracker counts from 2026-09-22) |
+| R4 | Every engine runs on 5m closes only (M1 deviation): the trigger is seen at the bar close and confirmation at the next close, so a confirmed setup is entered 5-10 minutes after a tape-watcher would. Pre-signal itself is the context rule the spec requires and stays. | A 1m-driven confirmation leg: evidence gathered on the 5m, the CONFIRMING->TRADE_READY transition checked on 1m closes. Tracked by counting setups rejected as extended / move-mostly-done (NO_CHASE, breakout/range extension) and whether the move continued. | tracker 0 (2026-09-21) |
+| R2 | 2026-09-18/21: with the daily strongly bearish and the 30m rallying, every setup is counter-trend one way or the other, so only the reversal families can trade and only with 6 evidence keys. | Review the 6-key counter-trend bar and the 0.75 ATR no-chase floor once ~2 weeks of paper decisions show how often they are the binding constraint. | 2 sessions; tracker 1 (2026-09-21 SENSEX no-chase, stop-first) |
 
 Tracking: `python -m trading_bot.research_cli refinements --from … --to …` counts each
 candidate's occurrences in the journal (per-family routing verdicts are stored in
-`signals.snapshot.routing`) and its underlying-only counterfactuals; the nightly
-15:45 post includes it. A candidate is marked READY only when it recurs (R1: 10,
+`signals.snapshot.routing`, trend scores in `snapshot.trend_scores`, both journaled
+since 2026-09-22) and its underlying-only counterfactuals; the nightly 15:45 post
+includes it, after the review's rejection ledger (`research_cli review`, `--json` for
+the raw rows). A candidate is marked READY only when it recurs (R1: 10,
 R2: 20) AND the counterfactuals favour it (≥55% target-first). READY is a prompt
 for a human to build a shadow-only vNext and promote it with a §83 record - the
 engine never applies a candidate itself.
@@ -169,6 +197,17 @@ initial risk, §80) waits for `research_cli gates` to pass on real paper data an
 a human promotion record per strategy (§83). Until then nothing under
 `engine/` can reach an order endpoint, and tests/test_engine_no_orders.py
 proves it on every CI run.
+
+## Paper-phase work log (one line per merged branch; details in git)
+
+| Date | Branch | What |
+|---|---|---|
+| 2026-09-18 | `config/tech-mode-paper` | `TECH_MODE=PAPER` in `deploy/config.env`, first session 2026-09-21 |
+| 2026-09-21 | `fix/boot-race-and-login-retry` | bootstrap waits for network-online and retries the SSM secret fetch; engine starts 20 s after the daily bot and paces its login (403 collision) |
+| 2026-09-21 | `docs/roadmap-candidate-refinements` | R1/R2 written down |
+| 2026-09-21 | `feature/refinement-tracking` | `research_cli refinements` + R3/R4; per-family routing verdicts and trend scores journaled with every rejected signal; `TECH_COUNTER_TREND_VETO_TFS` (set empty), `TECH_COUNTER_TREND_MIN_EVIDENCE` |
+| 2026-09-21 | `feature/rejection-ledger` | rejection ledger in `research_cli review` (with explanation/ATR fallbacks for day-one rows) |
+| 2026-09-21 | `fix/breaker-flap` | circuit breaker judged on the worst quality across underlyings |
 
 ## Where things live
 
