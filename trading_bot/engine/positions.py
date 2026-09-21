@@ -79,6 +79,15 @@ class KillSwitches:
         return None
 
 
+_QUALITY_RANK = {"OK": 0, "STALE": 1, "GAP": 2, "INVALID": 3, "DISCONNECTED": 4}
+
+
+def worst_quality(qualities) -> str:
+    """The most severe DataQuality status among several underlyings' latest
+    snapshots (OK < STALE < GAP < INVALID < DISCONNECTED); OK when empty."""
+    return max(qualities, key=lambda q: _QUALITY_RANK.get(q, 0), default="OK")
+
+
 def circuit_breaker_reason(*, quality: str, feed_connected: bool, reconciled: bool, api_errors_recent: int,
                            clock_drift_seconds: float | None, spread_pct: float | None = None,
                            max_api_errors: int = 5, max_clock_drift: float = 5.0, max_spread_pct: float = 8.0) -> str | None:
