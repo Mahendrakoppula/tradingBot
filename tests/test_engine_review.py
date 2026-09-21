@@ -12,6 +12,7 @@ from trading_bot.engine.research.review import (
     promote,
     promotion_record,
     rejected_analysis,
+    render_rejection,
 )
 from trading_bot.engine.research.validation import GateResult
 from trading_bot.timeutil import IST
@@ -55,6 +56,56 @@ def test_rejected_analysis_counts():
     assert ra["by_stage"] == {"NO_CHASE": 1, "OPTION_SELECTION": 1, "RISK_ENGINE": 2}
     assert list(ra["by_reason"])[0] == "RISK_ENGINE:one_lot_exceeds_max_risk" and ra["counter_trend"] == 1
     assert ra["by_status"] == {"option_rejected": 1, "rejected": 1, "risk_rejected": 2}
+    assert len(ra["ledger"]) == 4 and ra["ledger"][3]["time"] == "10:20" and ra["ledger"][3]["next"] is None
+
+
+def test_rejection_ledger_names_reason_family_verdicts_trend_and_what_happened_next():
+    """The nightly review must say WHY each signal was rejected (stage, reason,
+    every family's verdict, the trend it was judged against) and what the
+    underlying did next - so a recurring reason is visible day after day."""
+    ts = dt.datetime(2026, 9, 21, 10, 10, tzinfo=IST)
+    sig = {"signal_id": "x1", "status": "rejected", "stage": "STRATEGY_ROUTING", "reason_code": "no_strategy_match",
+           "underlying": "NIFTY", "direction": "down", "ts": ts, "strategy": None, "score": None, "explanation": {},
+           "snapshot": {"spot": 23373.0, "atr": 18.0, "direction": "down", "detail": "no family accepted",
+                        "routing": {"PDH_PDL_TRAP": "trap_without_confirmation", "TREND_PULLBACK": "counter_trend_not_allowed"},
+                        "trend_scores": {"1d": -0.7, "30m": 0.6, "5m": -0.4, "1m": None}}}
+    sig2 = dict(sig, signal_id="x2", stage="NO_CHASE", reason_code="insufficient_remaining_move", strategy="PDH_PDL_TRAP", score=40.0,
+                ts=ts + dt.timedelta(minutes=5), snapshot=dict(sig["snapshot"], routing={}))
+    falling = [{"ts": ts + dt.timedelta(minutes=i), "open": 23373 - 2 * i, "high": 23374 - 2 * i, "low": 23372 - 2 * i,
+                "close": 23373 - 2 * i} for i in range(1, 60)]
+    ra = rejected_analysis([sig, sig2], lambda u: falling)
+    assert ra["by_family"] == {"PDH_PDL_TRAP:trap_without_confirmation": 1, "TREND_PULLBACK:counter_trend_not_allowed": 1}
+    assert ra["by_reason"] == {"NO_CHASE:insufficient_remaining_move": 1, "STRATEGY_ROUTING:no_strategy_match": 1}
+    row = ra["ledger"][0]
+    assert row["trend_scores"] == {"1d": -0.7, "30m": 0.6, "5m": -0.4} and row["next"] == "target_first" and row["max_favourable"] > 0
+    text = daily_review([], [sig, sig2], [], 50000.0, "d", candles_1m=lambda u: falling).render()
+    assert "routing verdicts: PDH_PDL_TRAP:trap_without_confirmation=1" in text
+    line = [l for l in text.splitlines() if l.strip().startswith("10:10 NIFTY down")][0]
+    assert "STRATEGY_ROUTING:no_strategy_match [1d -0.7 30m +0.6 5m -0.4] PDH_PDL_TRAP=trap_without_confirmation" in line
+    assert "-> target_first mf=+" in line
+    line2 = [l for l in text.splitlines() if l.strip().startswith("10:15 NIFTY down")][0]
+    assert "NO_CHASE:insufficient_remaining_move PDH_PDL_TRAP s=40" in line2 and "no family accepted" in line2
+    assert "never P&L" in text
+
+
+def test_rejection_ledger_falls_back_to_explanation_and_rebuilds_atr_for_pre_ledger_rows():
+    """Rows journaled before the ledger fields existed (2026-09-21) carry only
+    spot + the explanation text: trend scores come from its Trend line, the
+    detail from its Strategy line and the ATR is rebuilt from 1m candles."""
+    ts = dt.datetime(2026, 9, 21, 10, 10, tzinfo=IST)
+    sig = {"signal_id": "old", "status": "rejected", "stage": "STRATEGY_ROUTING", "reason_code": "no_strategy_match",
+           "underlying": "NIFTY", "direction": "down", "ts": ts, "strategy": None, "score": None,
+           "snapshot": {"ts": ts.isoformat(), "spot": 23385.75, "direction": "down", "stage_reached": "STRATEGY_ROUTING"},
+           "explanation": {"Trend": "1d=STRONG_BEAR(-0.71), 30m=COUNTER_TREND(0.53), 5m=BULL(0.49), 1m=WEAK_BEAR(-0.30)",
+                           "Strategy": "family_hint=unclassified (strategy engines are M2)"}}
+    bars = [{"ts": ts + dt.timedelta(minutes=i), "open": 23385.0 - 2 * i, "high": 23388.0 - 2 * i, "low": 23382.0 - 2 * i,
+             "close": 23385.0 - 2 * i} for i in range(-80, 60)]  # ~3-pt 1m bars falling 2/min: 5m ATR ~ 13
+    ra = rejected_analysis([sig], lambda u: bars)
+    row = ra["ledger"][0]
+    assert row["trend_scores"] == {"1d": -0.71, "30m": 0.53, "5m": 0.49} and row["detail"].startswith("family_hint=")
+    assert row["next"] == "target_first" and row["max_favourable"] > 0
+    line = render_rejection(row)
+    assert "[1d -0.7 30m +0.5 5m +0.5]" in line and "family_hint=unclassified" in line and "-> target_first" in line
 
 
 def test_counterfactuals_are_underlying_only_and_separate():

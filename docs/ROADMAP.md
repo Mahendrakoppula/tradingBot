@@ -109,7 +109,7 @@ managed on 1m closes (hard stop / targets).
 | 17 | Portfolio / Reconciliation | [x] | M2 | `engine/positions.py`: PositionBook, reconcile() vs broker, KillSwitches + circuit breaker, EOD sweep. |
 | 18 | Backtest | [x] | M3 | `engine/research/backtest.py` through PaperLoop; model option chain (BS, spot-only); no-lookahead test. Real option-chain history accrues from `option_chain_snapshots` for a later, better model. |
 | 19 | Journal / Dataset | [x] | M2 | All schema-v1 tables populated: signals (status), risk_decisions, executions, trade_results, kill_switch_events, option_chain_snapshots; `engine/rejections.py` §72 dataset. |
-| 20 | EOD Analysis | [x] | M3 | `engine/eod.py` session summary + `engine/research/review.py` daily review (§71), rejected-signal analysis (§72). Nightly automation of the review is M4 observability. |
+| 20 | EOD Analysis | [x] | M3 | `engine/eod.py` session summary + `engine/research/review.py` daily review (§71), rejected-signal analysis (§72) with a per-signal **rejection ledger** (stage, reason, every family's verdict, trend scores, what the underlying did next) so recurring reasons are visible in every nightly review. Nightly automation of the review is M4 observability. |
 | 21 | Walk-Forward | [x] | M3 | `validation.walk_forward()` chronological windows + `coverage()` (§75). No fitting step by design (§84). |
 | 22 | Monte Carlo | [x] | M3 | `validation.monte_carlo()` bootstrap: final-net/dd percentiles, ruin probability, streaks, adverse-execution stress (§76). |
 | 23 | Paper Trading | [x] code, [ ] run | M2-M3 | `engine/paper_loop.py`; `TECH_MODE` is still SHADOW. The paper phase (4-12 weeks, 100+ valid opportunities, §78) has not started. |
