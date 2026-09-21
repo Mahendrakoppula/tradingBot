@@ -15,35 +15,63 @@ from trading_bot.options import find_spot_instrument
 
 log = logging.getLogger(__name__)
 
-WS_EXCHANGE_TYPE = {"NSE": "nse_cm", "BSE": "bse_cm", "NFO": "nse_fo", "BFO": "bse_fo"}
+WS_EXCHANGE_TYPE = {"NSE": "nse_cm", "BSE": "bse_cm", "NFO": "nse_fo", "BFO": "bse_fo", "MCX": "mcx_fo"}
 FUTURES_EXCHANGE = {"NSE": "NFO", "BSE": "BFO"}
+# where an underlying's options trade, keyed by the exchange its price reference ticks on
+OPTIONS_EXCHANGE = {"NSE": "NFO", "BSE": "BFO", "MCX": "MCX"}
 EXPECTED_SPOT = {"NIFTY": ("99926000", "NSE"), "BANKNIFTY": ("99926009", "NSE"), "SENSEX": ("99919000", "BSE")}
+
+# MCX commodity spike (shadow-only): the price reference is the near-month
+# FUTURE itself - MCX's "COMDTY" spot row updates a few times a day and does
+# not tick - and it carries its own volume, so there is no separate proxy.
+# CRUDEOIL (100 bbl) and CRUDEOILM (10 bbl) both list OPTFUT options
+# (verified against the scrip master 2026-09-21: monthly futures, options
+# expiring ~4 sessions before the future, strike step 50).
+COMMODITY_UNDERLYINGS: frozenset[str] = frozenset({"CRUDEOIL", "CRUDEOILM"})
+FUTURE_TYPES = {"NFO": "FUTIDX", "BFO": "FUTIDX", "MCX": "FUTCOM"}
 
 
 def _parse_expiry(raw: str) -> dt.date:
     return dt.datetime.strptime(raw, "%d%b%Y").date()
 
 
-def near_month_future(rows: list[dict], underlying: str, exchange: str, today: dt.date) -> dict | None:
+def near_month_future(rows: list[dict], underlying: str, exchange: str, today: dt.date,
+                      min_days_to_expiry: int = 0) -> dict | None:
+    """The nearest future expiring at least `min_days_to_expiry` days out
+    (commodities roll a couple of sessions before expiry - the expiring
+    contract is where delivery intentions, not price discovery, live)."""
     cands = []
+    ftype = FUTURE_TYPES.get(exchange, "FUTIDX")
     for r in rows:
-        if str(r.get("name", "")).upper() != underlying or r.get("instrumenttype") != "FUTIDX" or r.get("exch_seg") != exchange:
+        if str(r.get("name", "")).upper() != underlying or r.get("instrumenttype") != ftype or r.get("exch_seg") != exchange:
             continue
         try:
             exp = _parse_expiry(r["expiry"])
         except (KeyError, ValueError):
             continue
-        if exp >= today:
+        if (exp - today).days >= min_days_to_expiry:
             cands.append((exp, r))
     if not cands:
         return None
     return min(cands, key=lambda x: x[0])[1]
 
 
+def is_commodity(underlying: str) -> bool:
+    return underlying.upper() in COMMODITY_UNDERLYINGS
+
+
 def resolve_instruments(rows: list[dict], underlyings: tuple[str, ...], today: dt.date,
-                        volume_proxy: str = "futures") -> list[Instrument]:
+                        volume_proxy: str = "futures", future_roll_days: int = 2) -> list[Instrument]:
     out: list[Instrument] = []
     for u in underlyings:
+        if is_commodity(u):
+            fut = near_month_future(rows, u, "MCX", today, min_days_to_expiry=future_roll_days)
+            if fut is None:
+                raise RuntimeError(f"{u}: no MCX future expiring >= {future_roll_days} days out in the scrip master")
+            out.append(Instrument(u, "MCX", str(fut["token"]), "spot"))
+            log.info("%s price reference: near-month future %s (%s) expiry %s, lot %s", u, fut["symbol"], fut["token"],
+                     fut["expiry"], fut.get("lotsize"))
+            continue
         spot = find_spot_instrument(rows, u)
         exp = EXPECTED_SPOT.get(u)
         if exp and (str(spot["token"]), spot["exch_seg"]) != exp:

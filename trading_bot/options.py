@@ -4,6 +4,8 @@ from dataclasses import dataclass
 # Verified against a live download of OpenAPIScripMaster.json (2026-09-07):
 # strike is the actual strike price * 100 (e.g. "2300000.000000" -> 23000.0).
 STRIKE_SCALE = 100.0
+# index / stock options on NFO+BFO; options on commodity futures on MCX (CRUDEOIL15OCT267750CE)
+OPTION_TYPES = ("OPTIDX", "OPTSTK", "OPTFUT")
 
 
 @dataclass
@@ -16,7 +18,7 @@ class OptionContract:
     option_type: str  # "CE" or "PE"
     lotsize: int
     freeze_qty: int
-    exchange: str  # "NFO" or "BFO"
+    exchange: str  # "NFO", "BFO" or "MCX"
 
 
 def _parse_expiry(raw: str) -> dt.date:
@@ -38,7 +40,7 @@ class OptionChain:
             row
             for row in instruments
             if str(row.get("name", "")).upper() == self.underlying
-            and row.get("instrumenttype") in ("OPTIDX", "OPTSTK")
+            and row.get("instrumenttype") in OPTION_TYPES
             and row.get("exch_seg") == exchange
         ]
         self.contracts = [self._to_contract(row) for row in rows]

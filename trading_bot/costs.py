@@ -33,6 +33,20 @@ class CostRates:
     equity_stt_pct: float = 0.1  # equity delivery STT applies to BOTH legs, unlike options' sell-only
     equity_stamp_duty_pct: float = 0.015  # equity delivery stamp duty is higher than F&O's, BUY side only
 
+    @classmethod
+    def for_profile(cls, profile: str) -> "CostRates":
+        """"nfo": NSE/BSE index options (the defaults). "mcx": options on
+        commodity futures - CTT 0.05% of premium on the sell side instead of
+        STT, MCX transaction charge 0.0418% of premium on both legs (~Rs.41.8
+        per lakh, MCX circular; verify against the first contract note before
+        anything on MCX leaves shadow). Brokerage, SEBI fee, stamp duty and
+        GST treatment are the same."""
+        if profile == "nfo":
+            return cls()
+        if profile == "mcx":
+            return cls(stt_sell_pct=0.05, exchange_txn_pct=0.0418)
+        raise ValueError(f"unknown cost profile {profile!r}")
+
     def option_cost(self, entry_premium: float, exit_premium: float, quantity: int) -> float:
         return option_round_trip_cost(
             entry_premium, exit_premium, quantity,

@@ -24,7 +24,7 @@ from trading_bot import technical_notifier
 from trading_bot.auth import Session
 from trading_bot.engine import jsonlog
 from trading_bot.engine.candles import CandleStore
-from trading_bot.engine.clock import is_trading_day, session_close_at, session_open_at
+from trading_bot.engine.clock import configure_session, is_trading_day, session_close_at, session_open_at
 from trading_bot.engine.config import EngineConfig, broker_config
 from trading_bot.engine.db.dal import Database
 from trading_bot.engine.db.memory import MemoryDAL
@@ -38,6 +38,7 @@ from trading_bot.engine.paper_loop import ChainService, PaperLoop
 from trading_bot.engine.pipeline import PipelineParams
 from trading_bot.engine.warmup import WarmupPlan, backfill_today_1m, warm_up
 from trading_bot.instruments import InstrumentLookup
+from trading_bot.options import OPTION_TYPES
 from trading_bot.rest_client import RestClient
 from trading_bot.timeutil import IST, now_ist, today_ist
 
@@ -48,7 +49,7 @@ def banner(cfg: EngineConfig) -> str:
     live = "LIVE ORDER PLACEMENT ENABLED" if cfg.can_place_live_orders else "LIVE ORDER PLACEMENT DISABLED"
     return (
         f"=== {cfg.mode} MODE | {live} ===\n"
-        f"underlyings={','.join(cfg.underlyings)} capital=Rs.{cfg.capital:,.0f} "
+        f"session={cfg.session} underlyings={','.join(cfg.underlyings)} capital=Rs.{cfg.capital:,.0f} "
         f"risk/trade={cfg.risk_per_trade_pct:.2%} daily-cap={cfg.daily_loss_cap_pct:.2%} "
         f"eod-cutoff={cfg.eod_cutoff:%H:%M} session-end={cfg.session_end:%H:%M} "
         f"db={'configured' if cfg.database_url else 'NOT CONFIGURED'} now={now_ist():%Y-%m-%d %H:%M:%S %Z}"
@@ -93,9 +94,9 @@ def run_live(cfg: EngineConfig) -> int:
 
     lookup = InstrumentLookup(bcfg.scrip_master_url)
     lookup.load()
-    instruments = resolve_instruments(lookup.instruments, cfg.underlyings, today, cfg.volume_proxy)
+    instruments = resolve_instruments(lookup.instruments, cfg.underlyings, today, cfg.volume_proxy, cfg.future_roll_days)
     # option chains for the pipeline (M2): built from the scrip master before it is dropped
-    option_rows = [r for r in lookup.instruments if r.get("instrumenttype") == "OPTIDX"
+    option_rows = [r for r in lookup.instruments if r.get("instrumenttype") in OPTION_TYPES
                    and str(r.get("name", "")).upper() in cfg.underlyings]
     chains = ChainService(rest, option_rows, {i.underlying: i.exchange for i in instruments if i.role == "spot"},
                           CacheParams(strikes_each_side=cfg.chain_strikes_each_side, refresh_seconds=cfg.chain_refresh_seconds,
@@ -228,7 +229,7 @@ def _instruments_from_db(dal: Database, underlyings, day: dt.date):
     for r in rows:
         if r["underlying"] not in underlyings:
             continue
-        role = "spot" if r["exchange"] in ("NSE", "BSE") else "volume_proxy"
+        role = "spot" if r["exchange"] in ("NSE", "BSE", "MCX") else "volume_proxy"
         out.append(Instrument(r["underlying"], r["exchange"], r["token"], role))
     return out
 
@@ -236,6 +237,10 @@ def _instruments_from_db(dal: Database, underlyings, day: dt.date):
 def main() -> int:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s", stream=sys.stderr)
     cfg = EngineConfig.from_env()
+    # one process = one exchange session (NSE 09:15-15:30 or MCX 09:00-23:30); every bar boundary,
+    # phase label and "in session" check below reads this
+    prof = configure_session(cfg.session, cfg.session_end)
+    log.info("session profile %s %s-%s", prof.name, prof.open.strftime("%H:%M"), prof.close.strftime("%H:%M"))
     for line in banner(cfg).splitlines():
         log.info(line)
     bcfg = broker_config(cfg)

@@ -17,6 +17,9 @@ _BEAR = ("STRONG_BEAR", "BEAR", "WEAK_BEAR")
 _SESSION_TOD = {
     "PRE_MARKET": "PRE", "09:15-10:00": "OPEN", "10:00-11:30": "MORNING", "11:30-13:00": "MIDDAY",
     "13:00-14:00": "EARLY_AFTERNOON", "14:00-15:00": "AFTERNOON", "15:00-15:30": "CLOSE", "POST_MARKET": "POST",
+    # MCX (clock.MCX_SESSION_PHASES): which global market drives the tape
+    "09:00-12:00": "ASIA", "12:00-15:00": "MIDDAY", "15:00-17:00": "EUROPE", "17:00-20:00": "US_OPEN",
+    "20:00-23:30": "US", "20:00-23:55": "US",
 }
 
 
