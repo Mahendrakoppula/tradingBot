@@ -29,6 +29,9 @@ ALIGNED = frozenset({"STRONG_TREND_ALIGNMENT", "TREND_ALIGNMENT"})
 WEAKLY_ALIGNED = frozenset({"STRONG_TREND_ALIGNMENT", "TREND_ALIGNMENT", "WEAK_ALIGNMENT"})
 
 
+DEFAULT_VETO_TFS: tuple[str, ...] = ("30m",)
+
+
 @dataclass(frozen=True)
 class StrategyParams:
     level_proximity_atr: float = 0.5  # "at" a level
@@ -42,6 +45,7 @@ class StrategyParams:
     momentum_min_rel_volume: float = 1.5
     momentum_min_adx: float = 20.0
     default_target_atr: float = 1.5  # when no level is within reach
+    counter_trend_veto_tfs: tuple[str, ...] = DEFAULT_VETO_TFS  # which HTFs make a trade counter-trend (§7)
 
 
 @dataclass(frozen=True)
@@ -156,23 +160,27 @@ def alignment_with(ctx: ContextSnapshot, direction: str, labels: frozenset = WEA
     return a.get("label") in labels and a.get("direction_preference") == direction
 
 
-def is_counter_trend(ctx: ContextSnapshot, direction: str) -> bool:
-    """A trade is counter-trend when it goes AGAINST the higher-timeframe
-    direction (spec §7): against the weighted alignment preference, or
-    against a daily/30m read that is itself decisive (|score| >= 0.5).
+def is_counter_trend(ctx: ContextSnapshot, direction: str, veto_tfs: tuple[str, ...] = DEFAULT_VETO_TFS,
+                     min_score: float = 0.5) -> bool:
+    """A trade is counter-trend when it goes AGAINST a decisive higher-
+    timeframe read (spec §7, §92 #9): any timeframe in `veto_tfs` whose score
+    opposes the trade with |score| >= min_score.
 
-    The alignment LABEL alone is not enough: align() reports COUNTER_TREND
-    whenever any lower timeframe (even the 1m) disagrees with a higher one,
-    which describes conflict, not direction. First shadow session
-    (2026-09-18): treating that label as counter-trend for both directions
-    blocked every trend family on bars like regime=BULL, 5m=BULL, 30m=NEUTRAL.
+    Which timeframes may veto is config (TECH_COUNTER_TREND_VETO_TFS). Default
+    "30m": for an intraday option buyer the 30m defines the day's trade; the
+    daily defines bias and keeps its say through scoring (MTF component,
+    regime penalty) rather than as a gate. First paper day (2026-09-21): with
+    the daily strongly bearish and the 30m rising all day, a daily veto made
+    every long counter-trend and nothing traded. An empty tuple makes the 5m
+    read sovereign (only the families' own alignment rules remain) - the
+    operator's call, recorded in config_versions like any other setting.
+
+    The alignment LABEL alone is never used: align() reports COUNTER_TREND
+    whenever any lower timeframe disagrees, which describes conflict, not
+    direction.
     """
-    a = ctx.alignment or {}
-    pref = a.get("direction_preference", "none")
-    if pref not in ("none", direction):
-        return True
-    for tf in ("1d", "30m"):
+    for tf in veto_tfs:
         sc = ctx.trend(tf).get("score")
-        if sc is not None and abs(sc) >= 0.5 and (sc > 0) != (direction == "up"):
+        if sc is not None and abs(sc) >= min_score and (sc > 0) != (direction == "up"):
             return True
     return False

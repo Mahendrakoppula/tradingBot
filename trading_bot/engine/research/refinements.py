@@ -68,9 +68,25 @@ def _r2(row: dict) -> bool:
         row.get("stage") == "NO_CHASE" and row.get("reason_code") == "insufficient_remaining_move")
 
 
+def _r3(row: dict) -> bool:
+    """Counter-trend veto came ONLY from the daily: the 30m agreed with the
+    trade (|score| >= 0.5 in its direction) while the daily opposed it."""
+    if "counter_trend_not_allowed" not in _routing(row).values():
+        return False
+    sc = (row.get("snapshot") or {}).get("trend_scores") or {}
+    d = row.get("direction")
+    s30, s1d = sc.get("30m"), sc.get("1d")
+    if s30 is None or s1d is None:
+        return False
+    with_30m = abs(s30) >= 0.5 and (s30 > 0) == (d == "up")
+    against_1d = abs(s1d) >= 0.5 and (s1d > 0) != (d == "up")
+    return with_30m and against_1d
+
+
 CANDIDATES: tuple[Candidate, ...] = (
     Candidate("R1", "PDH trap: accept the neckline close as confirmation", _r1, note="docs/ROADMAP.md R1"),
     Candidate("R2", "counter-trend 6-key bar / 0.75 ATR no-chase floor binding", _r2, min_occurrences=20, note="docs/ROADMAP.md R2"),
+    Candidate("R3", "daily-only veto blocked a 30m-aligned trade (measures the pre-2026-09-21 rule)", _r3, note="docs/ROADMAP.md R3"),
 )
 
 

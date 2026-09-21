@@ -61,7 +61,7 @@ def test_r2_matches_evidence_bar_and_no_chase():
 
 
 def test_candidates_are_documented_and_never_auto_apply():
-    assert [c.code for c in CANDIDATES] == ["R1", "R2"] and all(c.note.startswith("docs/ROADMAP.md") for c in CANDIDATES)
+    assert [c.code for c in CANDIDATES] == ["R1", "R2", "R3"] and all(c.note.startswith("docs/ROADMAP.md") for c in CANDIDATES)
     assert "never auto-applied" in render([])
 
 
@@ -95,3 +95,16 @@ def test_paper_loop_journals_per_family_routing_verdicts():
     loop._on_stage_event(ctx2, ev, 2)
     routing = loop.dal.signals[1]["snapshot"]["routing"]
     assert routing and all(isinstance(v, str) for v in routing.values()) and "PDH_PDL_TRAP" in routing
+
+
+def test_r3_matches_daily_only_veto():
+    def sig(direction, s30, s1d, routing):
+        r = _sig(0, routing=routing, direction=direction)
+        r["snapshot"]["trend_scores"] = {"1d": s1d, "30m": s30, "5m": 0.5, "1m": 0.0}
+        return r
+    yes = sig("up", 0.6, -0.7, {"TREND_PULLBACK": "counter_trend_not_allowed"})
+    no_30m = sig("up", 0.1, -0.7, {"TREND_PULLBACK": "counter_trend_not_allowed"})  # 30m did not agree
+    both = sig("up", -0.6, -0.7, {"TREND_PULLBACK": "counter_trend_not_allowed"})  # 30m opposed too
+    other = sig("up", 0.6, -0.7, {"TREND_PULLBACK": "regime_incompatible"})
+    st = {s.code: s for s in track([yes, no_30m, both, other], _candles_down_then_up)}
+    assert st["R3"].occurrences == 1

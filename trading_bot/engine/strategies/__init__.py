@@ -42,13 +42,15 @@ class RoutingResult:
 
 
 def compatible(spec: StrategySpec, ctx: ContextSnapshot, direction: str, counter_trend_cleared: bool,
-               family_hint: str | None) -> str | None:
+               family_hint: str | None, counter_trend: bool | None = None) -> str | None:
     """None when the family may run; otherwise the reason it may not."""
     regime = ctx.regime.get("primary")
     if regime not in spec.compatible_regimes:
         return "regime_incompatible"
     label = ctx.alignment.get("label")
-    if is_counter_trend(ctx, direction):
+    if counter_trend is None:
+        counter_trend = is_counter_trend(ctx, direction)
+    if counter_trend:
         if not spec.counter_trend_ok:
             return "counter_trend_not_allowed"
         if not counter_trend_cleared:
@@ -72,8 +74,9 @@ def route(ctx: ContextSnapshot, direction: str, *, params: StrategyParams | None
     if ctx.quality != "OK":
         out.gate = f"data_quality_{ctx.quality.lower()}"
         return out
+    counter_trend = is_counter_trend(ctx, direction, params.counter_trend_veto_tfs)
     for fam in sorted(families, key=lambda f: f.spec.tier):
-        why = compatible(fam.spec, ctx, direction, counter_trend_cleared, family_hint)
+        why = compatible(fam.spec, ctx, direction, counter_trend_cleared, family_hint, counter_trend)
         if why is not None:
             out.rejections.append(NoTrade(fam.spec.name, why))
             continue
@@ -82,6 +85,7 @@ def route(ctx: ContextSnapshot, direction: str, *, params: StrategyParams | None
             if result.risk_distance <= 0 or result.reward_distance <= 0:
                 out.rejections.append(NoTrade(fam.spec.name, "degenerate_levels"))
                 continue
+            result.counter_trend = counter_trend
             result.evidence.setdefault("fingerprint", fingerprint(ctx, result))
             out.candidates.append(result)
         else:

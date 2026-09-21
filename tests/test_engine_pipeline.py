@@ -125,7 +125,9 @@ def test_rejections_carry_stage_and_reason():
 
 
 def test_counter_trend_needs_the_evidence_bar():
-    ctx = _ctx(alignment={"label": "COUNTER_TREND", "direction_preference": "down"})
+    ctx = _ctx(alignment={"label": "COUNTER_TREND", "direction_preference": "down"},
+               trends={"1d": {"label": "BULL", "score": 0.5}, "30m": {"label": "STRONG_BEAR", "score": -0.7},
+                       "5m": {"label": "STRONG_BULL", "score": 0.75, "exhaustion": False}, "1m": {"label": "BULL", "score": 0.4}})
     blocked = decide(ctx, _event(), setup_evidence=4, family_hint=None, chain=_chain(), account=AccountState(equity=50000.0), params=_params())
     assert blocked.stage_reached == "STRATEGY_ROUTING" and blocked.reason_code == "no_strategy_match"
     assert "counter_trend_evidence_insufficient" in blocked.rejection.detail

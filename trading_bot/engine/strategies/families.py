@@ -22,7 +22,6 @@ from trading_bot.engine.strategies.base import (
     StrategySpec,
     alignment_with,
     default_target,
-    is_counter_trend,
     nearest_behind,
     nearest_toward,
     pa_with,
@@ -39,7 +38,7 @@ def _cand(spec: StrategySpec, ctx: ContextSnapshot, direction: str, invalidation
     return Candidate(
         strategy=spec.name, version=spec.version, underlying=ctx.underlying, direction=direction,
         entry_ref=ctx.spot, invalidation=round(invalidation, 2), target_ref=round(target, 2),
-        confirmation=confirmation, counter_trend=is_counter_trend(ctx, direction), reasons=reasons, evidence=evidence,
+        confirmation=confirmation, counter_trend=False, reasons=reasons, evidence=evidence,  # set by route() with the configured veto
     )
 
 
