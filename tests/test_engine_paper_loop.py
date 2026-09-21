@@ -178,6 +178,22 @@ def test_circuit_breaker_blocks_and_recovers():
     assert loop.kills.circuit_breaker is None and loop.dal.kill_switch_events[-1]["action"] == "off"
 
 
+def test_circuit_breaker_does_not_flap_while_another_underlying_is_still_gapped():
+    """2026-09-21 15:30: NIFTY's clean bar reset the breaker one second before SENSEX's
+    still-gapped bar tripped it again. The breaker is global: it recovers only when
+    every underlying's latest snapshot is clean."""
+    loop, clock = _loop(execute=True)
+    loop._on_context(pipe_t._ctx(), 1)
+    loop._on_context(pipe_t._ctx(underlying="SENSEX", quality="GAP"), 2)
+    assert loop.kills.circuit_breaker == "data_gap"
+    loop._on_context(pipe_t._ctx(), 3)  # NIFTY clean again, SENSEX still gapped
+    assert loop.kills.circuit_breaker == "data_gap"
+    assert [e["action"] for e in loop.dal.kill_switch_events] == ["on"]
+    loop._on_context(pipe_t._ctx(underlying="SENSEX"), 4)  # SENSEX recovers
+    assert loop.kills.circuit_breaker is None
+    assert [e["action"] for e in loop.dal.kill_switch_events] == ["on", "off"]
+
+
 def test_full_replay_through_the_m2_loop_is_deterministic():
     def run():
         spot_hist, px = replay_t._history(12, 100, 0)

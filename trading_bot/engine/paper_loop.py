@@ -27,7 +27,7 @@ from trading_bot.engine.health import HealthMonitor, HealthThresholds, format_al
 from trading_bot.engine.instruments import FUTURES_EXCHANGE
 from trading_bot.engine.option_chain import CacheParams, ChainCache
 from trading_bot.engine.pipeline import Decision, PipelineParams, _reject, decide
-from trading_bot.engine.positions import KillSwitches, Position, PositionBook, circuit_breaker_reason, reconcile
+from trading_bot.engine.positions import KillSwitches, Position, PositionBook, circuit_breaker_reason, reconcile, worst_quality
 from trading_bot.engine.presignal import StageEvent
 from trading_bot.engine.recovery import recover
 from trading_bot.engine.rejections import Rejection, summarize
@@ -209,8 +209,11 @@ class PaperLoop(ShadowLoop):
                 jsonlog.event("reconcile", "mismatch", severity="ERROR", mismatches=list(r.mismatches))
             self._reconciled = r.ok
         h = self.source.health()
-        reason = circuit_breaker_reason(quality=ctx.quality, feed_connected=h.connected, reconciled=self._reconciled,
-                                        api_errors_recent=self.chains.errors if self.chains else 0,
+        # The breaker is global (§57) but this runs once per underlying's 5m close: judge it on the WORST
+        # quality across all underlyings' latest snapshots, or a clean NIFTY bar would reset it a second
+        # before a still-gapped SENSEX bar trips it again (flap seen 2026-09-21 15:30).
+        reason = circuit_breaker_reason(quality=worst_quality(self.health.state.quality.values()), feed_connected=h.connected,
+                                        reconciled=self._reconciled, api_errors_recent=self.chains.errors if self.chains else 0,
                                         clock_drift_seconds=h.clock_drift_seconds)
         if reason and self.kills.circuit_breaker is None:
             self.kills.trip(now, reason)

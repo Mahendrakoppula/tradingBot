@@ -69,6 +69,12 @@ def test_kill_switches_are_scoped_and_audited():
     assert all(e.reason for e in k.log)
 
 
+def test_worst_quality_orders_statuses():
+    from trading_bot.engine.positions import worst_quality
+    assert worst_quality([]) == "OK" and worst_quality(["OK", "OK"]) == "OK"
+    assert worst_quality(["OK", "GAP", "STALE"]) == "GAP" and worst_quality(["GAP", "DISCONNECTED"]) == "DISCONNECTED"
+
+
 def test_circuit_breaker_reasons():
     ok = dict(quality="OK", feed_connected=True, reconciled=True, api_errors_recent=0, clock_drift_seconds=1.0)
     assert circuit_breaker_reason(**ok) is None
