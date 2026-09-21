@@ -10,9 +10,17 @@ import datetime as dt
 import logging
 import uuid
 
-import psycopg
-from psycopg.rows import dict_row
-from psycopg.types.json import Jsonb
+try:  # the driver is optional: MemoryDAL needs nothing, and a dev box may lack libpq
+    import psycopg
+    from psycopg.rows import dict_row
+    from psycopg.types.json import Jsonb
+except ImportError as _exc:  # pragma: no cover - exercised only where psycopg is unavailable
+    psycopg = None
+    dict_row = None
+    _PSYCOPG_ERROR = _exc
+
+    def Jsonb(obj):  # type: ignore[misc]
+        raise RuntimeError(f"psycopg is not available: {_PSYCOPG_ERROR}")
 
 from trading_bot.engine.candles import Candle
 from trading_bot.engine.context import ContextSnapshot
@@ -44,11 +52,13 @@ def _norm(row: dict) -> dict:
 class Database:
     def __init__(self, url: str):
         self.url = url
-        self._conn: psycopg.Connection | None = None
+        self._conn = None
 
     # --- lifecycle -------------------------------------------------------------
 
     def connect(self) -> "Database":
+        if psycopg is None:
+            raise RuntimeError(f"psycopg is not available: {_PSYCOPG_ERROR}")
         self._conn = psycopg.connect(self.url, autocommit=True, row_factory=dict_row,
                                      options="-c TimeZone=Asia/Kolkata")
         return self
@@ -59,7 +69,7 @@ class Database:
             self._conn = None
 
     @property
-    def conn(self) -> psycopg.Connection:
+    def conn(self):
         if self._conn is None:
             raise RuntimeError("Database.connect() first")
         return self._conn

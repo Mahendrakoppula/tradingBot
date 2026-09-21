@@ -30,7 +30,7 @@ from trading_bot.engine.db.dal import Database
 from trading_bot.engine.db.memory import MemoryDAL
 from trading_bot.engine.feed import LiveTickSource, ResilientMarketStream, Subscription, smartapi_stream_factory
 from trading_bot.engine.instruments import resolve_instruments, ws_type
-from trading_bot.engine.ratelimit import RateLimiter
+from trading_bot.engine.ratelimit import RateLimiter, paced_call
 from trading_bot.engine.replay import SimClock, TickReplaySource
 from trading_bot.engine.execution import PaperBroker, PaperParams
 from trading_bot.engine.option_chain import CacheParams
@@ -85,9 +85,11 @@ def run_live(cfg: EngineConfig) -> int:
         return 0
     bcfg = broker_config(cfg)
     session = Session(bcfg)
-    session.login()
-    rest = RestClient(session)
     limiter = RateLimiter()
+    # a plain-text 403 (rate limit) from the login endpoint is a ValueError from
+    # resp.json() - transient, retried with backoff; a real AuthError is not
+    paced_call(session.login, limiter=limiter, retries=5, backoff=3.0)
+    rest = RestClient(session)
 
     lookup = InstrumentLookup(bcfg.scrip_master_url)
     lookup.load()

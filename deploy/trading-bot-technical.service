@@ -10,6 +10,9 @@ User=tradingbot
 Group=tradingbot
 WorkingDirectory=/opt/trading-bot
 EnvironmentFile=/opt/trading-bot/.env
+# stagger the two logins on the shared SmartAPI key (2026-09-21: both bots
+# logged in at the same instant at boot and the second got a plain-text 403)
+ExecStartPre=/bin/sleep 20
 ExecStart=/opt/trading-bot/.venv/bin/python -m trading_bot.run_technical
 Restart=on-failure
 RestartSec=60
