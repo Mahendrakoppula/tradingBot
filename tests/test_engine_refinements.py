@@ -61,7 +61,7 @@ def test_r2_matches_evidence_bar_and_no_chase():
 
 
 def test_candidates_are_documented_and_never_auto_apply():
-    assert [c.code for c in CANDIDATES] == ["R1", "R2", "R3"] and all(c.note.startswith("docs/ROADMAP.md") for c in CANDIDATES)
+    assert [c.code for c in CANDIDATES] == ["R1", "R2", "R3", "R4"] and all(c.note.startswith("docs/ROADMAP.md") for c in CANDIDATES)
     assert "never auto-applied" in render([])
 
 
@@ -108,3 +108,13 @@ def test_r3_matches_daily_only_veto():
     other = sig("up", 0.6, -0.7, {"TREND_PULLBACK": "regime_incompatible"})
     st = {s.code: s for s in track([yes, no_30m, both, other], _candles_down_then_up)}
     assert st["R3"].occurrences == 1
+
+
+def test_r4_matches_late_confirmation_rejections():
+    sigs = [_sig(0, stage="NO_CHASE", reason="extended_from_origin"),
+            _sig(1, stage="NO_CHASE", reason="move_mostly_done"),
+            _sig(2, routing={"COMPRESSION_BREAKOUT": "extended_from_breakout_level"}),
+            _sig(3, stage="NO_CHASE", reason="insufficient_remaining_move"),  # time of day, not cadence -> R2
+            _sig(4, routing={"ORB": "outside_orb_window"})]
+    st = {s.code: s for s in track(sigs, _candles_down_then_up)}
+    assert st["R4"].occurrences == 3 and st["R2"].occurrences == 1

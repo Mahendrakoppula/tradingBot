@@ -83,10 +83,23 @@ def _r3(row: dict) -> bool:
     return with_30m and against_1d
 
 
+_LATE_REASONS = {"extended_from_origin", "move_mostly_done", "extended_from_breakout_level", "extended_from_range"}
+
+
+def _r4(row: dict) -> bool:
+    """Confirmation cadence: the setup was sound but by the time the 5m close
+    confirmed it the move had already run - rejected as extended / mostly
+    done. A 1m-driven confirmation leg would have seen it sooner."""
+    if row.get("stage") == "NO_CHASE" and row.get("reason_code") in _LATE_REASONS:
+        return True
+    return any(v in _LATE_REASONS for v in _routing(row).values())
+
+
 CANDIDATES: tuple[Candidate, ...] = (
     Candidate("R1", "PDH trap: accept the neckline close as confirmation", _r1, note="docs/ROADMAP.md R1"),
     Candidate("R2", "counter-trend 6-key bar / 0.75 ATR no-chase floor binding", _r2, min_occurrences=20, note="docs/ROADMAP.md R2"),
     Candidate("R3", "daily-only veto blocked a 30m-aligned trade (measures the pre-2026-09-21 rule)", _r3, note="docs/ROADMAP.md R3"),
+    Candidate("R4", "late to a confirmed move: 5m-close confirmation cadence (1m confirmation leg)", _r4, note="docs/ROADMAP.md R4"),
 )
 
 
