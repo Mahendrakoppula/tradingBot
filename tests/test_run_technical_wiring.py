@@ -209,3 +209,44 @@ def test_backfill_failure_degrades_to_a_gap_not_a_crash(monkeypatch):
     assert rt.run_live(_cfg()) == 0
     run = next(iter(dals[0].runs.values()))
     assert run["status"] == "completed"  # the session ran to its end despite the failed backfill
+
+
+def test_login_is_retried_on_a_plain_text_rate_limit(monkeypatch):
+    """2026-09-21: both bots logged in at the same instant at boot; the engine's
+    login got a non-JSON 403 and crashed instead of retrying."""
+    calls = {"n": 0}
+
+    class FlakySession(FakeSession):
+        def login(self):
+            calls["n"] += 1
+            if calls["n"] < 3:
+                raise ValueError("Expecting value: line 1 column 1 (char 0)")  # requests' JSONDecodeError
+            self.logged_in = True
+
+    monkeypatch.setattr(rt, "Session", FlakySession)
+    monkeypatch.setattr(rt, "RestClient", FakeRest)
+    monkeypatch.setattr(rt, "InstrumentLookup", FakeLookup)
+    monkeypatch.setattr(rt, "ResilientMarketStream", lambda *a, **k: object())
+    monkeypatch.setattr(rt, "smartapi_stream_factory", lambda session: None)
+    monkeypatch.setattr(rt, "LiveTickSource", FakeSource)
+    monkeypatch.setattr(rt, "RateLimiter", _NoSleepLimiter)
+    monkeypatch.setattr(rt, "today_ist", lambda: DAY)
+    monkeypatch.setattr(rt.technical_notifier, "notify", lambda m, html=False: None)
+    monkeypatch.setattr(rt, "_git_sha", lambda: None)
+    monkeypatch.setattr(rt.signal, "signal", lambda *a, **k: None)
+    monkeypatch.setattr(rt, "broker_config", lambda cfg: type("B", (), {"dry_run": True, "scrip_master_url": "x"})())
+    import trading_bot.engine.ratelimit as rl
+    monkeypatch.setattr(rl.time, "sleep", lambda s: None)
+    CLOCK["now"] = dt.datetime.combine(DAY, dt.time(8, 0), tzinfo=IST)
+    monkeypatch.setattr(rt, "now_ist", lambda: CLOCK["now"])
+    assert rt.run_live(_cfg()) == 0 and calls["n"] == 3
+
+    class BadCreds(FakeSession):
+        def login(self):
+            from trading_bot.auth import AuthError
+            raise AuthError("Invalid totp", "AB1050")
+
+    monkeypatch.setattr(rt, "Session", BadCreds)
+    import pytest
+    with pytest.raises(Exception):
+        rt.run_live(_cfg())  # a real auth failure is not retried into oblivion
