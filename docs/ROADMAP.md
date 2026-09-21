@@ -68,6 +68,14 @@ the nightly reviews before it becomes a versioned change with a promotion record
 | R1 | 2026-09-21 NIFTY 09:40-10:10: double top at PDH 23389 (two bearish pins, `repeated_tests`), pre-signal reached TRADE_READY on the neckline close at 10:10, but `PDH_PDL_TRAP` returned `trap_without_confirmation` because it also demands a bearish candle pattern or swing BOS on the trigger bar. The tracker's own `confirmation_closed` (close back through the level after the sweep) is the classic trap confirmation. Counterfactual: the short ran 16 pts then a 100-pt rally - shallow reversal in a STRONG_BULL 5m regime. | Let `PDH_PDL_TRAP` (and `LIQUIDITY_SWEEP_BOS`) accept "close back through the swept level after >=2 tests" as confirmation, optionally with a relative-volume condition, as strategy v0.2 behind a promotion record. | 1 occurrence |
 | R2 | 2026-09-18/21: with the daily strongly bearish and the 30m rallying, every setup is counter-trend one way or the other, so only the reversal families can trade and only with 6 evidence keys. | Review the 6-key counter-trend bar and the 0.75 ATR no-chase floor once ~2 weeks of paper decisions show how often they are the binding constraint. | 2 sessions |
 
+Tracking: `python -m trading_bot.research_cli refinements --from … --to …` counts each
+candidate's occurrences in the journal (per-family routing verdicts are stored in
+`signals.snapshot.routing`) and its underlying-only counterfactuals; the nightly
+15:45 post includes it. A candidate is marked READY only when it recurs (R1: 10,
+R2: 20) AND the counterfactuals favour it (≥55% target-first). READY is a prompt
+for a human to build a shadow-only vNext and promote it with a §83 record - the
+engine never applies a candidate itself.
+
 **Outstanding on the operator:** rotate the Anthropic API key and GitHub PAT
 that were exposed in journald (fixed 2026-09-17, values still need rotating).
 

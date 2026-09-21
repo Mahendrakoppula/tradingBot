@@ -21,6 +21,7 @@ from trading_bot.engine.config import EngineConfig
 from trading_bot.engine.db.dal import Database
 from trading_bot.engine.instruments import EXPECTED_SPOT
 from trading_bot.engine.research import metrics as M
+from trading_bot.engine.research import refinements as RF
 from trading_bot.engine.research import review as R
 from trading_bot.engine.research import validation as V
 from trading_bot.engine.warmup import Instrument
@@ -107,6 +108,29 @@ def cmd_counterfactuals(cfg, dal, args) -> int:
     return 0
 
 
+def _candle_loader(cfg, dal, start, end):
+    tokens = {u: EXPECTED_SPOT[u][0] for u in cfg.underlyings if u in EXPECTED_SPOT}
+    cache: dict[str, list] = {}
+
+    def candles(u):
+        if u not in cache:
+            cache[u] = [c.as_dict() for c in dal.load_candles(tokens[u], "1m", start, until=end + dt.timedelta(days=1))] if u in tokens else []
+        return cache[u]
+
+    return candles
+
+
+def cmd_refinements(cfg, dal, args) -> int:
+    """§71/§83: count how often each candidate refinement recurred and what the
+    underlying did afterwards. Reports only - never changes a rule."""
+    start, end = _range(args)
+    statuses = RF.track(dal.signals_between(start, end), _candle_loader(cfg, dal, start, end))
+    print(RF.render(statuses))
+    if args.json:
+        print(json.dumps([s.as_dict() for s in statuses], indent=2))
+    return 0
+
+
 def cmd_backtest(cfg, dal, args) -> int:
     from trading_bot.engine.research.backtest import CandleSource, run_backtest
     instruments = [Instrument(u, EXPECTED_SPOT[u][1], EXPECTED_SPOT[u][0], "spot") for u in cfg.underlyings if u in EXPECTED_SPOT]
@@ -143,7 +167,7 @@ def _post_telegram(text: str) -> None:
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(prog="research_cli")
     sub = ap.add_subparsers(dest="cmd", required=True)
-    for name in ("metrics", "review", "gates", "walkforward", "montecarlo", "backtest", "counterfactuals"):
+    for name in ("metrics", "review", "gates", "walkforward", "montecarlo", "backtest", "counterfactuals", "refinements"):
         p = sub.add_parser(name)
         p.add_argument("--from", dest="start", required=True)
         p.add_argument("--to", dest="end", required=True)
@@ -160,6 +184,8 @@ def main(argv=None) -> int:
             p.add_argument("--json", action="store_true")
         if name == "counterfactuals":
             p.add_argument("--limit", type=int, default=50)
+        if name == "refinements":
+            p.add_argument("--json", action="store_true")
     args = ap.parse_args(argv)
     cfg = EngineConfig.from_env()
     dal = _open(cfg)
@@ -168,7 +194,8 @@ def main(argv=None) -> int:
         sys.stdout = tee
     try:
         rc = {"metrics": cmd_metrics, "review": cmd_review, "gates": cmd_gates, "walkforward": cmd_walkforward,
-              "montecarlo": cmd_montecarlo, "backtest": cmd_backtest, "counterfactuals": cmd_counterfactuals}[args.cmd](cfg, dal, args)
+              "montecarlo": cmd_montecarlo, "backtest": cmd_backtest, "counterfactuals": cmd_counterfactuals,
+              "refinements": cmd_refinements}[args.cmd](cfg, dal, args)
     finally:
         dal.close()
         if tee:

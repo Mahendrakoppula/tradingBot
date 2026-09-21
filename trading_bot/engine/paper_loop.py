@@ -266,8 +266,13 @@ class PaperLoop(ShadowLoop):
         self.stats.decisions += 1
         explanation = d.explanation(ctx, ev)
         snap_dict = d.snapshot.as_dict() if d.snapshot else {
-            "ts": ctx.ts, "spot": ctx.spot, "direction": ev.direction, "stage_reached": d.stage_reached,
-            "option": d.option.contract.tradingsymbol if d.option else None, "strategy": d.candidate.strategy if d.candidate else None}
+            "ts": ctx.ts, "spot": ctx.spot, "atr": ctx.atr, "direction": ev.direction, "stage_reached": d.stage_reached,
+            "option": d.option.contract.tradingsymbol if d.option else None, "strategy": d.candidate.strategy if d.candidate else None,
+            "detail": d.rejection.detail if d.rejection else None,
+            # per-family routing verdicts (§72): what each strategy said, not just the winner
+            "routing": {n.strategy: n.reason_code for n in d.routing_rejections},
+            "ranked": d.ranked, "target_ref": d.target_ref,
+            "stop_ref": d.plan.stop_ref if d.plan else None, "target1_ref": d.plan.target1_ref if d.plan else None}
         self._journal(self.dal.insert_signal, self.run_id, signal_id=d.signal_id, setup_id=ev.setup_id, ts=ctx.ts, mode=self.mode, underlying=u,
                                direction=ev.direction, stage=d.stage_reached, status=d.status, explanation=explanation,
                                snapshot=snap_dict, reason_code=d.reason_code, context_snapshot_id=ctx_id,
