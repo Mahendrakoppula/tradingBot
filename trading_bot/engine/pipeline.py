@@ -44,7 +44,8 @@ class PipelineParams:
     @classmethod
     def from_config(cls, cfg) -> "PipelineParams":
         return cls(
-            strategy=StrategyParams(level_proximity_atr=cfg.level_proximity_atr),
+            strategy=StrategyParams(level_proximity_atr=cfg.level_proximity_atr,
+                                    counter_trend_veto_tfs=tuple(cfg.counter_trend_veto_tfs)),
             move=em.MoveParams(eod_cutoff=cfg.eod_cutoff),
             select=SelectParams(delta_min=cfg.option_delta_min, delta_max=cfg.option_delta_max,
                                 max_spread_pct=cfg.option_max_spread_pct, min_oi=cfg.option_min_oi,
@@ -56,6 +57,7 @@ class PipelineParams:
                               preferred_net_reward=cfg.preferred_net_reward, tier_b_enabled=cfg.tier_b_enabled,
                               tier_b_min_score=cfg.tier_b_min_score),
             min_score=cfg.min_score,
+            counter_trend_min_evidence=cfg.counter_trend_min_evidence,
         )
 
 

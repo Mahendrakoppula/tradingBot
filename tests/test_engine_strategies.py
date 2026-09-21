@@ -205,7 +205,10 @@ def test_route_records_every_family_decision():
 
 def test_route_counter_trend_requires_clearance_and_family_permission():
     sweep = {"level_name": "pdl", "level": SPOT - 3, "side": "below", "excess": 4, "excess_atr": 0.2, "bar_index": 20, "wick": SPOT - 7}
+    # a long against a decisive 30m downtrend is counter-trend (the configured veto timeframe)
     ctx = _ctx(alignment={"label": "COUNTER_TREND", "direction_preference": "down"},
+               trends={"1d": {"label": "BULL", "score": 0.5}, "30m": {"label": "BEAR", "score": -0.6},
+                       "5m": {"label": "BULL", "score": 0.5}, "1m": {"label": "NEUTRAL", "score": 0.0}},
                structure={"last_event": {"kind": "bos_up", "index": 20, "price": SPOT - 1}, "recent_sweeps": [sweep], "swing_high": SPOT + 60, "swing_low": SPOT - 60},
                price_action={"labels": ["bullish_engulfing"], "anatomy": {}, "sweep": sweep})
     blocked = route(ctx, "up", counter_trend_cleared=False)
@@ -260,10 +263,16 @@ def test_counter_trend_is_about_direction_not_timeframe_conflict():
     r2 = route(_ctx(alignment=weak, trends=ctx.trends, levels=_near_below("ema20", SPOT - 6),
                     price_action={"labels": ["bullish_pin"], "anatomy": {}, "sweep": None}), "up")
     assert "EMA_PULLBACK" in {c.strategy for c in r2.candidates}
-    # against a decisive daily read it IS counter-trend, whatever the label says
-    strong_daily = _ctx(alignment={"label": "WEAK_ALIGNMENT", "direction_preference": "none"},
-                        trends={"1d": {"label": "BEAR", "score": -0.7}, "30m": {"label": "NEUTRAL", "score": 0.0},
+    # against a decisive 30m read it IS counter-trend, whatever the label says
+    strong_30m = _ctx(alignment={"label": "WEAK_ALIGNMENT", "direction_preference": "none"},
+                      trends={"1d": {"label": "NEUTRAL", "score": 0.0}, "30m": {"label": "BEAR", "score": -0.7},
+                              "5m": {"label": "BULL", "score": 0.5}, "1m": {"label": "BULL", "score": 0.3}})
+    assert is_counter_trend(strong_30m, "up") and not is_counter_trend(strong_30m, "down")
+    # the daily alone does NOT veto by default (it keeps its say through scoring); it does when configured
+    strong_daily = _ctx(trends={"1d": {"label": "BEAR", "score": -0.7}, "30m": {"label": "BULL", "score": 0.6},
                                 "5m": {"label": "BULL", "score": 0.5}, "1m": {"label": "BULL", "score": 0.3}})
-    assert is_counter_trend(strong_daily, "up") and not is_counter_trend(strong_daily, "down")
-    # against the weighted preference is counter-trend
-    assert is_counter_trend(_ctx(alignment={"label": "TREND_ALIGNMENT", "direction_preference": "down"}), "up")
+    assert not is_counter_trend(strong_daily, "up")
+    assert is_counter_trend(strong_daily, "up", veto_tfs=("1d",)) and is_counter_trend(strong_daily, "up", veto_tfs=("30m", "1d"))
+    assert not is_counter_trend(strong_30m, "up", veto_tfs=())  # 5m sovereign
+    # the alignment preference alone is not a veto
+    assert not is_counter_trend(_ctx(alignment={"label": "TREND_ALIGNMENT", "direction_preference": "down"}), "up")

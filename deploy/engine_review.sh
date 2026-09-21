@@ -11,3 +11,5 @@ TODAY=$(TZ=Asia/Kolkata date +%F)
 SINCE=$(TZ=Asia/Kolkata date -d "28 days ago" +%F)
 .venv/bin/python -m trading_bot.research_cli review --from "$TODAY" --to "$TODAY" --telegram
 .venv/bin/python -m trading_bot.research_cli gates --from "$SINCE" --to "$TODAY" --telegram
+# candidate refinements over the trailing 28 days: counts + counterfactuals, never applied (sections 71/83)
+.venv/bin/python -m trading_bot.research_cli refinements --from "$SINCE" --to "$TODAY" --telegram

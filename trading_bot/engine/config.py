@@ -126,6 +126,10 @@ class EngineConfig:
     # phase 24: strategies that run the full pipeline and are journaled as valid
     # signals but are never executed in PAPER (nor, later, LIVE)
     shadow_strategies: tuple[str, ...] = ()
+    # §7 / §88 "counter-trend threshold": which higher timeframes make a trade counter-trend
+    # ("30m", "1d", both, or none) and how many evidence keys a counter-trend setup needs
+    counter_trend_veto_tfs: tuple[str, ...] = ("30m",)
+    counter_trend_min_evidence: int = 6
 
     @property
     def can_place_live_orders(self) -> bool:
@@ -196,6 +200,8 @@ class EngineConfig:
             chain_refresh_seconds=_int("TECH_CHAIN_REFRESH_SECONDS", "60"),
             chain_strikes_each_side=_int("TECH_CHAIN_STRIKES_EACH_SIDE", "6"),
             shadow_strategies=_csv("TECH_SHADOW_STRATEGIES", ""),
+            counter_trend_veto_tfs=tuple(t.strip().lower() for t in os.environ.get("TECH_COUNTER_TREND_VETO_TFS", "30m").split(",") if t.strip()),
+            counter_trend_min_evidence=_int("TECH_COUNTER_TREND_MIN_EVIDENCE", "6"),
         )
 
 

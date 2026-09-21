@@ -102,6 +102,7 @@ NUMERIC_BOUNDS = {
     "TECH_OPTION_DTE_MAX": (1, 45),
     "TECH_CHAIN_REFRESH_SECONDS": (15, 300),
     "TECH_CHAIN_STRIKES_EACH_SIDE": (2, 12),
+    "TECH_COUNTER_TREND_MIN_EVIDENCE": (3, 8),
 }
 
 # Settings the tuner must never change, with the value they must keep.
@@ -238,3 +239,8 @@ def test_tech_paper_profile_is_known_and_not_ideal():
 
 def test_tech_option_delta_band_is_ordered():
     assert float(CONFIG["TECH_OPTION_DELTA_MIN"]) < float(CONFIG["TECH_OPTION_DELTA_MAX"])
+
+
+def test_tech_counter_trend_veto_tfs_are_known_timeframes():
+    tfs = {t.strip() for t in CONFIG.get("TECH_COUNTER_TREND_VETO_TFS", "").split(",") if t.strip()}
+    assert tfs <= {"1d", "30m", "5m"}, tfs
