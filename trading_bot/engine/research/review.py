@@ -9,6 +9,7 @@ in their own structure so they can never be mixed into actual P&L
 (§92 #50).
 """
 import datetime as dt
+import re
 from collections import Counter, defaultdict
 from dataclasses import dataclass, field
 
@@ -47,6 +48,17 @@ class Review:
             lines.append("costs: " + ", ".join(f"{k}={v}" for k, v in self.costs.items()))
         if self.rejected:
             lines.append("rejected signals: " + ", ".join(f"{k}={v}" for k, v in self.rejected.get("by_stage", {}).items()))
+            if self.rejected.get("by_reason"):
+                lines.append("rejection reasons: " + ", ".join(f"{k}={v}" for k, v in self.rejected["by_reason"].items()))
+            if self.rejected.get("by_family"):
+                lines.append("routing verdicts: " + ", ".join(f"{k}={v}" for k, v in self.rejected["by_family"].items()))
+            ledger = self.rejected.get("ledger") or []
+            if ledger:
+                lines.append(f"rejection ledger ({len(ledger)}; 'next' = underlying-only counterfactual over "
+                             f"{self.rejected.get('horizon_bars', 60)} bars, never P&L):")
+                lines += ["  " + render_rejection(r) for r in ledger[:LEDGER_LINES]]
+                if len(ledger) > LEDGER_LINES:
+                    lines.append(f"  ... and {len(ledger) - LEDGER_LINES} more (review a shorter range for the full list)")
         lines.append(self.caution)
         return "\n".join(lines)
 
@@ -55,7 +67,9 @@ _REVIEW_KEYS = ("strategy", "trend", "regime", "underlying", "option_type", "tim
 
 
 def daily_review(trade_rows: list[dict], signals: list[dict], executions: list[dict], capital: float, period: str,
-                 min_group: int = 1) -> Review:
+                 min_group: int = 1, candles_1m=None) -> Review:
+    """`candles_1m(underlying) -> list[dict]` (optional) lets the rejection
+    ledger say what the underlying did after each rejected signal (§72)."""
     r = Review(period, compute(trade_rows, capital))
     seg = segmented(trade_rows, capital, _REVIEW_KEYS)
     for key, groups in seg.items():
@@ -90,25 +104,89 @@ def daily_review(trade_rows: list[dict], signals: list[dict], executions: list[d
     if p.orders:
         r.execution = {"orders": p.orders, "fill_probability": p.fill_probability, "slippage_vs_theoretical": p.slippage_vs_theoretical_mean,
                        "latency_p95_ms": p.latency_ms_p95, "partials": p.partial_fills, "rejected": p.rejected, "timeouts": p.timeouts}
-    r.rejected = rejected_analysis(signals)
+    r.rejected = rejected_analysis(signals, candles_1m)
     return r
 
 
 # --- §72 rejected-signal analysis --------------------------------------------------------------
 
 
-def rejected_analysis(signals: list[dict]) -> dict:
-    """Counts by status, by pipeline stage, by reason, by (underlying,
-    direction) and counter-trend share - from the signals journal alone."""
+LEDGER_LINES = 30  # per-signal lines in a rendered review (a day is ~10; longer ranges get counts + the first 30)
+_TREND_TFS = ("1d", "30m", "5m")
+
+
+def rejected_analysis(signals: list[dict], candles_1m=None, horizon_bars: int = 60) -> dict:
+    """Counts by status, by pipeline stage, by reason, by routing family
+    verdict, by (underlying, direction) and counter-trend share - plus a
+    per-signal LEDGER: every rejected signal with the stage that stopped it,
+    the reason, each family's verdict, the trend scores it was judged
+    against and (with candles) what the underlying did next. The ledger is
+    what the nightly review reads to see whether the same reason keeps
+    recurring (§71/§72); the refinements tracker counts the named ones."""
     rej = [s for s in signals if s.get("status") != "valid"]
     by_status = Counter(s.get("status") for s in rej)
     by_stage = Counter(str(s.get("stage") or "?") for s in rej)
     by_reason = Counter(f"{s.get('stage')}:{s.get('reason_code')}" for s in rej)
     by_side = Counter(f"{s.get('underlying')}:{s.get('direction')}" for s in rej)
+    by_family = Counter(f"{fam}:{why}" for s in rej for fam, why in ((s.get("snapshot") or {}).get("routing") or {}).items())
     counter_trend = sum(1 for s in rej if "counter-trend" in str((s.get("explanation") or {}).get("Strategy", "")))
+    ledger = [_ledger_row(s) for s in rej]
+    if candles_1m is not None and rej:
+        by_id = {c.signal_id: c for c in counterfactuals(rej, candles_1m, horizon_bars=horizon_bars)}
+        for row in ledger:
+            c = by_id.get(row["signal_id"])
+            if c is not None:
+                row.update(next=c.outcome, max_favourable=c.max_favourable, max_adverse=c.max_adverse)
     return {"total": len(rej), "valid": len(signals) - len(rej), "by_status": dict(sorted(by_status.items())),
             "by_stage": dict(sorted(by_stage.items())), "by_reason": dict(sorted(by_reason.items(), key=lambda kv: -kv[1])[:15]),
-            "by_side": dict(sorted(by_side.items())), "counter_trend": counter_trend}
+            "by_family": dict(sorted(by_family.items(), key=lambda kv: -kv[1])[:20]),
+            "by_side": dict(sorted(by_side.items())), "counter_trend": counter_trend,
+            "ledger": ledger, "horizon_bars": horizon_bars}
+
+
+_TREND_RE = re.compile(r"(1d|30m|5m|1m)=[A-Z_]+\((-?\d+(?:\.\d+)?)\)")
+
+
+def _trend_scores(snap: dict, explanation: dict) -> dict:
+    """Snapshot `trend_scores` (journaled since 2026-09-22); older rows only
+    have the explanation's Trend line "1d=STRONG_BEAR(-0.71), 30m=..."."""
+    scores = snap.get("trend_scores") or {}
+    if not any(scores.get(tf) is not None for tf in _TREND_TFS):
+        scores = {tf: float(v) for tf, v in _TREND_RE.findall(str(explanation.get("Trend") or ""))}
+    return {tf: scores[tf] for tf in _TREND_TFS if scores.get(tf) is not None}
+
+
+def _ledger_row(s: dict) -> dict:
+    snap = s.get("snapshot") or {}
+    expl = s.get("explanation") or {}
+    ts = s.get("ts")
+    if isinstance(ts, str):
+        ts = dt.datetime.fromisoformat(ts)
+    return {"signal_id": s.get("signal_id"), "ts": ts.isoformat() if ts else None, "time": ts.strftime("%H:%M") if ts else "?",
+            "underlying": s.get("underlying"), "direction": s.get("direction"), "stage": s.get("stage"),
+            "reason_code": s.get("reason_code"), "strategy": s.get("strategy"), "score": s.get("score"),
+            "detail": snap.get("detail") or expl.get("Strategy"), "routing": dict(snap.get("routing") or {}),
+            "trend_scores": _trend_scores(snap, expl),
+            "next": None, "max_favourable": None, "max_adverse": None}
+
+
+def render_rejection(row: dict) -> str:
+    """One ledger line: time side stage:reason [trend scores] family verdicts -> what happened next."""
+    head = f"{row['time']} {row['underlying']} {row['direction']} {row['stage']}:{row['reason_code']}"
+    if row.get("strategy"):
+        head += f" {row['strategy']}"
+    if row.get("score") is not None:
+        head += f" s={float(row['score']):.0f}"
+    parts = [head]
+    if row.get("trend_scores"):
+        parts.append("[" + " ".join(f"{tf} {float(v):+.1f}" for tf, v in row["trend_scores"].items()) + "]")
+    if row.get("routing"):
+        parts.append(" ".join(f"{fam}={why}" for fam, why in row["routing"].items()))
+    elif row.get("detail"):
+        parts.append(str(row["detail"])[:80])
+    if row.get("next"):
+        parts.append(f"-> {row['next']} mf={row['max_favourable']:+.0f} ma={-abs(row['max_adverse']):+.0f}")
+    return " ".join(parts)
 
 
 @dataclass
@@ -149,10 +227,11 @@ def counterfactuals(signals: list[dict], candles_1m, *, horizon_bars: int = 60, 
             continue
         d = s.get("direction")
         sgn = 1 if d == "up" else -1
-        atr = float(snap.get("atr") or 0) or None
+        all_bars = candles_1m(s["underlying"])
+        atr = float(snap.get("atr") or 0) or _atr_5m_from_1m([c for c in all_bars if c["ts"] <= ts])
         target = snap.get("target1_ref") or (spot + sgn * atr_target * atr if atr else None)
         stop = snap.get("stop_ref") or (spot - sgn * atr_stop * atr if atr else None)
-        bars = [c for c in candles_1m(s["underlying"]) if c["ts"] > ts][:horizon_bars]
+        bars = [c for c in all_bars if c["ts"] > ts][:horizon_bars]
         if not bars or target is None or stop is None:
             out.append(Counterfactual(s["signal_id"], s["underlying"], d, ts, spot, target, stop, "unknown", 0.0, 0.0, len(bars)))
             continue
@@ -175,6 +254,21 @@ def counterfactuals(signals: list[dict], candles_1m, *, horizon_bars: int = 60, 
         out.append(Counterfactual(s["signal_id"], s["underlying"], d, ts, spot, float(target), float(stop), outcome,
                                   round(mf, 2), round(ma, 2), len(bars)))
     return out
+
+
+def _atr_5m_from_1m(bars_1m: list[dict], periods: int = 14) -> float | None:
+    """5m ATR(periods) rebuilt from 1m candles (for rows journaled without
+    an ATR): bucket the 1m bars into 5-minute bars, mean true range."""
+    buckets: dict = {}
+    for c in bars_1m:
+        key = c["ts"].replace(minute=c["ts"].minute - c["ts"].minute % 5, second=0, microsecond=0)
+        b = buckets.setdefault(key, {"high": c["high"], "low": c["low"], "close": c["close"]})
+        b["high"], b["low"], b["close"] = max(b["high"], c["high"]), min(b["low"], c["low"]), c["close"]
+    five = [buckets[k] for k in sorted(buckets)][-(periods + 1):]
+    if len(five) < 2:
+        return None
+    trs = [max(b["high"] - b["low"], abs(b["high"] - prev["close"]), abs(b["low"] - prev["close"])) for prev, b in zip(five, five[1:])]
+    return round(sum(trs) / len(trs), 2) or None
 
 
 def counterfactual_summary(cfs: list[Counterfactual]) -> dict:

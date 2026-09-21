@@ -61,8 +61,11 @@ def cmd_metrics(cfg, dal, args) -> int:
 def cmd_review(cfg, dal, args) -> int:
     start, end = _range(args)
     rev = R.daily_review(dal.trade_results_between(start, end), dal.signals_between(start, end),
-                         dal.executions_between(start, end), cfg.capital, f"{args.start}..{args.end}")
+                         dal.executions_between(start, end), cfg.capital, f"{args.start}..{args.end}",
+                         candles_1m=_candle_loader(cfg, dal, start, end))
     print(rev.render())
+    if getattr(args, "json", False):
+        print(json.dumps(rev.rejected, indent=2, default=str))
     return 0
 
 
@@ -184,7 +187,7 @@ def main(argv=None) -> int:
             p.add_argument("--json", action="store_true")
         if name == "counterfactuals":
             p.add_argument("--limit", type=int, default=50)
-        if name == "refinements":
+        if name in ("refinements", "review"):
             p.add_argument("--json", action="store_true")
     args = ap.parse_args(argv)
     cfg = EngineConfig.from_env()
