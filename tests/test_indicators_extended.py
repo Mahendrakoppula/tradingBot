@@ -7,36 +7,13 @@ from trading_bot.indicators import (
     obv,
     percentile_rank_series,
     relative_volume_series,
-    roc,
     session_vwap,
     slope,
-    stochastic,
 )
 
 
 def _c(o, h, l, c, v=0, **extra):
     return {"open": o, "high": h, "low": l, "close": c, "volume": v, **extra}
-
-
-def test_roc_basic():
-    assert roc([100, 110, 121], 1) == [None, pytest.approx(10.0), pytest.approx(10.0)]
-    assert roc([100, 0, 50], 1)[2] is None  # division guard
-
-
-def test_stochastic_extremes_and_flat():
-    candles = [_c(1, 10, 0, 5)] * 3 + [_c(1, 10, 0, 10)]
-    k, d = stochastic(candles, k_period=4, d_period=1)
-    assert k[:3] == [None, None, None]
-    assert k[3] == pytest.approx(100.0)
-    assert d[3] == pytest.approx(100.0)
-    flat = [_c(5, 5, 5, 5)] * 4
-    assert stochastic(flat, 4, 1)[0][3] == pytest.approx(50.0)
-
-
-def test_stochastic_d_is_sma_of_k():
-    candles = [_c(0, 10, 0, v) for v in (2, 4, 6, 8, 10, 8, 6)]
-    k, d = stochastic(candles, k_period=3, d_period=2)
-    assert d[3] == pytest.approx((k[2] + k[3]) / 2)
 
 
 def test_bollinger_width_and_bands():

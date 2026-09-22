@@ -232,6 +232,8 @@ def decide(ctx: ContextSnapshot, event: StageEvent, *, setup_evidence: int, fami
         target1_ref=plan.target1_ref, quantity=risk.quantity, risk_rupees=risk.planned_loss,
         fingerprint=cand.evidence.get("fingerprint", ""),
         extra={"tier": risk.tier, "ev": risk.expected_value, "net_reward": risk.net_expected_profit, "lots": risk.lots,
-               "greeks_source": q.greeks_source, "decay": vars(dv), "ranked": d.ranked},
+               "greeks_source": q.greeks_source, "decay": vars(dv), "ranked": d.ranked,
+               # per-component attribution for the nightly review (prune inputs on evidence)
+               "score_components": dict(d.score.components), "penalties": dict(d.score.penalties)},
     )
     return d

@@ -177,18 +177,20 @@ def vwap_bias(ctx: ContextSnapshot, direction: str) -> tuple[str | None, str | N
 
 
 def _momentum(ctx: ContextSnapshot, cand: Candidate) -> tuple[int, list[str]]:
+    """MACD histogram sign and RSI edge only. ADX is deliberately NOT here:
+    it already decides the trend labels that feed the MTF component, and
+    counting trend strength twice is the double-count §16 warns about
+    (removed 2026-09-22 in the indicator freeze)."""
     ind = ctx.indicators
     pts = 0.0
-    h, r, adx = ind.get("macd_hist"), ind.get("rsi"), ind.get("adx")
+    h, r = ind.get("macd_hist"), ind.get("rsi")
     if h is not None and (h > 0) == (cand.direction == "up"):
-        pts += 4
+        pts += 5
     if r is not None:
-        edge = (r - 50) / 25.0 if cand.direction == "up" else (50 - r) / 25.0
-        pts += 3 * max(0.0, min(1.0, edge))
+        edge = (r - 50) / 20.0 if cand.direction == "up" else (50 - r) / 20.0  # full marks at 70 / 30
+        pts += 5 * max(0.0, min(1.0, edge))
         if (cand.direction == "up" and r > 75) or (cand.direction == "down" and r < 25):
-            pts -= 3  # exhausted, not strong
-    if adx is not None:
-        pts += 3 * max(0.0, min(1.0, (adx - 15) / 20.0))
+            pts -= 4  # exhausted, not strong
     return _clamp(pts, CAPS["momentum"]), []
 
 

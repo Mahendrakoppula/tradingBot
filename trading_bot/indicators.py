@@ -229,38 +229,6 @@ def rolling_avg_volume(candles: list[dict], period: int) -> list[float | None]:
 # uses is config, not code (trading_bot/engine/config.py).
 
 
-def roc(closes: list[float], period: int) -> list[float | None]:
-    """Rate of change, percent: (close[i] / close[i-period] - 1) * 100."""
-    n = len(closes)
-    result: list[float | None] = [None] * n
-    for i in range(period, n):
-        prev = closes[i - period]
-        if prev:
-            result[i] = (closes[i] / prev - 1.0) * 100.0
-    return result
-
-
-def stochastic(
-    candles: list[dict], k_period: int = 14, d_period: int = 3
-) -> tuple[list[float | None], list[float | None]]:
-    """Stochastic oscillator: %K = (close - lowest low) / (highest high -
-    lowest low) * 100 over `k_period`; %D = SMA(%K, d_period). Returns
-    (k_line, d_line). A flat window (high == low) yields %K = 50."""
-    n = len(candles)
-    k: list[float | None] = [None] * n
-    for i in range(k_period - 1, n):
-        window = candles[i - k_period + 1 : i + 1]
-        hi = max(c["high"] for c in window)
-        lo = min(c["low"] for c in window)
-        k[i] = 50.0 if hi == lo else (candles[i]["close"] - lo) / (hi - lo) * 100.0
-    d_line: list[float | None] = [None] * n
-    first = next((i for i, v in enumerate(k) if v is not None), None)
-    if first is not None:
-        for j, v in enumerate(sma([v for v in k[first:] if v is not None], d_period)):
-            d_line[first + j] = v
-    return k, d_line
-
-
 def bollinger(
     closes: list[float], period: int = 20, num_std: float = 2.0
 ) -> tuple[list[float | None], list[float | None], list[float | None], list[float | None]]:
