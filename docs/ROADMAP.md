@@ -261,6 +261,7 @@ proves it on every CI run.
 | 2026-09-22 | `feature/vwap-bias` | VWAP side/slope journaled and scored (volume component +2/+1, `against_vwap` -5) |
 | 2026-09-22 | `feature/cpr-levels` | CPR (pivot/TC/BC) + R1/S1 levels, narrow-CPR compression evidence |
 | 2026-09-22 | `feature/indicator-freeze` | dead indicators removed, ADX out of the momentum score, component attribution in the review |
+| 2026-09-22 | `fix/self-healing-backfill` | a GAP re-tries the REST backfill every 3 min (incident: rate-limited SENSEX backfill latched the breaker for the session) |
 
 ## Where things live
 

@@ -38,6 +38,8 @@ TRIGGER_TF = "5m"
 # warmup on every tf, bounded so a 5m recompute stays well under a second
 MAX_BARS = {"1m": 800, "5m": 800, "30m": 500, "1d": 400}
 EOD_GRACE = dt.timedelta(seconds=5)
+GAP_HEAL_INTERVAL = dt.timedelta(minutes=3)  # re-try a failed backfill this often while quality is GAP
+
 
 
 class TickSource(Protocol):
@@ -81,6 +83,7 @@ class ShadowLoop:
         run_id: uuid.UUID | None = None,
         git_sha: str | None = None,
         after_feed_start: Callable[[], None] | None = None,
+        heal_gap: Callable[[Instrument], None] | None = None,
     ):
         self.cfg = cfg
         self.dal = dal
@@ -96,6 +99,10 @@ class ShadowLoop:
         self.run_id = run_id or uuid.uuid4()
         self.git_sha = git_sha
         self.after_feed_start = after_feed_start  # live: today's 1m REST backfill once the WS is up
+        # live: re-pull today's 1m bars for an instrument whose quality is GAP (a backfill that was
+        # rate-limited at start must not leave the breaker latched for the whole session)
+        self.heal_gap = heal_gap
+        self._last_heal: dict[str, dt.datetime] = {}
         self.mode = cfg.mode
         self.stats = LoopStats()
         self.states: dict[str, AnalysisState] = {}
@@ -196,12 +203,39 @@ class ShadowLoop:
                 out[tf] = st.dicts()[-MAX_BARS[tf]:]
         return out
 
+    def _try_heal(self, inst: Instrument, store_1m: CandleStore, q):
+        """Self-healing backfill: at most once per GAP_HEAL_INTERVAL per instrument,
+        re-pull today's 1m bars over REST and re-assess. Also heals the
+        instrument's volume proxy, whose holes would otherwise skew rel-vol."""
+        now = self.clock()
+        last = self._last_heal.get(inst.token)
+        if last is not None and now - last < GAP_HEAL_INTERVAL:
+            return q
+        self._last_heal[inst.token] = now
+        before = len(store_1m.gaps(now.date()))
+        targets = [inst] + ([self.proxy_of[inst.underlying]] if inst.underlying in self.proxy_of else [])
+        for target in targets:
+            try:
+                self.heal_gap(target)
+            except Exception as exc:  # noqa: BLE001 - healing is best effort; the GAP verdict stands
+                jsonlog.event("warmup", "heal_failed", severity="WARN", underlying=target.underlying, token=target.token,
+                              error=repr(exc))
+                return q
+        q2 = assess(store_1m, self.source.health(), now, stale_tick_seconds=self.cfg.stale_tick_seconds,
+                    clock_drift_seconds=self.cfg.clock_drift_seconds)
+        jsonlog.event("warmup", "gap_healed" if q2.status != "GAP" else "gap_persists", severity="INFO",
+                      underlying=inst.underlying, token=inst.token, gaps_before=before,
+                      gaps_after=len(store_1m.gaps(now.date())), quality=q2.status)
+        return q2
+
     def _on_trigger(self, inst: Instrument, bar: Candle) -> None:
         u = inst.underlying
         close_at = bar.ts + dt.timedelta(minutes=TF_MINUTES[TRIGGER_TF])
         store_1m = self.stores.setdefault((inst.token, "1m"), CandleStore("1m"))
         q = assess(store_1m, self.source.health(), self.clock(), stale_tick_seconds=self.cfg.stale_tick_seconds,
                    clock_drift_seconds=self.cfg.clock_drift_seconds)
+        if q.status == "GAP" and self.heal_gap is not None and self.source.health().connected:
+            q = self._try_heal(inst, store_1m, q)
         self.stats.quality[q.status] = self.stats.quality.get(q.status, 0) + 1
         candles = self._slices(inst.token)
         proxy = self.proxy_of.get(u)
