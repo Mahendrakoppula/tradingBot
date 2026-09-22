@@ -224,3 +224,69 @@ def test_underlyings_are_tracked_independently():
     t.update(_ctx(0, **UP_EVIDENCE))
     t.update(_ctx(0, underlying="BANKNIFTY", **UP_EVIDENCE))
     assert len(t.active()) == 2 and len(t.active("NIFTY")) == 1
+
+
+def test_sweep_reclaim_confirms_a_short_at_a_swept_key_level_without_a_pattern():
+    """Replay of 2026-09-22 NIFTY 09:50-10:15 against PDH 23466.8: a short at
+    PRE_SIGNAL, a wick through PDH with a bearish close back inside (10:10) ->
+    CONFIRMING with kind sweep_reclaim, the next close still inside (10:15) ->
+    TRADE_READY - no candle pattern anywhere. The old rule expired this setup at
+    10:25 while price fell 170 points."""
+    t = PreSignalTracker(CFG)
+    atr = 14.0
+    pdh = 23466.8
+
+    def near_pdh(spot, touches):
+        # a DOWN setup's location evidence is the level just BELOW price (its breakdown level); the resistance
+        # above is where the sweep happens. VWAP 23450 sits under the 09:50-10:00 bars.
+        return {"nearest_above": {"name": "pdh", "price": pdh, "distance": pdh - spot, "distance_atr": (pdh - spot) / atr, "touches": touches},
+                "nearest_below": {"name": "vwap", "price": 23450.0, "distance": 23450.0 - spot, "distance_atr": (23450.0 - spot) / atr, "touches": touches}}
+
+    # daily bearish, 30m/5m bullish -> COUNTER_TREND label for a short: the setup carries 5 keys, one short of the bar
+    down = dict(regime={"primary": "COMPRESSION"}, volume={"relative_volume": 1.6},
+                indicators={"atr": atr, "ema20": 23448.0, "ema50": 23440.0, "macd_hist": -0.3, "rsi": 45.0},
+                alignment={"label": "COUNTER_TREND", "direction_preference": "up"})
+    t.update(_ctx(0, spot=23455.0, levels=near_pdh(23455.0, 2), price_action={"labels": [], "anatomy": {"bullish": True}}, structure={}, **down))
+    t.update(_ctx(1, spot=23457.0, levels=near_pdh(23457.0, 3), price_action={"labels": [], "anatomy": {"bullish": True}}, structure={}, **down))
+    assert t.setups[("NIFTY", "down")].stage == "PRE_SIGNAL"
+    # 10:05: high 23469.9 but closed ABOVE pdh -> not a sweep; the bar is bullish: nothing
+    t.update(_ctx(2, spot=23467.05, levels=near_pdh(23467.05, 3), price_action={"labels": [], "anatomy": {"bullish": True}}, structure={}, **down))
+    assert t.setups[("NIFTY", "down")].stage == "PRE_SIGNAL"
+    # 10:10: wick 23470.6 through pdh, bearish close 23465.2 back inside -> sweep_reclaim
+    sweep = {"level_name": "pdh", "level": pdh, "side": "above", "excess": 3.8, "excess_atr": 0.27, "bar_index": 3, "wick": 23470.6}
+    ev = [e for e in t.update(_ctx(3, spot=23465.2, levels=near_pdh(23465.2, 4), price_action={"labels": [], "anatomy": {"bullish": False}},
+                                   structure={"recent_sweeps": [sweep]}, **down)) if e.direction == "down"]
+    assert _stages(ev) == ["CONFIRMING"] and ev[0].reason_code == "sweep_reclaim"
+    assert ev[0].details["level"] == pdh and ev[0].details["wick"] == 23470.6
+    st = t.setups[("NIFTY", "down")]
+    assert st.trigger_level == pdh and "sweep_reclaim" in st.evidence and len(st.evidence) == 6
+    # 10:15: close 23458.5 still inside -> TRADE_READY (the failed break counts as the sixth evidence key)
+    ev = [e for e in t.update(_ctx(4, spot=23458.5, levels=near_pdh(23458.5, 4), price_action={"labels": [], "anatomy": {"bullish": False}},
+                                   structure={"recent_sweeps": [sweep]}, **down)) if e.direction == "down"]
+    assert _stages(ev) == ["TRADE_READY"] and ev[0].details["counter_trend"] is True
+    # a close back above the swept level invalidates the thesis
+    ev = [e for e in t.update(_ctx(5, spot=23472.0, levels=near_pdh(23472.0, 4), price_action={"labels": [], "anatomy": {"bullish": True}},
+                                   structure={"recent_sweeps": [sweep]}, **down)) if e.direction == "down"]
+    assert _stages(ev) == ["REJECTED"] and ev[0].reason_code == "thesis_invalidated"
+
+
+def test_sweep_reclaim_ignores_non_key_levels_and_bars_against_the_setup():
+    t = PreSignalTracker(CFG)
+    atr = 14.0
+    lvl = 23466.8
+    near = {"nearest_above": {"name": "ema50", "price": lvl, "distance": 10.0, "distance_atr": 10.0 / atr, "touches": 2},
+            "nearest_below": {"name": "vwap", "price": 23450.0, "distance": -6.0, "distance_atr": -6.0 / atr, "touches": 2}}
+    down = dict(regime={"primary": "COMPRESSION"}, volume={"relative_volume": 1.6},
+                indicators={"atr": atr, "ema20": 23448.0, "ema50": lvl, "macd_hist": -0.3, "rsi": 45.0},
+                alignment={"label": "TREND_ALIGNMENT", "direction_preference": "down"})
+    t.update(_ctx(0, spot=23455.0, levels=near, price_action={"labels": []}, **down))
+    t.update(_ctx(1, spot=23457.0, levels=near, price_action={"labels": []}, **down))
+    assert t.setups[("NIFTY", "down")].stage == "PRE_SIGNAL"
+    ema_sweep = {"level_name": "ema50", "level": lvl, "side": "above", "excess": 3.0, "excess_atr": 0.2, "bar_index": 2, "wick": 23470.0}
+    t.update(_ctx(2, spot=23460.0, levels=near, price_action={"labels": [], "anatomy": {"bullish": False}}, structure={"recent_sweeps": [ema_sweep]}, **down))
+    assert t.setups[("NIFTY", "down")].stage == "PRE_SIGNAL"  # an EMA is not a key level
+    key_sweep = dict(ema_sweep, level_name="session_high", bar_index=3)
+    t.update(_ctx(3, spot=23460.0, levels=near, price_action={"labels": [], "anatomy": {"bullish": True}}, structure={"recent_sweeps": [key_sweep]}, **down))
+    assert t.setups[("NIFTY", "down")].stage == "PRE_SIGNAL"  # bullish bar after the sweep: not a rejection
+    t.update(_ctx(4, spot=23460.0, levels=near, price_action={"labels": [], "anatomy": {"bullish": False}}, structure={"recent_sweeps": [key_sweep]}, **down))
+    assert t.setups[("NIFTY", "down")].stage == "CONFIRMING"  # one bar later, bearish close inside: confirmed

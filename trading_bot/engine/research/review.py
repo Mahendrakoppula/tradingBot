@@ -296,7 +296,7 @@ class Counterfactual:
 
 
 def counterfactuals(signals: list[dict], candles_1m, *, horizon_bars: int = 60, atr_target: float = 1.5,
-                    atr_stop: float = 1.0) -> list[Counterfactual]:
+                    atr_stop: float = 1.0, include_valid: bool = False) -> list[Counterfactual]:
     """UNDERLYING-only counterfactuals for rejected signals: from the
     signal bar forward, did price reach the target reference before the stop
     reference? Uses the snapshot's target/stop when the pipeline got that
@@ -304,7 +304,7 @@ def counterfactuals(signals: list[dict], candles_1m, *, horizon_bars: int = 60, 
     sorted by ts. Never joined to actual P&L (§92 #50)."""
     out: list[Counterfactual] = []
     for s in signals:
-        if s.get("status") == "valid":
+        if s.get("status") == "valid" and not include_valid:
             continue
         snap = s.get("snapshot") or {}
         ts = s["ts"] if isinstance(s["ts"], dt.datetime) else dt.datetime.fromisoformat(s["ts"])

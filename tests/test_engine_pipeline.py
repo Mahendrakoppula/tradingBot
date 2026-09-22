@@ -138,3 +138,25 @@ def test_tight_budget_rejects_at_risk_engine_with_full_detail():
                params=PipelineParams(limits=RiskLimits(risk_per_trade_pct=0.0025)))
     assert d.stage_reached == "RISK_ENGINE" and d.reason_code == "one_lot_exceeds_max_risk"
     assert "one lot risks" in d.rejection.detail
+
+
+def test_shadow_family_never_takes_the_selection_slot_from_an_executable_one(monkeypatch):
+    """LEVEL_REJECTION runs as a shadow strategy: even when it out-scores the
+    executable families it must not win ranking (that would silently block a
+    paper trade); it is selected only when nothing executable is."""
+    from trading_bot.engine import pipeline as pl
+    from trading_bot.engine.strategies import Candidate, RoutingResult
+    ctx = _ctx()
+    live = Candidate("TREND_PULLBACK", "0.1", "NIFTY", "up", SPOT, SPOT - 12, SPOT + 40, "x", False, [], {"fingerprint": "a"})
+    shad = Candidate("LEVEL_REJECTION", "0.1", "NIFTY", "up", SPOT, SPOT - 12, SPOT + 40, "x", False, [], {"fingerprint": "b"})
+    monkeypatch.setattr(pl, "route", lambda *a, **k: RoutingResult(candidates=[shad, live], rejections=[], gate=None))
+    monkeypatch.setattr(pl, "score", lambda ctx, c, external=None: pl.Score(90 if c.strategy == "LEVEL_REJECTION" else 60, {}, {}))
+    ev = StageEvent("s", "NIFTY", "up", "CONFIRMING", "TRADE_READY", 0.7, "confirmation_closed", 20, {})
+    params = PipelineParams(shadow_strategies=("LEVEL_REJECTION",), limits=RiskLimits(capital=100000.0, risk_per_trade_pct=0.01))
+    d = pl.decide(ctx, ev, setup_evidence=6, family_hint=None, chain=None, account=AccountState(equity=100000.0), params=params)
+    assert d.candidate is not None and d.candidate.strategy == "TREND_PULLBACK"
+    assert [r[0] for r in d.ranked] == ["TREND_PULLBACK"]  # the shadow candidate never entered the live ranking
+    # with the executable family below the score floor, the shadow one is allowed through (journal only)
+    params_hi = PipelineParams(shadow_strategies=("LEVEL_REJECTION",), min_score=70, limits=RiskLimits(capital=100000.0, risk_per_trade_pct=0.01))
+    d2 = pl.decide(ctx, ev, setup_evidence=6, family_hint=None, chain=None, account=AccountState(equity=100000.0), params=params_hi)
+    assert d2.candidate is not None and d2.candidate.strategy == "LEVEL_REJECTION"
