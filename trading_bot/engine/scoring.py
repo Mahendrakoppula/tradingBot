@@ -110,7 +110,9 @@ def _structure(ctx: ContextSnapshot, cand: Candidate) -> tuple[int, list[str]]:
 
 _IMPORTANT = {"pdh": 1.0, "pdl": 1.0, "pwh": 1.0, "pwl": 1.0, "or_high": 0.8, "or_low": 0.8, "session_high": 0.7,
               "session_low": 0.7, "swing_high": 0.7, "swing_low": 0.7, "vwap": 0.6, "pdc": 0.5, "ema20": 0.5,
-              "ema50": 0.6, "ema200": 0.8}
+              "ema50": 0.6, "ema200": 0.8,
+              # CPR / classic pivots: watched by most NSE intraday participants
+              "pivot": 0.8, "cpr_tc": 0.7, "cpr_bc": 0.7, "r1": 0.7, "s1": 0.7}
 
 
 def _key_location(ctx: ContextSnapshot, cand: Candidate) -> tuple[int, list[str]]:
