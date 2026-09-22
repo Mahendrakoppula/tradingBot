@@ -29,6 +29,8 @@ from trading_bot.engine.trend import TFTrend, TrendConfig, align, classify_tf_tr
 TF_ORDER = ("1d", "30m", "5m", "1m")  # highest first - lower TFs read `higher`
 RECENT_LABELS_KEEP = 10
 PERCENTILE_LOOKBACK = 100
+VWAP_SLOPE_BARS = 30  # 1m bars: VWAP drift over the last half hour
+
 EMA_CROSS_LOOKBACK = 20
 TOUCH_TOLERANCE_ATR = 0.2
 RECENT_SWEEPS_KEEP = 6
@@ -130,6 +132,7 @@ def build_context(
     # --- volume (proxy) --------------------------------------------------------------------
     vol: dict = {"volume_proxy": "none", "relative_volume": None, "obv_slope": None}
     vwap_v = None
+    vwap_slope = None
     vc = (volume_candles or {}).get(trigger_tf) or []
     if vc:
         vol["volume_proxy"] = params.volume_proxy
@@ -139,13 +142,19 @@ def build_context(
         vol["obv_slope"] = _last(sl)
         v1m = (volume_candles or {}).get("1m") or []
         today_v1m = [c for c in v1m if c["ts"].date() == today]
-        vw = _last(ind.session_vwap(today_v1m)) if today_v1m else None
+        vw_series = ind.session_vwap(today_v1m) if today_v1m else []
+        vw = _last(vw_series)
         if vw is not None:
             # futures trade at a basis to spot - shift the proxy VWAP by the
             # current basis so it sits on the spot price scale
             basis = float(vc[-1]["close"]) - spot
             vwap_v = vw - basis
             vol["vwap_basis"] = basis
+            # VWAP bias: where price sits relative to the day's money (ATR units) and which way
+            # the VWAP itself is drifting over the last VWAP_SLOPE_BARS minutes. Read by scoring
+            # (volume component / against-VWAP penalty) and journaled for segmentation.
+            past = [v for v in vw_series[:-VWAP_SLOPE_BARS] if v is not None]
+            vwap_slope = (vw - past[-1]) if past and len(vw_series) > VWAP_SLOPE_BARS else None
 
     # --- trends per tf + alignment -------------------------------------------------------------
     trends: dict[str, TFTrend] = {}
@@ -267,6 +276,8 @@ def build_context(
             "atr_pct": _last(atr_pct_series), "atr_percentile": atr_pct, "bb_width_pct": _last(bbw),
             "bb_width_percentile": bbw_pct, "ema20": ema20, "ema50": ema50, "ema200": ema200, "vwap": vwap_v,
             "vwap_prev": prev_vwap, "close_prev": float(c5[i - 1]["close"]) if i > 0 else None,
+            "vwap_distance_atr": round((spot - vwap_v) / atr_v, 3) if (vwap_v is not None and atr_v) else None,
+            "vwap_slope_atr": round(vwap_slope / atr_v, 3) if (vwap_slope is not None and atr_v) else None,
             "ema20_cross_count": cross_count,
         },
         volume=vol,

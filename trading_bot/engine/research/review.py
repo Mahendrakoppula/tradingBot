@@ -167,6 +167,7 @@ def _ledger_row(s: dict) -> dict:
             "reason_code": s.get("reason_code"), "strategy": s.get("strategy"), "score": s.get("score"),
             "detail": snap.get("detail") or expl.get("Strategy"), "routing": dict(snap.get("routing") or {}),
             "trend_scores": _trend_scores(snap, expl),
+            "vwap": snap.get("vwap") or {},
             "next": None, "max_favourable": None, "max_adverse": None}
 
 
@@ -180,6 +181,9 @@ def render_rejection(row: dict) -> str:
     parts = [head]
     if row.get("trend_scores"):
         parts.append("[" + " ".join(f"{tf} {float(v):+.1f}" for tf, v in row["trend_scores"].items()) + "]")
+    vw = row.get("vwap") or {}
+    if vw.get("distance_atr") is not None:
+        parts.append(f"vwap {float(vw['distance_atr']):+.1f}atr" + (f"/{float(vw['slope_atr']):+.2f}" if vw.get("slope_atr") is not None else ""))
     if row.get("routing"):
         parts.append(" ".join(f"{fam}={why}" for fam, why in row["routing"].items()))
     elif row.get("detail"):

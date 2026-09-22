@@ -109,6 +109,17 @@ R2: 20) AND the counterfactuals favour it (≥55% target-first). READY is a prom
 for a human to build a shadow-only vNext and promote it with a §83 record - the
 engine never applies a candidate itself.
 
+**Applied 2026-09-22 at the operator's request - VWAP bias (v0.1 scoring
+change, not tracked as a candidate first):** the session VWAP was already a
+level, a pre-signal evidence key, a family (`VWAP_RECLAIM`) and the no-chase
+"stretched from VWAP" gate, but never a *bias* input. Now `analysis` journals
+`vwap_distance_atr` (which side of the day's money price is on) and
+`vwap_slope_atr` (VWAP drift over the last 30 minutes); scoring gives +2/+1
+inside the volume component when side/drift are with the trade and a new
+`against_vwap` penalty (-5) only when both oppose it. Every rejected signal
+carries the two numbers and the ledger prints them, so the nightly review can
+segment outcomes by VWAP side and the change can be reverted on evidence.
+
 **Post-gate expansion candidates (not part of V1's evidence; each is its own
 system with its own gates):**
 
@@ -222,6 +233,7 @@ proves it on every CI run.
 | 2026-09-21 | `fix/deploy-waiter` | workflow polls the SSM redeploy for up to 8 min |
 | 2026-09-21 | `config/mcx-paper` | crude engine SHADOW -> PAPER (own database, dry-run pinned) |
 | 2026-09-22 | `config/risk-750-cap-30` | per-trade risk 0.5% -> 1.5% (Rs.750), daily/weekly loss caps -> 30%; CI bounds widened |
+| 2026-09-22 | `feature/vwap-bias` | VWAP side/slope journaled and scored (volume component +2/+1, `against_vwap` -5) |
 
 ## Where things live
 

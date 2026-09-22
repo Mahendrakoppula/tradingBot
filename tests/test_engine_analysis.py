@@ -80,6 +80,9 @@ def test_build_context_full_shape_on_synthetic_session():
     for k in ("rsi", "macd_hist", "adx", "atr", "ema20", "ema50", "ema200", "bb_width_pct", "atr_percentile"):
         assert ind[k] is not None, k
     assert ind["vwap"] is not None and "vwap_basis" in ctx.volume
+    # VWAP bias at 11:00: 105 minutes of session -> a distance and a 30-minute drift, both in ATR units
+    assert ind["vwap_distance_atr"] is not None and ind["vwap_slope_atr"] is not None
+    assert abs(ind["vwap_distance_atr"] - (ctx.spot - ind["vwap"]) / ind["atr"]) < 1e-3  # rounded to 3 dp
     assert ctx.volume["volume_proxy"] == "futures" and ctx.volume["relative_volume"] is not None
     lv = ctx.levels
     for k in ("pdh", "pdl", "pdc", "pwh", "pwl", "session_high", "session_low", "or_high", "or_low"):
