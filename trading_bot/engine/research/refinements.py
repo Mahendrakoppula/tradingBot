@@ -55,11 +55,26 @@ def _routing(row: dict) -> dict:
     return (row.get("snapshot") or {}).get("routing") or {}
 
 
+def _swept(row: dict) -> bool:
+    """A liquidity sweep was on the trigger bar: journaled in the snapshot since
+    2026-09-23, before that only in the explanation's Structure line."""
+    snap = row.get("snapshot") or {}
+    if snap.get("sweep"):
+        return True
+    return "sweep of" in str((row.get("explanation") or {}).get("Structure") or "")
+
+
 def _r1(row: dict) -> bool:
-    """PDH/PDL trap: pre-signal reached TRADE_READY on a close back through
-    the swept level; the trap family declined for lack of a candle pattern."""
-    return _routing(row).get("PDH_PDL_TRAP") == "trap_without_confirmation" or (
-        row.get("strategy") == "PDH_PDL_TRAP" and row.get("reason_code") == "trap_without_confirmation")
+    """Failed sweep + close back through the level, declined for want of a
+    further confirmation: PDH_PDL_TRAP wanting a candle pattern / swing BOS
+    (2026-09-21 NIFTY 10:10), or LIQUIDITY_SWEEP_BOS wanting the structure
+    break that only prints after the move (2026-09-22 BANKNIFTY 14:10: swept
+    the session low, closed back inside, +100 pts before the BOS)."""
+    routing = _routing(row)
+    if routing.get("PDH_PDL_TRAP") == "trap_without_confirmation" or (
+            row.get("strategy") == "PDH_PDL_TRAP" and row.get("reason_code") == "trap_without_confirmation"):
+        return True
+    return routing.get("LIQUIDITY_SWEEP_BOS") == "no_structure_break_after_sweep" and _swept(row)
 
 
 def _r2(row: dict) -> bool:
@@ -96,7 +111,7 @@ def _r4(row: dict) -> bool:
 
 
 CANDIDATES: tuple[Candidate, ...] = (
-    Candidate("R1", "PDH trap: accept the neckline close as confirmation", _r1, note="docs/ROADMAP.md R1"),
+    Candidate("R1", "failed sweep + close back inside as confirmation (trap / sweep-BOS families)", _r1, note="docs/ROADMAP.md R1"),
     Candidate("R2", "counter-trend 6-key bar / 0.75 ATR no-chase floor binding", _r2, min_occurrences=20, note="docs/ROADMAP.md R2"),
     Candidate("R3", "daily-only veto blocked a 30m-aligned trade (measures the pre-2026-09-21 rule)", _r3, note="docs/ROADMAP.md R3"),
     Candidate("R4", "late to a confirmed move: 5m-close confirmation cadence (1m confirmation leg)", _r4, note="docs/ROADMAP.md R4"),
