@@ -109,6 +109,20 @@ R2: 20) AND the counterfactuals favour it (≥55% target-first). READY is a prom
 for a human to build a shadow-only vNext and promote it with a §83 record - the
 engine never applies a candidate itself.
 
+**Indicator freeze (2026-09-22, operator decision after the VWAP/CPR additions):**
+the input set is frozen at what is listed in "What the engine reads" below
+until the journal holds 100+ valid opportunities (Gate 2's own number). From
+here inputs *leave* on evidence rather than arrive on request: the nightly
+review now prints a **component attribution** block (`research_cli review`)
+- for every scoring component, outcomes when it scored >= half its cap vs
+below; for every penalty, applied vs absent - from paper trades (net P&L
+joined by signal_id) and from rejected signals (underlying-only
+counterfactual). A component whose strong/weak split shows no difference
+over >= 20 per side is a candidate for deletion, not for re-weighting.
+Removed today on construction grounds (no evidence needed): the unused
+`stochastic` and `roc` indicators, and ADX from the momentum score (it already
+decides the trend labels behind the MTF component - a §16 double count).
+
 **Applied 2026-09-22 at the operator's request - VWAP bias (v0.1 scoring
 change, not tracked as a candidate first):** the session VWAP was already a
 level, a pre-signal evidence key, a family (`VWAP_RECLAIM`) and the no-chase
@@ -246,6 +260,7 @@ proves it on every CI run.
 | 2026-09-22 | `config/risk-750-cap-30` | per-trade risk 0.5% -> 1.5% (Rs.750), daily/weekly loss caps -> 30%; CI bounds widened |
 | 2026-09-22 | `feature/vwap-bias` | VWAP side/slope journaled and scored (volume component +2/+1, `against_vwap` -5) |
 | 2026-09-22 | `feature/cpr-levels` | CPR (pivot/TC/BC) + R1/S1 levels, narrow-CPR compression evidence |
+| 2026-09-22 | `feature/indicator-freeze` | dead indicators removed, ADX out of the momentum score, component attribution in the review |
 
 ## Where things live
 

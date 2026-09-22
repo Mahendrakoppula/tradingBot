@@ -13,6 +13,8 @@ from trading_bot.engine.research.review import (
     promotion_record,
     rejected_analysis,
     render_rejection,
+    component_attribution,
+    render_attribution_row,
 )
 from trading_bot.engine.research.validation import GateResult
 from trading_bot.timeutil import IST
@@ -179,3 +181,33 @@ def test_cli_telegram_flag_posts_the_report(monkeypatch, capsys):
     assert research_cli.main(["review", "--from", "2026-09-18", "--to", "2026-09-18", "--telegram"]) == 0
     assert posted and posted[0].startswith("REVIEW 2026-09-18")
     assert "REVIEW" in capsys.readouterr().out  # still printed
+
+
+def test_component_attribution_splits_outcomes_by_component_strength_and_penalty():
+    """The indicator freeze's pruning tool: every component/penalty gets
+    'strong vs weak' (or 'applied vs absent') outcomes from trades (net P&L
+    joined by signal_id) and from rejected signals (ledger counterfactual)."""
+    ts = dt.datetime(2026, 9, 22, 10, 0, tzinfo=IST)
+    comps_strong = {"price_action": 18, "structure": 12, "key_location": 12, "mtf_alignment": 12, "volume": 8,
+                    "momentum": 8, "volatility": 4, "liquidity_execution": 4, "option_quality": 4}
+    comps_weak = {k: 1 for k in comps_strong}
+    sigs = [
+        {"signal_id": "t1", "status": "valid", "stage": "SNAPSHOT", "underlying": "NIFTY", "direction": "up", "ts": ts,
+         "snapshot": {"extra": {"score_components": comps_strong, "penalties": {}}}, "explanation": {}},
+        {"signal_id": "t2", "status": "valid", "stage": "SNAPSHOT", "underlying": "NIFTY", "direction": "up", "ts": ts,
+         "snapshot": {"extra": {"score_components": comps_weak, "penalties": {"against_vwap": 5}}}, "explanation": {}},
+        {"signal_id": "r1", "status": "rejected", "stage": "RISK_ENGINE", "reason_code": "one_lot_exceeds_max_risk",
+         "underlying": "NIFTY", "direction": "up", "ts": ts, "explanation": {},
+         "snapshot": {"spot": 25000.0, "atr": 20.0, "score_components": comps_strong, "penalties": {"extension": 10}}},
+    ]
+    trades = [{"signal_id": "t1", "net_pnl": 900.0}, {"signal_id": "t2", "net_pnl": -400.0}, {"signal_id": "zzz", "net_pnl": 1.0}]
+    ledger = [{"signal_id": "r1", "next": "target_first"}, {"signal_id": "t1", "next": None}]
+    at = component_attribution(trades, sigs, ledger)
+    assert at["momentum"]["strong"] == {"trades": 1, "net": 900.0, "cf_n": 1, "cf_target_first": 1}
+    assert at["momentum"]["weak"] == {"trades": 1, "net": -400.0, "cf_n": 0, "cf_target_first": 0}
+    assert at["-against_vwap"]["applied"]["trades"] == 1 and at["-against_vwap"]["absent"]["trades"] == 1
+    assert at["-extension"]["applied"]["cf_target_first"] == 1
+    line = render_attribution_row("momentum", at["momentum"])
+    assert line.startswith("momentum: strong: 1 trades +900/trade, cf 100% target-first (n=1) | weak: 1 trades -400/trade")
+    text = daily_review(trades[:2], sigs, [], 50000.0, "d").render()
+    assert "component attribution" in text and "-against_vwap: applied: 1 trades -400/trade" in text

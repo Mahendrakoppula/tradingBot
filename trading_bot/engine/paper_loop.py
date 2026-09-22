@@ -276,6 +276,8 @@ class PaperLoop(ShadowLoop):
             "routing": {n.strategy: n.reason_code for n in d.routing_rejections},
             "trend_scores": {tf: ctx.trend(tf).get("score") for tf in ("1d", "30m", "5m", "1m")},
             "vwap": {"distance_atr": ctx.indicators.get("vwap_distance_atr"), "slope_atr": ctx.indicators.get("vwap_slope_atr")},
+            "score_components": dict(d.score.components) if d.score else None,
+            "penalties": dict(d.score.penalties) if d.score else None,
             "ranked": d.ranked, "target_ref": d.target_ref,
             "stop_ref": d.plan.stop_ref if d.plan else None, "target1_ref": d.plan.target1_ref if d.plan else None}
         self._journal(self.dal.insert_signal, self.run_id, signal_id=d.signal_id, setup_id=ev.setup_id, ts=ctx.ts, mode=self.mode, underlying=u,

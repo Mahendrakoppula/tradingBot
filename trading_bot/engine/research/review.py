@@ -30,6 +30,7 @@ class Review:
     execution: dict = field(default_factory=dict)
     costs: dict = field(default_factory=dict)
     rejected: dict = field(default_factory=dict)
+    attribution: dict = field(default_factory=dict)
     caution: str = "Never change the strategy because of one trade or one day (spec section 71)."
 
     def render(self) -> str:
@@ -59,6 +60,10 @@ class Review:
                 lines += ["  " + render_rejection(r) for r in ledger[:LEDGER_LINES]]
                 if len(ledger) > LEDGER_LINES:
                     lines.append(f"  ... and {len(ledger) - LEDGER_LINES} more (review a shorter range for the full list)")
+        if self.attribution:
+            lines.append(f"component attribution (trades: expectancy/trade; rejections: underlying-only target-first; "
+                         f"prune what shows no edge - needs n>={ATTRIBUTION_MIN_N} per side):")
+            lines += ["  " + render_attribution_row(name, row) for name, row in self.attribution.items()]
         lines.append(self.caution)
         return "\n".join(lines)
 
@@ -105,7 +110,84 @@ def daily_review(trade_rows: list[dict], signals: list[dict], executions: list[d
         r.execution = {"orders": p.orders, "fill_probability": p.fill_probability, "slippage_vs_theoretical": p.slippage_vs_theoretical_mean,
                        "latency_p95_ms": p.latency_ms_p95, "partials": p.partial_fills, "rejected": p.rejected, "timeouts": p.timeouts}
     r.rejected = rejected_analysis(signals, candles_1m)
+    r.attribution = component_attribution(trade_rows, signals, r.rejected.get("ledger") or [])
     return r
+
+
+# --- component attribution (indicator freeze 2026-09-22: inputs leave on evidence) ------------------
+
+ATTRIBUTION_MIN_N = 20
+
+
+def _score_parts(row: dict) -> tuple[dict, dict] | None:
+    snap = row.get("snapshot") or {}
+    comps = snap.get("score_components") or (snap.get("extra") or {}).get("score_components")
+    if not comps:
+        return None
+    pens = snap.get("penalties") or (snap.get("extra") or {}).get("penalties") or {}
+    return comps, pens
+
+
+def component_attribution(trade_rows: list[dict], signals: list[dict], ledger: list[dict]) -> dict:
+    """For every scoring component: outcomes when it scored >= half its cap
+    ("strong") vs below ("weak"); for every penalty: applied vs not. Trades
+    are joined to their signal by signal_id (net P&L expectancy); rejected
+    signals use the ledger's underlying-only counterfactual (target-first
+    share). This is how an input earns its place or leaves."""
+    from trading_bot.engine.scoring import CAPS, PENALTIES
+    by_id = {str(s.get("signal_id")): s for s in signals}
+    out: dict = {}
+
+    def bucket(name: str, side: str) -> dict:
+        return out.setdefault(name, {}).setdefault(side, {"trades": 0, "net": 0.0, "cf_n": 0, "cf_target_first": 0})
+
+    def observe(sig: dict, *, net: float | None = None, cf: str | None = None) -> None:
+        parts = _score_parts(sig)
+        if parts is None:
+            return
+        comps, pens = parts
+        for comp, cap in CAPS.items():
+            side = "strong" if comps.get(comp, 0) >= cap / 2 else "weak"
+            b = bucket(comp, side)
+            if net is not None:
+                b["trades"] += 1
+                b["net"] += net
+            if cf in ("target_first", "stop_first"):
+                b["cf_n"] += 1
+                b["cf_target_first"] += cf == "target_first"
+        for pen in PENALTIES:
+            b = bucket("-" + pen, "applied" if pen in pens else "absent")
+            if net is not None:
+                b["trades"] += 1
+                b["net"] += net
+            if cf in ("target_first", "stop_first"):
+                b["cf_n"] += 1
+                b["cf_target_first"] += cf == "target_first"
+
+    for t in trade_rows:
+        sig = by_id.get(str(t.get("signal_id")))
+        if sig is not None:
+            observe(sig, net=float(t.get("net_pnl") or 0))
+    for row in ledger:
+        sig = by_id.get(str(row.get("signal_id")))
+        if sig is not None and row.get("next"):
+            observe(sig, cf=row["next"])
+    return {k: v for k, v in out.items() if any(b["trades"] or b["cf_n"] for b in v.values())}
+
+
+def render_attribution_row(name: str, row: dict) -> str:
+    parts = []
+    for side in ("strong", "weak", "applied", "absent"):
+        b = row.get(side)
+        if not b:
+            continue
+        bits = []
+        if b["trades"]:
+            bits.append(f"{b['trades']} trades {b['net'] / b['trades']:+.0f}/trade")
+        if b["cf_n"]:
+            bits.append(f"cf {b['cf_target_first'] / b['cf_n']:.0%} target-first (n={b['cf_n']})")
+        parts.append(f"{side}: " + ", ".join(bits))
+    return f"{name}: " + " | ".join(parts)
 
 
 # --- §72 rejected-signal analysis --------------------------------------------------------------
