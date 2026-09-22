@@ -326,8 +326,56 @@ class RangeExtremeReversal:
                      [f"range regime {ctx.regime.get('primary')}", f"extreme {behind['name']} @ {behind['price']:.2f}"], extreme=behind)
 
 
+class LevelRejection:
+    """v0.1 (2026-09-22, shadow-only via TECH_SHADOW_STRATEGIES): a failed
+    break of a key level. Price sweeps PDH/PDL, the session or opening-range
+    extreme or the prior week's extreme, closes back inside, and the current
+    bar closes in the trade's direction. Unlike PDH_PDL_TRAP it needs no candle
+    pattern or structure break - the misses of 2026-09-21 (NIFTY 10:10) and
+    2026-09-22 (NIFTY 10:20, BANKNIFTY 14:10) all died waiting for one.
+    Stop beyond the sweep wick, target the next level. Promotion out of shadow
+    needs R5's numbers (docs/ROADMAP.md) and a section-83 record."""
+    spec = StrategySpec("LEVEL_REJECTION", "0.1", 2,
+                        TREND_REGIMES | RANGE_REGIMES | BREAK_REGIMES | {"TRANSITION", "HIGH_VOLATILITY", "NORMAL", "CHOPPY"},
+                        WEAKLY_ALIGNED | {"NEUTRAL", "TREND_TRANSITION", "COUNTER_TREND"}, counter_trend_ok=True,
+                        family_hints=frozenset({"liquidity_sweep", "compression_breakout", "trend_pullback", "vwap_reclaim",
+                                                "unclassified"}))
+    KEY_LEVELS = ("pdh", "pdl", "pwh", "pwl", "session_high", "session_low", "or_high", "or_low")
+    max_distance_atr = 1.0  # entry no further than this from the rejected level
+
+    def evaluate(self, ctx, direction, params):
+        want_side = "below" if direction == "up" else "above"
+        sweeps = [s for s in (ctx.structure.get("recent_sweeps") or [])
+                  if s.get("side") == want_side and s.get("level_name") in self.KEY_LEVELS
+                  and ctx.bar_index - s["bar_index"] <= params.sweep_lookback_bars]
+        if not sweeps:
+            return NoTrade(self.spec.name, "no_key_level_sweep")
+        sw = sweeps[-1]
+        back_inside = ctx.spot > sw["level"] if direction == "up" else ctx.spot < sw["level"]
+        if not back_inside:
+            return NoTrade(self.spec.name, "not_back_inside_level")
+        anatomy = ctx.price_action.get("anatomy") or {}
+        bullish = anatomy.get("bullish")
+        cprev = ctx.indicators.get("close_prev")
+        with_close = (bullish is True and (cprev is None or ctx.spot >= cprev)) if direction == "up" else \
+            (bullish is False and (cprev is None or ctx.spot <= cprev))
+        if not with_close:
+            return NoTrade(self.spec.name, "no_close_in_direction")
+        atr = ctx.atr or 0.0
+        dist = abs(ctx.spot - sw["level"]) / atr if atr else 0.0
+        if dist > self.max_distance_atr:
+            return NoTrade(self.spec.name, "extended_from_level", f"{dist:.2f} ATR")
+        sl = _sl_beyond(sw["wick"], direction, atr, params.sl_buffer_atr)
+        return _cand(self.spec, ctx, direction, sl, default_target(ctx, direction, params),
+                     f"sweep_reclaim_of_{sw['level_name']}",
+                     [f"swept {sw['level_name']} @ {sw['level']:.2f} by {sw.get('excess_atr') or 0:.2f} ATR, closed back inside",
+                      f"{'bullish' if direction == 'up' else 'bearish'} close {ctx.spot:.2f} in direction"],
+                     sweep=sw, level_distance_atr=round(dist, 3))
+
+
 FAMILIES: tuple = (
     LiquiditySweepBOS(), CompressionBreakoutRetest(), TrendPullbackContinuation(), MTFConfluence(),
     OpeningRangeBreakout(), VWAPReclaim(),
     PDHPDLTrap(), EMAPullback(), MomentumExpansion(), RangeExtremeReversal(),
+    LevelRejection(),
 )

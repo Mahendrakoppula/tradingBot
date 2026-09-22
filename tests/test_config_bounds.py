@@ -240,6 +240,16 @@ def test_tech_underlyings_are_the_three_indices_only():
     assert names and names <= {"NIFTY", "BANKNIFTY", "SENSEX"}, names
 
 
+def test_tech_shadow_strategies_are_real_families():
+    """A misspelt name here would silently shadow nothing (or, worse, nothing would be shadowed)."""
+    from trading_bot.engine.strategies import FAMILIES
+    names = {f.spec.name for f in FAMILIES}
+    listed = {v.strip().upper() for v in CONFIG.get("TECH_SHADOW_STRATEGIES", "").split(",") if v.strip()}
+    assert listed <= names, listed - names
+    # LEVEL_REJECTION v0.1 stays shadow-only until R5 is READY and a section-83 record exists (docs/ROADMAP.md)
+    assert "LEVEL_REJECTION" in listed
+
+
 def test_tech_paper_profile_is_known_and_not_ideal():
     """§52: ideal paper fills must never be the basis of a live decision."""
     assert CONFIG["TECH_PAPER_PROFILE"] in ("realistic", "conservative")

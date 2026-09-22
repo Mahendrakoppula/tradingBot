@@ -74,7 +74,7 @@ def test_r2_matches_evidence_bar_and_no_chase():
 
 
 def test_candidates_are_documented_and_never_auto_apply():
-    assert [c.code for c in CANDIDATES] == ["R1", "R2", "R3", "R4"] and all(c.note.startswith("docs/ROADMAP.md") for c in CANDIDATES)
+    assert [c.code for c in CANDIDATES] == ["R1", "R2", "R3", "R4", "R5"] and all(c.note.startswith("docs/ROADMAP.md") for c in CANDIDATES)
     assert "never auto-applied" in render([])
 
 
@@ -131,3 +131,19 @@ def test_r4_matches_late_confirmation_rejections():
             _sig(4, routing={"ORB": "outside_orb_window"})]
     st = {s.code: s for s in track(sigs, _candles_down_then_up)}
     assert st["R4"].occurrences == 3 and st["R2"].occurrences == 1
+
+
+def test_r5_counts_valid_shadow_signals_of_level_rejection_with_counterfactuals():
+    """R5 is the promotion evidence for the shadow family: valid (never executed)
+    LEVEL_REJECTION signals, with the same underlying-only counterfactual as
+    the rejection candidates. Other valid signals are not counted."""
+    def shadow(i, strategy="LEVEL_REJECTION", status="valid"):
+        r = _sig(i, status=status, stage="SNAPSHOT", reason="shadow_only_strategy", direction="down")
+        r["strategy"] = strategy
+        r["snapshot"] = {"spot": 23373.0, "atr": 18.0, "direction": "down", "stop_ref": 23400.0, "target1_ref": 23340.0}
+        return r
+    rows = [shadow(0), shadow(1), shadow(2, strategy="TREND_PULLBACK"), shadow(3, status="rejected")]
+    st = {s.code: s for s in track(rows, _candles_down_then_up)}
+    assert st["R5"].occurrences == 2 and st["R5"].counterfactual == {"target_first": 2}
+    assert "promotion" in st["R5"].verdict or "watching" in st["R5"].verdict
+    assert st["R1"].occurrences == 0

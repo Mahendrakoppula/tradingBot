@@ -35,8 +35,13 @@ TERMINAL_STAGES = frozenset({"EXTENDED", "EXHAUSTED", "EXPIRED", "REJECTED"})
 EVIDENCE_KEYS: tuple[str, ...] = (
     "level_approach", "compression", "ema_compression", "volume_buildup",
     "momentum_change", "vwap_interaction", "repeated_tests", "htf_alignment",
+    "sweep_reclaim",  # a failed break of a key level (added when that is the confirmation)
 )
 DIRECTIONAL_KEYS = frozenset({"level_approach", "momentum_change", "htf_alignment"})
+
+# Levels whose failed break is a trade in itself (the crowd's stops sit there). EMAs and
+# VWAP are not: a wick through a moving average says nothing about trapped positions.
+KEY_LEVELS = frozenset({"pdh", "pdl", "pwh", "pwl", "session_high", "session_low", "or_high", "or_low"})
 
 
 @dataclass(frozen=True)
@@ -158,6 +163,11 @@ class PreSignalTracker:
             if trigger is not None:
                 s.trigger_level, s.trigger_bar = trigger["level"], ctx.bar_index
                 s.last_progress_bar = ctx.bar_index
+                if trigger["kind"] == "sweep_reclaim" and "sweep_reclaim" not in s.evidence:
+                    # the failed break IS evidence (trapped breakout traders), so a counter-trend
+                    # setup confirmed this way is not held back by the evidence bar alone
+                    s.evidence.add("sweep_reclaim")
+                    s.confidence = min(1.0, s.confidence + cfg.confidence_per_evidence)
                 events.append(self._move(s, "CONFIRMING", trigger["kind"], ctx, trigger))
             return events
 
@@ -241,6 +251,9 @@ class PreSignalTracker:
             ctx.bar_index - int(last.get("index", -99)) <= 2
         ):
             return {"kind": "structure_break", "level": level if level is not None else last.get("price"), "event": last.get("kind")}
+        reclaim = self._sweep_reclaim(ctx, direction)
+        if reclaim is not None:
+            return reclaim
         labels = set(pa.get("labels", []))
         if "displacement" in labels and level is not None:
             if (direction == "up" and ctx.spot > level) or (direction == "down" and ctx.spot < level):
@@ -251,6 +264,28 @@ class PreSignalTracker:
         if labels & want and level is not None and near.get("distance_atr") is not None and abs(near["distance_atr"]) <= self.cfg.level_proximity_atr:
             return {"kind": "rejection_at_level", "level": level, "patterns": sorted(labels & want)}
         return None
+
+    def _sweep_reclaim(self, ctx: ContextSnapshot, direction: str) -> dict | None:
+        """The 2026-09-21/22 misses: price trades through a KEY level (PDH, the
+        session low, ...), closes back on the original side, and the bar is in
+        the setup's direction. No candle pattern needed - the failed break is
+        the confirmation. The swept level becomes the trigger level, so the
+        thesis holds while price stays back inside and TRADE_READY follows on
+        the next close that does (a two-bar confirmation)."""
+        want_side = "above" if direction == "down" else "below"
+        sweeps = [sw for sw in (ctx.structure.get("recent_sweeps") or [])
+                  if sw.get("side") == want_side and sw.get("level_name") in KEY_LEVELS
+                  and ctx.bar_index - int(sw.get("bar_index", -99)) <= 1]
+        if not sweeps:
+            return None
+        sw = sweeps[-1]
+        bullish = (ctx.price_action.get("anatomy") or {}).get("bullish")
+        in_direction = (bullish is True) if direction == "up" else (bullish is False)
+        back_inside = ctx.spot > sw["level"] if direction == "up" else ctx.spot < sw["level"]
+        if not (in_direction and back_inside):
+            return None
+        return {"kind": "sweep_reclaim", "level": float(sw["level"]), "level_name": sw.get("level_name"),
+                "wick": sw.get("wick"), "sweep_bar": sw.get("bar_index")}
 
     def _beyond_trigger(self, ctx: ContextSnapshot, s: SetupState) -> tuple[bool, float | None]:
         if s.trigger_level is None:

@@ -40,6 +40,9 @@ class PipelineParams:
     rates: CostRates = CostRates()
     min_score: int = 40
     counter_trend_min_evidence: int = 6
+    # phase 24: families journaled but never executed. They must never take the one selection slot away
+    # from an executable family, so ranking considers them only when no executable candidate is selectable.
+    shadow_strategies: tuple[str, ...] = ()
 
     @classmethod
     def from_config(cls, cfg) -> "PipelineParams":
@@ -59,6 +62,7 @@ class PipelineParams:
             rates=CostRates.for_profile(getattr(cfg, "cost_profile", "nfo")),
             min_score=cfg.min_score,
             counter_trend_min_evidence=cfg.counter_trend_min_evidence,
+            shadow_strategies=tuple(getattr(cfg, "shadow_strategies", ()) or ()),
         )
 
 
@@ -160,9 +164,16 @@ def decide(ctx: ContextSnapshot, event: StageEvent, *, setup_evidence: int, fami
 
     # --- scoring + ranking (§16, §35) ----------------------------------------------------------
     scored = [(c, score(ctx, c)) for c in rr.candidates]
-    ranked = rank(scored, open_directions=account.open_directions, max_selected=1, min_score=p.min_score)
-    d.ranked = [(r.candidate.strategy, r.score.total, r.selected, r.reason) for r in ranked]
+    shadow = set(p.shadow_strategies)
+    live = [cs for cs in scored if cs[0].strategy not in shadow]
+    ranked = rank(live, open_directions=account.open_directions, max_selected=1, min_score=p.min_score) if live else []
     chosen = next((r for r in ranked if r.selected), None)
+    if chosen is None and len(live) < len(scored):
+        # no executable family made it: let a shadow family through so its evidence is journaled (never executed)
+        ranked = rank([cs for cs in scored if cs[0].strategy in shadow], open_directions=account.open_directions,
+                      max_selected=1, min_score=p.min_score) + ranked
+        chosen = next((r for r in ranked if r.selected), None)
+    d.ranked = [(r.candidate.strategy, r.score.total, r.selected, r.reason) for r in ranked]
     if chosen is None:
         why = ranked[0].reason if ranked else "nothing_ranked"
         d.candidate, d.score = (ranked[0].candidate, ranked[0].score) if ranked else (None, None)

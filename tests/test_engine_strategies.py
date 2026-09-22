@@ -57,9 +57,9 @@ def _bos_up(index=19, price=SPOT - 10):
 
 def test_every_family_has_a_spec_and_a_versioned_name():
     names = {f.spec.name for f in FAMILIES}
-    assert len(FAMILIES) == 10 and len(names) == 10
+    assert len(FAMILIES) == 11 and len(names) == 11  # ten spec families + LEVEL_REJECTION v0.1 (shadow)
     assert all(f.spec.version == "0.1" and f.spec.tier in (1, 2, 3) for f in FAMILIES)
-    assert sorted(f.spec.tier for f in FAMILIES) == [1, 1, 1, 1, 2, 2, 3, 3, 3, 3]
+    assert sorted(f.spec.tier for f in FAMILIES) == [1, 1, 1, 1, 2, 2, 2, 3, 3, 3, 3]
 
 
 def test_quiet_context_produces_no_trades():
@@ -195,7 +195,7 @@ def test_route_records_every_family_decision():
     assert r.gate is None
     names = {c.strategy for c in r.candidates}
     assert "TREND_PULLBACK" in names and "EMA_PULLBACK" in names
-    assert len(r.candidates) + len(r.rejections) == 10
+    assert len(r.candidates) + len(r.rejections) == 11
     assert r.best_tier == 1
     assert all(c.evidence["fingerprint"] for c in r.candidates)
     reasons = {n.strategy: n.reason_code for n in r.rejections}
@@ -276,3 +276,36 @@ def test_counter_trend_is_about_direction_not_timeframe_conflict():
     assert not is_counter_trend(strong_30m, "up", veto_tfs=())  # 5m sovereign
     # the alignment preference alone is not a veto
     assert not is_counter_trend(_ctx(alignment={"label": "TREND_ALIGNMENT", "direction_preference": "down"}), "up")
+
+
+def test_level_rejection_takes_a_failed_break_of_a_key_level_without_a_pattern():
+    """2026-09-22 NIFTY 10:10-10:15: PDH 23466.8 swept by 3.8 pts, close back inside,
+    next bar a plain bearish close - no pin, no engulfing, no BOS. PDH_PDL_TRAP declines
+    (trap_without_confirmation); LEVEL_REJECTION accepts with the stop beyond the wick."""
+    from trading_bot.engine.strategies.families import LevelRejection, PDHPDLTrap
+    sweep = {"level_name": "pdh", "level": 23466.8, "side": "above", "excess": 3.8, "excess_atr": 0.27, "bar_index": 19, "wick": 23470.6}
+    ctx = _ctx(spot=23458.5, bar_index=20,
+               structure={"last_event": {"kind": "bos_up", "index": 10, "price": 23440.0}, "recent_sweeps": [sweep],
+                          "swing_high": 23489.0, "swing_low": 23400.0},
+               price_action={"labels": [], "anatomy": {"bullish": False, "body": -6.6}, "sweep": None},
+               indicators={"atr": 14.0, "rsi": 55.0, "macd_hist": 0.1, "adx": 22.0, "close_prev": 23465.2, "vwap": 23430.0},
+               levels={"pdh": 23466.8, "pdc": 23414.3,
+                       "nearest_above": {"name": "pdh", "price": 23466.8, "distance_atr": 0.59, "touches": 4},
+                       "nearest_below": {"name": "pdc", "price": 23414.3, "distance_atr": -3.16, "touches": 0}})
+    assert PDHPDLTrap().evaluate(ctx, "down", StrategyParams()).reason_code == "trap_without_confirmation"
+    cand = LevelRejection().evaluate(ctx, "down", StrategyParams())
+    assert isinstance(cand, Candidate) and cand.strategy == "LEVEL_REJECTION" and cand.direction == "down"
+    assert cand.entry_ref == 23458.5 and cand.invalidation == round(23470.6 + 0.25 * 14.0, 2)  # beyond the sweep wick
+    assert cand.target_ref == 23414.3 and cand.confirmation == "sweep_reclaim_of_pdh"
+    assert cand.risk_distance < 16 and cand.reward_distance > 40
+    # a bullish bar after the sweep is not a rejection; an EMA sweep is not a key level; too far from the level is a chase
+    bullish = _ctx(spot=23458.5, bar_index=20, structure={"last_event": None, "recent_sweeps": [sweep]},
+                   price_action={"labels": [], "anatomy": {"bullish": True}, "sweep": None},
+                   indicators={"atr": 14.0, "close_prev": 23450.0})
+    assert LevelRejection().evaluate(bullish, "down", StrategyParams()).reason_code == "no_close_in_direction"
+    ema = _ctx(spot=23458.5, bar_index=20, structure={"last_event": None, "recent_sweeps": [dict(sweep, level_name="ema20")]},
+               price_action={"labels": [], "anatomy": {"bullish": False}, "sweep": None}, indicators={"atr": 14.0, "close_prev": 23465.0})
+    assert LevelRejection().evaluate(ema, "down", StrategyParams()).reason_code == "no_key_level_sweep"
+    far = _ctx(spot=23440.0, bar_index=20, structure={"last_event": None, "recent_sweeps": [sweep]},
+               price_action={"labels": [], "anatomy": {"bullish": False}, "sweep": None}, indicators={"atr": 14.0, "close_prev": 23450.0})
+    assert LevelRejection().evaluate(far, "down", StrategyParams()).reason_code == "extended_from_level"
