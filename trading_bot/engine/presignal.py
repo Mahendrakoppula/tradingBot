@@ -206,7 +206,7 @@ class PreSignalTracker:
             found.add("level_approach")
             if (near.get("touches") or 0) >= cfg.repeated_tests_min:
                 found.add("repeated_tests")
-        if ctx.regime.get("primary") == "COMPRESSION" or (ind.get("bb_width_pct") is not None and ind["bb_width_pct"] <= 20):
+        if ctx.regime.get("primary") == "COMPRESSION" or (ind.get("bb_width_pct") is not None and ind["bb_width_pct"] <= 20)                 or ind.get("cpr_narrow") is True:  # a narrow CPR day is the classic "expect a trend day" tell
             found.add("compression")
         e20, e50 = ind.get("ema20"), ind.get("ema50")
         if e20 is not None and e50 is not None and atr > 0 and abs(e20 - e50) / atr <= cfg.ema_compression_atr:

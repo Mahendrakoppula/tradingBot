@@ -120,6 +120,17 @@ inside the volume component when side/drift are with the trade and a new
 carries the two numbers and the ledger prints them, so the nightly review can
 segment outcomes by VWAP side and the change can be reverted on evidence.
 
+**Applied 2026-09-22 (operator) - CPR / classic pivots:** the previous day's
+Central Pivot Range (`pivot`, `cpr_tc`, `cpr_bc`) and `r1`/`s1` join the level
+set (`engine/structure.py day_levels`), with key-location weights 0.8/0.7 in
+scoring, as `TREND_PULLBACK` pullback levels, and a *narrow CPR* day (width
+below 0.6x the trailing 10-day median) counts as `compression` pre-signal
+evidence - the classic "expect a trend day" tell. Journaled per snapshot as
+`indicators.cpr_width_pct` / `cpr_narrow`. Not added: Supertrend (duplicates
+the ATR trail and the EMA/ADX trend read), Fibonacci, stochastic (implemented,
+not wired - range markets are gated out anyway); RSI divergence stays a
+candidate for the reversal families.
+
 **Post-gate expansion candidates (not part of V1's evidence; each is its own
 system with its own gates):**
 
@@ -234,6 +245,7 @@ proves it on every CI run.
 | 2026-09-21 | `config/mcx-paper` | crude engine SHADOW -> PAPER (own database, dry-run pinned) |
 | 2026-09-22 | `config/risk-750-cap-30` | per-trade risk 0.5% -> 1.5% (Rs.750), daily/weekly loss caps -> 30%; CI bounds widened |
 | 2026-09-22 | `feature/vwap-bias` | VWAP side/slope journaled and scored (volume component +2/+1, `against_vwap` -5) |
+| 2026-09-22 | `feature/cpr-levels` | CPR (pivot/TC/BC) + R1/S1 levels, narrow-CPR compression evidence |
 
 ## Where things live
 

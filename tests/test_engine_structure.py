@@ -85,6 +85,24 @@ def test_day_levels_previous_day_and_previous_week():
     assert lv.pwh == 110 and lv.pwl == 90  # week 37 extremes
 
 
+def test_day_levels_cpr_and_classic_pivots():
+    lv = day_levels([_daily(dt.date(2026, 9, 16), 122, 118, 120)])
+    # P=(122+118+120)/3=120, BC=120, TC=2P-BC=120 -> zero-width CPR; R1=2P-L=122, S1=2P-H=118
+    assert (lv.pivot, lv.cpr_tc, lv.cpr_bc, lv.r1, lv.s1) == (120, 120, 120, 122, 118)
+    assert lv.cpr_width_pct == 0 and lv.cpr_narrow is None  # not enough history to call it narrow
+    lv = day_levels([_daily(dt.date(2026, 9, 16), 130, 110, 126)])
+    p, bc = 122.0, 120.0
+    assert lv.pivot == p and lv.cpr_bc == bc and lv.cpr_tc == 2 * p - bc and lv.cpr_tc >= lv.cpr_bc
+    assert lv.r1 == 2 * p - 110 and lv.s1 == 2 * p - 130 and abs(lv.cpr_width_pct - 4 / 126 * 100) < 1e-9
+
+
+def test_narrow_cpr_is_relative_to_recent_days():
+    days = [dt.date(2026, 9, d) for d in (1, 2, 3, 4, 7, 8, 9, 10, 11, 14, 15)]
+    wide = [_daily(d, 130, 110, 127) for d in days[:-1]]  # wide CPR every day
+    assert day_levels(wide + [_daily(days[-1], 121, 119, 120.5)]).cpr_narrow is True  # tiny range: narrow
+    assert day_levels(wide + [_daily(days[-1], 130, 110, 127)]).cpr_narrow is False
+
+
 def test_day_levels_without_prior_week():
     lv = day_levels([_daily(dt.date(2026, 9, 16), 122, 118, 120)])
     assert lv.pdh == 122 and lv.pwh is None and lv.pwl is None

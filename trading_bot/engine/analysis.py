@@ -185,6 +185,8 @@ def build_context(
         levels += [("pdh", dl.pdh), ("pdl", dl.pdl), ("pdc", dl.pdc)]
         if dl.pwh is not None:
             levels += [("pwh", dl.pwh), ("pwl", dl.pwl)]
+        if dl.pivot is not None:
+            levels += [("pivot", dl.pivot), ("cpr_tc", dl.cpr_tc), ("cpr_bc", dl.cpr_bc), ("r1", dl.r1), ("s1", dl.s1)]
     today_1m = [c for c in (candles.get("1m") or []) if c["ts"].date() == today]
     sl_ = session_levels(today_1m) if today_1m else None
     if sl_:
@@ -279,6 +281,7 @@ def build_context(
             "vwap_distance_atr": round((spot - vwap_v) / atr_v, 3) if (vwap_v is not None and atr_v) else None,
             "vwap_slope_atr": round(vwap_slope / atr_v, 3) if (vwap_slope is not None and atr_v) else None,
             "ema20_cross_count": cross_count,
+            "cpr_width_pct": dl.cpr_width_pct if dl else None, "cpr_narrow": dl.cpr_narrow if dl else None,
         },
         volume=vol,
     )

@@ -128,6 +128,28 @@ class DayLevels:
     pdc: float
     pwh: float | None
     pwl: float | None
+    # Central Pivot Range + classic R1/S1 from the previous day (the NSE intraday
+    # crowd's levels, which is what makes them self-fulfilling): P = (H+L+C)/3,
+    # BC = (H+L)/2, TC = 2P - BC, R1 = 2P - L, S1 = 2P - H.
+    pivot: float | None = None
+    cpr_tc: float | None = None
+    cpr_bc: float | None = None
+    r1: float | None = None
+    s1: float | None = None
+    cpr_width_pct: float | None = None  # |TC - BC| as % of the previous close
+    cpr_narrow: bool | None = None  # narrower than CPR_NARROW_RATIO x the median of the last CPR_NARROW_LOOKBACK days
+
+
+CPR_NARROW_LOOKBACK = 10
+CPR_NARROW_RATIO = 0.6
+
+
+def cpr(h: float, l: float, c: float) -> tuple[float, float, float, float, float]:
+    """(pivot, tc, bc, r1, s1) for one completed day; tc >= bc by construction."""
+    p = (h + l + c) / 3.0
+    bc = (h + l) / 2.0
+    tc = 2.0 * p - bc
+    return p, max(tc, bc), min(tc, bc), 2.0 * p - l, 2.0 * p - h
 
 
 def day_levels(daily_candles: list[dict]) -> DayLevels | None:
@@ -149,7 +171,17 @@ def day_levels(daily_candles: list[dict]) -> DayLevels | None:
             week = [c for d, c in keyed if d.isocalendar()[:2] == target]
             pwh = max(c["high"] for c in week)
             pwl = min(c["low"] for c in week)
-    return DayLevels(pdh=prev["high"], pdl=prev["low"], pdc=prev["close"], pwh=pwh, pwl=pwl)
+    pivot, tc, bc, r1, s1 = cpr(prev["high"], prev["low"], prev["close"])
+    width_pct = (tc - bc) / prev["close"] * 100.0 if prev["close"] else None
+    narrow = None
+    hist = daily_candles[-(CPR_NARROW_LOOKBACK + 1):-1]
+    if width_pct is not None and len(hist) >= 3:
+        widths = sorted(abs(cpr(c["high"], c["low"], c["close"])[1] - cpr(c["high"], c["low"], c["close"])[2]) / c["close"] * 100.0
+                        for c in hist if c["close"])
+        median = widths[len(widths) // 2]
+        narrow = median > 0 and width_pct < CPR_NARROW_RATIO * median
+    return DayLevels(pdh=prev["high"], pdl=prev["low"], pdc=prev["close"], pwh=pwh, pwl=pwl,
+                     pivot=pivot, cpr_tc=tc, cpr_bc=bc, r1=r1, s1=s1, cpr_width_pct=width_pct, cpr_narrow=narrow)
 
 
 @dataclass(frozen=True)

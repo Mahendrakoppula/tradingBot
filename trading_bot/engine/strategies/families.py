@@ -105,7 +105,8 @@ class CompressionBreakoutRetest:
 class TrendPullbackContinuation:
     spec = StrategySpec("TREND_PULLBACK", VERSION, 1, TREND_REGIMES | {"NORMAL", "EXPANSION"}, ALIGNED,
                         counter_trend_ok=False, family_hints=frozenset({"trend_pullback", "vwap_reclaim", "unclassified"}))
-    PULLBACK_LEVELS = ("ema20", "ema50", "vwap", "swing_low", "swing_high", "session_low", "session_high", "or_high", "or_low")
+    PULLBACK_LEVELS = ("ema20", "ema50", "vwap", "swing_low", "swing_high", "session_low", "session_high", "or_high", "or_low",
+                       "pivot", "cpr_tc", "cpr_bc")
 
     def evaluate(self, ctx, direction, params):
         if not alignment_with(ctx, direction, ALIGNED):
