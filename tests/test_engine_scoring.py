@@ -60,13 +60,29 @@ def test_bad_context_scores_low_and_lists_penalties():
         levels={"nearest_above": {"name": "swing_high", "price": SPOT + 5, "distance_atr": 0.25, "touches": 0},
                 "nearest_below": {"name": "ema200", "price": SPOT - 50, "distance_atr": -2.5, "touches": 0}},
         price_action={"labels": ["doji"], "anatomy": {"close_loc": 0.3, "bullish": False}},
-        indicators={"atr": ATR, "rsi": 80.0, "macd_hist": -0.2, "adx": 12.0, "atr_percentile": 5.0},
+        indicators={"atr": ATR, "rsi": 80.0, "macd_hist": -0.2, "adx": 12.0, "atr_percentile": 5.0,
+                    "vwap_distance_atr": -1.2, "vwap_slope_atr": -0.4},  # long, below a falling VWAP
         volume={"relative_volume": 0.5},
     )
     s = score(ctx, _cand(counter=True), ExternalInputs(spread_pct=5.0, open_interest=100, theta_pct_of_premium=0.2,
                                                      remaining_move_atr=0.2, move_consumed_atr=3.0))
     assert s.total == 0
     assert set(s.penalties) == set(PENALTIES)
+
+
+def test_vwap_bias_adds_to_volume_and_penalises_only_when_both_side_and_drift_oppose():
+    from trading_bot.engine.scoring import vwap_bias
+    base = dict(volume={"relative_volume": 1.4, "obv_slope": None})
+    ind = {"atr": ATR, "rsi": 55.0, "macd_hist": 0.1, "adx": 22.0, "atr_percentile": 50.0}
+    neutral = score(_ctx(indicators=ind, **base), _cand())
+    with_both = score(_ctx(indicators={**ind, "vwap_distance_atr": 0.8, "vwap_slope_atr": 0.3}, **base), _cand())
+    against_both = score(_ctx(indicators={**ind, "vwap_distance_atr": -0.8, "vwap_slope_atr": -0.3}, **base), _cand())
+    against_side_only = score(_ctx(indicators={**ind, "vwap_distance_atr": -0.8, "vwap_slope_atr": 0.02}, **base), _cand())
+    assert with_both.components["volume"] == neutral.components["volume"] + 3 and "against_vwap" not in with_both.penalties
+    assert against_both.components["volume"] == neutral.components["volume"] and against_both.penalties["against_vwap"] == 5
+    assert "against_vwap" not in against_side_only.penalties  # flat VWAP: a level, not a drift
+    assert vwap_bias(_ctx(indicators={**ind, "vwap_distance_atr": 0.05, "vwap_slope_atr": None}), "up") == (None, None)
+    assert vwap_bias(_ctx(indicators={**ind, "vwap_distance_atr": 0.5, "vwap_slope_atr": -0.2}), "down") == ("against", "with")
 
 
 def test_direction_flips_the_read():

@@ -24,7 +24,10 @@ PENALTIES = {
     "conflicting_timeframes": 10, "counter_trend": 15, "weak_structure": 5, "weak_volume": 5, "poor_location": 8,
     "nearby_opposing_level": 10, "excessive_spread": 10, "poor_liquidity": 10, "insufficient_expected_movement": 15,
     "excessive_theta": 8, "extension": 10, "regime_mismatch": 10,
+    "against_vwap": 5,  # price on the wrong side of a VWAP that is drifting against the trade
 }
+VWAP_SIDE_ATR = 0.15  # closer than this, price is "at" VWAP - no side
+VWAP_SLOPE_ATR = 0.1  # flatter than this over the slope window, the VWAP has no direction
 
 _BULL = ("STRONG_BULL", "BULL", "WEAK_BULL")
 _BEAR = ("STRONG_BEAR", "BEAR", "WEAK_BEAR")
@@ -143,7 +146,32 @@ def _volume(ctx: ContextSnapshot, cand: Candidate) -> tuple[int, list[str]]:
     slope = ctx.volume.get("obv_slope")
     if slope is not None and (slope > 0) == (cand.direction == "up"):
         pts = min(CAPS["volume"], pts + 2)
-    return _clamp(pts, CAPS["volume"]), [f"rel_vol={rv:.2f}"]
+    notes = [f"rel_vol={rv:.2f}"]
+    side, drift = vwap_bias(ctx, cand.direction)
+    if side == "with":
+        pts += 2  # the day's volume-weighted money is behind the trade
+        notes.append("vwap_side=with")
+    if drift == "with":
+        pts += 1
+        notes.append("vwap_slope=with")
+    return _clamp(pts, CAPS["volume"]), notes
+
+
+def vwap_bias(ctx: ContextSnapshot, direction: str) -> tuple[str | None, str | None]:
+    """(side, drift): each "with" / "against" / None. Side = which side of the
+    session VWAP price is on relative to the trade; drift = which way the VWAP
+    itself has moved over analysis.VWAP_SLOPE_BARS. Both in ATR units so the
+    same thresholds serve NIFTY and crude."""
+    ind = ctx.indicators
+    sgn = 1 if direction == "up" else -1
+    side = drift = None
+    d = ind.get("vwap_distance_atr")
+    if d is not None and abs(d) >= VWAP_SIDE_ATR:
+        side = "with" if d * sgn > 0 else "against"
+    sl = ind.get("vwap_slope_atr")
+    if sl is not None and abs(sl) >= VWAP_SLOPE_ATR:
+        drift = "with" if sl * sgn > 0 else "against"
+    return side, drift
 
 
 def _momentum(ctx: ContextSnapshot, cand: Candidate) -> tuple[int, list[str]]:
@@ -223,6 +251,8 @@ def _penalties(ctx: ContextSnapshot, cand: Candidate, x: ExternalInputs, comps: 
     if regime in ("CHOPPY", "LOW_VOLATILITY") or (regime in ("STRONG_BEAR", "BEAR") and cand.direction == "up") or \
             (regime in ("STRONG_BULL", "BULL") and cand.direction == "down"):
         pen["regime_mismatch"] = PENALTIES["regime_mismatch"]
+    if vwap_bias(ctx, cand.direction) == ("against", "against"):
+        pen["against_vwap"] = PENALTIES["against_vwap"]  # fighting both the level and its drift
     return pen
 
 
