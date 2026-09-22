@@ -211,6 +211,65 @@ def test_backfill_failure_degrades_to_a_gap_not_a_crash(monkeypatch):
     assert run["status"] == "completed"  # the session ran to its end despite the failed backfill
 
 
+def test_gap_from_a_rate_limited_backfill_heals_itself_without_a_restart(monkeypatch):
+    """2026-09-22 12:36: a mid-session deploy restarted three engines, the broker
+    rate-limited SENSEX's today-backfill, two 1m bars stayed missing and the
+    breaker latched on for the rest of the session. Now the loop re-tries the
+    backfill while quality is GAP (once per GAP_HEAL_INTERVAL per instrument)."""
+    from trading_bot.rest_client import ApiError
+    calls = {"backfill": 0}
+    real_backfill = rt.backfill_today_1m
+
+    def flaky_backfill(*a, **k):
+        calls["backfill"] += 1
+        if calls["backfill"] == 1:  # the start-up backfill is throttled; the heal's retry succeeds
+            raise ApiError("Access denied because of exceeding access rate", "HTTP_403")
+        return real_backfill(*a, **k)
+
+    monkeypatch.setattr(rt, "backfill_today_1m", flaky_backfill)
+
+    class GappySource(FakeSource):
+        """Warm-up ends at 09:45 (the clock), the feed's first tick lands at 09:47: the 09:45 and
+        09:46 bars exist only on REST - exactly the restart hole the backfill is for."""
+        def __init__(self, stream, q):
+            super().__init__(stream, q)
+            t = dt.datetime.combine(DAY, dt.time(9, 47), tzinfo=IST)
+            self.ticks = [_Tick("99926000", 2500000 + k * 100, int((t + dt.timedelta(seconds=30 * k)).timestamp() * 1000))
+                          for k in range(40)]
+
+    monkeypatch.setattr(rt, "Session", FakeSession)
+    monkeypatch.setattr(rt, "RestClient", FakeRest)
+    monkeypatch.setattr(rt, "InstrumentLookup", FakeLookup)
+    monkeypatch.setattr(rt, "ResilientMarketStream", lambda *a, **k: object())
+    monkeypatch.setattr(rt, "smartapi_stream_factory", lambda session: None)
+    monkeypatch.setattr(rt, "LiveTickSource", GappySource)
+    monkeypatch.setattr(rt, "RateLimiter", _NoSleepLimiter)
+    monkeypatch.setattr(rt, "today_ist", lambda: DAY)
+    monkeypatch.setattr(rt.technical_notifier, "notify", lambda m, html=False: None)
+    monkeypatch.setattr(rt, "_git_sha", lambda: None)
+    monkeypatch.setattr(rt.signal, "signal", lambda *a, **k: None)
+    monkeypatch.setattr(rt, "broker_config", lambda cfg: type("B", (), {"dry_run": True, "scrip_master_url": "x"})())
+    import trading_bot.engine.ratelimit as rl
+    monkeypatch.setattr(rl.time, "sleep", lambda s: None)
+    CLOCK["now"] = dt.datetime.combine(DAY, dt.time(9, 45), tzinfo=IST)
+    monkeypatch.setattr(rt, "now_ist", lambda: CLOCK["now"])
+    dals = []
+    orig = rt._open_dal
+    monkeypatch.setattr(rt, "_open_dal", lambda cfg: dals.append(orig(cfg)) or dals[-1])
+    from trading_bot.engine import jsonlog
+    events: list[tuple[str, str, dict]] = []
+    orig_event = jsonlog.event
+    monkeypatch.setattr(jsonlog, "event", lambda comp, ev, **kw: events.append((comp, ev, kw)) or orig_event(comp, ev, **kw))
+    assert rt.run_live(_cfg(warmup_days_1m=1)) == 0
+    dal = dals[0]
+    assert ("warmup", "backfill_failed") in [(c, e) for c, e, _ in events]  # start-up backfill was throttled
+    healed = [kw for c, e, kw in events if (c, e) == ("warmup", "gap_healed")]
+    assert healed and healed[0]["gaps_before"] > 0 and healed[0]["gaps_after"] == 0 and calls["backfill"] >= 2
+    kills = [k for k in dal.kill_switch_events if k["switch"] == "circuit_breaker"]
+    assert not kills or kills[-1]["action"] == "off", kills  # never latched for the session
+    assert any(c.get("quality") == "OK" for c in dal.context_snapshots)
+
+
 def test_login_is_retried_on_a_plain_text_rate_limit(monkeypatch):
     """2026-09-21: both bots logged in at the same instant at boot; the engine's
     login got a non-JSON 403 and crashed instead of retrying."""

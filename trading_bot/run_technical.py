@@ -121,15 +121,19 @@ def run_live(cfg: EngineConfig) -> int:
     stream = ResilientMarketStream(smartapi_stream_factory(session), subs, q, backoff_max=cfg.feed_backoff_max_seconds)
     source = LiveTickSource(stream, q)
 
+    def _backfill_one(inst) -> int:
+        store = stores.setdefault((inst.token, "1m"), CandleStore("1m"))
+        return backfill_today_1m(rest, inst, store, now_ist(), limiter)
+
     def _backfill() -> None:
-        # feed is up: close the restart gap with today's 1m over REST, once
+        # feed is up: close the restart gap with today's 1m over REST, once; a failure here (the
+        # broker rate-limits three engines warming up at once) is retried by the loop's gap healer
         now = now_ist()
         if now <= session_open_at(today):
             return
         for inst in instruments:
-            store = stores.setdefault((inst.token, "1m"), CandleStore("1m"))
             try:
-                n = backfill_today_1m(rest, inst, store, now, limiter)
+                n = _backfill_one(inst)
             except Exception as exc:  # noqa: BLE001 - a missing backfill is a GAP, not a fatal error
                 jsonlog.event("warmup", "backfill_failed", severity="WARN", underlying=inst.underlying,
                               token=inst.token, error=repr(exc))
@@ -141,7 +145,7 @@ def run_live(cfg: EngineConfig) -> int:
     execute = cfg.mode == "PAPER"
     broker = PaperBroker(PaperParams.for_profile(cfg.paper_profile)) if execute else None
     loop = PaperLoop(cfg, dal, instruments, source, now_ist, notifier, stores, git_sha=_git_sha(),
-                     after_feed_start=_backfill, chains=chains, broker=broker,
+                     after_feed_start=_backfill, heal_gap=_backfill_one, chains=chains, broker=broker,
                      pipeline=PipelineParams.from_config(cfg), execute=execute)
     log.info("loop=%s execute=%s paper_profile=%s", type(loop).__name__, execute, cfg.paper_profile if execute else "-")
 
