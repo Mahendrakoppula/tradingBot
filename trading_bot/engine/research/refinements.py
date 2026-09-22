@@ -112,6 +112,34 @@ def _r4(row: dict) -> bool:
     return any(v in _LATE_REASONS for v in _routing(row).values())
 
 
+_TREND_FAMILIES = ("TREND_PULLBACK", "EMA_PULLBACK", "MTF_CONFLUENCE", "MOMENTUM_EXPANSION")
+_GATING_REGIMES = {"TRANSITION", "HIGH_VOLATILITY"}
+
+
+def _regime(row: dict) -> str | None:
+    snap = row.get("snapshot") or {}
+    if snap.get("regime"):
+        return snap["regime"]
+    return (row.get("explanation") or {}).get("Regime")  # rows journaled before 2026-09-23
+
+
+def _r6(row: dict) -> bool:
+    """Regime label gated the trend-continuation families on a day the 5m was
+    trending with the setup: TRANSITION / HIGH_VOLATILITY blocked them on both
+    of the first paper days' biggest moves (2026-09-22 09:35 and 15:15). Counts
+    only when the 5m score agrees with the direction (|score| >= 0.5), i.e. a
+    trend family would otherwise have had a case."""
+    routing = _routing(row)
+    if not any(routing.get(f) == "regime_incompatible" for f in _TREND_FAMILIES):
+        return False
+    if _regime(row) not in _GATING_REGIMES:
+        return False
+    s5 = ((row.get("snapshot") or {}).get("trend_scores") or {}).get("5m")
+    if s5 is None:
+        return False
+    return abs(s5) >= 0.5 and (s5 > 0) == (row.get("direction") == "up")
+
+
 def _r5(row: dict) -> bool:
     """LEVEL_REJECTION v0.1 running as a shadow strategy: valid signals that
     were never executed (reason shadow_only_strategy). Its counterfactuals
@@ -126,6 +154,8 @@ CANDIDATES: tuple[Candidate, ...] = (
     Candidate("R4", "late to a confirmed move: 5m-close confirmation cadence (1m confirmation leg)", _r4, note="docs/ROADMAP.md R4"),
     Candidate("R5", "LEVEL_REJECTION v0.1 shadow: failed break of a key level, no pattern needed", _r5, include_valid=True,
               note="docs/ROADMAP.md R5", ready_verdict="READY for promotion out of shadow (human decision + section 83 record)"),
+    Candidate("R6", "TRANSITION / HIGH_VOLATILITY regime gated the trend families while the 5m trended with the setup", _r6,
+              note="docs/ROADMAP.md R6"),
 )
 
 

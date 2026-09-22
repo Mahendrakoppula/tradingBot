@@ -101,6 +101,8 @@ the nightly reviews before it becomes a versioned change with a promotion record
 
 | R5 | 2026-09-21/22, three times: a failed break of a key level (PDH, the session low) followed by a close back inside was the trade of the day, and pre-signal never confirmed it because its `rejection_at_level` needs a candle pattern (NIFTY 10:10 Mon: 16 pts; NIFTY 10:20 Tue: 170 pts; BANKNIFTY 14:10 Tue: 100 pts). | **Built 2026-09-22 as `LEVEL_REJECTION v0.1`, shadow-only** (`TECH_SHADOW_STRATEGIES`): pre-signal gains a `sweep_reclaim` confirmation (wick through a key level, close back inside in the setup's direction, next close still inside; the failed break counts as evidence so the counter-trend bar does not hold it back), and the family prices entry at the confirming close, stop beyond the sweep wick, target the next level. Runs the full pipeline (score, option, Rs.750 sizing) and is journaled as a valid signal, never executed. **Promotion rule:** R5 READY = 10+ shadow signals with >= 55% target-first; then a one-line config change (drop it from `TECH_SHADOW_STRATEGIES`), reviewed, with a §83 record. Fails the numbers -> stays shadow or is deleted. | built; tracker counts from 2026-09-23 |
 
+| R6 | 2026-09-22: the two biggest trend moves of the day (09:35 short, 15:15 long on BANKNIFTY) reached TRADE_READY and every trend-continuation family answered `regime_incompatible` because the regime label read TRANSITION / HIGH_VOLATILITY - labels that describe the day that is moving most. | Consider letting the trend families run in TRANSITION / HIGH_VOLATILITY when the 5m score agrees with the setup (|score| >= 0.5), with the regime penalty in scoring doing the discounting instead of a gate. | tracker counts from 2026-09-23 (5m-agreeing cases only) |
+
 Tracking: `python -m trading_bot.research_cli refinements --from … --to …` counts each
 candidate's occurrences in the journal (per-family routing verdicts are stored in
 `signals.snapshot.routing`, trend scores in `snapshot.trend_scores`, both journaled
@@ -266,6 +268,7 @@ proves it on every CI run.
 | 2026-09-22 | `fix/self-healing-backfill` | a GAP re-tries the REST backfill every 3 min (incident: rate-limited SENSEX backfill latched the breaker for the session) |
 | 2026-09-22 | `feature/r1-tracker-sweep-bos` | R1 tracker also counts LIQUIDITY_SWEEP_BOS declines after a sweep; sweep journaled with rejected signals |
 | 2026-09-22 | `feature/level-rejection-shadow` | `sweep_reclaim` pre-signal confirmation + `LEVEL_REJECTION v0.1` family, shadow-only; R5 tracks it |
+| 2026-09-22 | `fix/eod-gap-drift-r6` | a 1m gap starting after the entry cut-off no longer trips the breaker (SENSEX 15:16 both days); clock-drift alert 5 s -> 20 s; R6 tracker |
 
 ## Where things live
 

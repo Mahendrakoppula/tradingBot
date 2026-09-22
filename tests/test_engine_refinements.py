@@ -74,7 +74,7 @@ def test_r2_matches_evidence_bar_and_no_chase():
 
 
 def test_candidates_are_documented_and_never_auto_apply():
-    assert [c.code for c in CANDIDATES] == ["R1", "R2", "R3", "R4", "R5"] and all(c.note.startswith("docs/ROADMAP.md") for c in CANDIDATES)
+    assert [c.code for c in CANDIDATES] == ["R1", "R2", "R3", "R4", "R5", "R6"] and all(c.note.startswith("docs/ROADMAP.md") for c in CANDIDATES)
     assert "never auto-applied" in render([])
 
 
@@ -147,3 +147,18 @@ def test_r5_counts_valid_shadow_signals_of_level_rejection_with_counterfactuals(
     assert st["R5"].occurrences == 2 and st["R5"].counterfactual == {"target_first": 2}
     assert "promotion" in st["R5"].verdict or "watching" in st["R5"].verdict
     assert st["R1"].occurrences == 0
+
+
+def test_r6_counts_regime_gated_trend_families_only_when_the_5m_agrees():
+    def sig(regime, s5, direction="down", fam_reason="regime_incompatible", via_explanation=False):
+        r = _sig(0, routing={"TREND_PULLBACK": fam_reason, "EMA_PULLBACK": fam_reason}, direction=direction)
+        r["snapshot"]["trend_scores"] = {"1d": -0.8, "30m": 0.1, "5m": s5, "1m": 0.0}
+        if via_explanation:
+            r["explanation"] = {"Regime": regime}
+        else:
+            r["snapshot"]["regime"] = regime
+        return r
+    rows = [sig("HIGH_VOLATILITY", -0.7), sig("TRANSITION", -0.6, via_explanation=True), sig("BULL", -0.7),
+            sig("HIGH_VOLATILITY", 0.7), sig("HIGH_VOLATILITY", -0.2), sig("TRANSITION", -0.7, fam_reason="not_aligned")]
+    st = {s.code: s for s in track(rows, _candles_down_then_up)}
+    assert st["R6"].occurrences == 2
