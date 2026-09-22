@@ -44,6 +44,19 @@ def test_r1_counts_trap_without_confirmation_and_counterfactuals():
     assert "R1: 3 occurrence(s)" in render([r1])
 
 
+def test_r1_also_counts_sweep_bos_declines_when_a_sweep_was_on_the_trigger_bar():
+    """2026-09-22 14:10 BANKNIFTY: swept the session low, closed back inside,
+    TRADE_READY; LIQUIDITY_SWEEP_BOS wanted the BOS that printed after the move."""
+    swept_snap = _sig(0, routing={"LIQUIDITY_SWEEP_BOS": "no_structure_break_after_sweep"}, direction="up")
+    swept_snap["snapshot"]["sweep"] = {"side": "below", "level": 56162.5, "level_name": "swing_low"}
+    swept_expl = _sig(1, routing={"LIQUIDITY_SWEEP_BOS": "no_structure_break_after_sweep"}, direction="up")
+    swept_expl["explanation"] = {"Structure": "last bos_down @ 56162.50 (bar 790); sweep of swing_low (None)"}
+    no_sweep = _sig(2, routing={"LIQUIDITY_SWEEP_BOS": "no_structure_break_after_sweep"}, direction="up")
+    no_sweep["explanation"] = {"Structure": "last bos_down @ 56162.50 (bar 790)"}
+    st = {s.code: s for s in track([swept_snap, swept_expl, no_sweep], _candles_down_then_up)}
+    assert st["R1"].occurrences == 2
+
+
 def test_readiness_needs_both_count_and_favourable_counterfactuals():
     twelve = [_sig(i, routing={"PDH_PDL_TRAP": "trap_without_confirmation"}, minutes=0) for i in range(12)]  # same bar
     good = {s.code: s for s in track(twelve, _candles_down_then_up)}["R1"]
