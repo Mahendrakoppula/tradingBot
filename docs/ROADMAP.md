@@ -75,11 +75,14 @@ it) all stopped first - one day, not a conclusion. Shipped the same day, all on
   tripped 15:25 and recovered at close; no engine errors during the session.
 
 **Open questions the paper phase must answer before M4b:**
-1. At Rs.50k x 0.5% one NIFTY lot fits ~3.3 pts of all-in option risk; most
-   structural stops need more. Expect `RISK_ENGINE: one_lot_exceeds_max_risk`
-   to dominate once setups get past routing; decide capital vs risk-per-trade
-   (both within §25's ranges). Not decided on 2026-09-21: nothing reached the
-   risk engine, so there is no sizing evidence yet.
+1. ~~At Rs.50k x 0.5% one NIFTY lot fits ~3.3 pts of all-in option risk~~
+   **Decided 2026-09-22 (operator):** `TECH_RISK_PER_TRADE_PCT=0.015`
+   (Rs.750/trade, ~10 pts of all-in option move per NIFTY lot) and both loss
+   caps to 30% (non-binding; `TECH_MAX_TRADES_PER_DAY` x Rs.750 = Rs.4,500 is
+   the real worst day). Outside spec §25's 0.25-1.0% - a reviewed human change
+   with the CI bounds widened alongside; applies to the index and crude
+   engines alike. Watch `one_lot_exceeds_max_risk` counts in the ledger to see
+   whether Rs.750 actually clears typical structural stops.
 2. Whether the empty veto (5m sovereign) raises throughput without the shorts-
    against-the-30m failure pattern seen on 2026-09-21 - R3 counts it nightly.
 3. Whether SENSEX (model Greeks, wider spreads, the only underlying with a data
@@ -218,6 +221,7 @@ proves it on every CI run.
 | 2026-09-21 | `feature/mcx-crude-spike` | C1: session profiles, MCX instruments/options/costs, `trading-bot-mcx.service` + `mcx.env` (enabled, shadow), `ensure_mcx_db.sh`, pgdump of both databases |
 | 2026-09-21 | `fix/deploy-waiter` | workflow polls the SSM redeploy for up to 8 min |
 | 2026-09-21 | `config/mcx-paper` | crude engine SHADOW -> PAPER (own database, dry-run pinned) |
+| 2026-09-22 | `config/risk-750-cap-30` | per-trade risk 0.5% -> 1.5% (Rs.750), daily/weekly loss caps -> 30%; CI bounds widened |
 
 ## Where things live
 

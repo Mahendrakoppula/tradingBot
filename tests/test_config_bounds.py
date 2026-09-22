@@ -61,12 +61,14 @@ NUMERIC_BOUNDS = {
     "OPTION_CHAIN_LOG_INTERVAL_SECONDS": (60, 3600),
     "OPTION_CHAIN_LOG_STRIKE_BAND_PCT": (0.02, 0.50),
     "CANDLE_LOG_STRIKES_EACH_SIDE": (1, 10),
-    # --- second bot (TECH_*). Spec §25: per-trade risk 0.25%-1.0% ALL-IN;
-    # the caps are hard limits the spec calls non-negotiable. ---
+    # --- second bot (TECH_*). Spec §25: per-trade risk 0.25%-1.0% ALL-IN.
+    # Widened 2026-09-22 by a reviewed human commit (operator decision: Rs.750
+    # per trade and 30% loss caps at Rs.50k, so one lot can size); the tuner
+    # still cannot exceed these. ---
     "TECH_CAPITAL": (10_000, 10_000_000),
-    "TECH_RISK_PER_TRADE_PCT": (0.0025, 0.01),
-    "TECH_DAILY_LOSS_CAP_PCT": (0.005, 0.03),
-    "TECH_WEEKLY_LOSS_CAP_PCT": (0.01, 0.06),
+    "TECH_RISK_PER_TRADE_PCT": (0.0025, 0.02),
+    "TECH_DAILY_LOSS_CAP_PCT": (0.005, 0.30),
+    "TECH_WEEKLY_LOSS_CAP_PCT": (0.01, 0.30),
     "TECH_WARMUP_DAYS_1M": (3, 28),
     "TECH_WARMUP_DAYS_5M": (10, 95),
     "TECH_WARMUP_DAYS_30M": (30, 190),
@@ -215,6 +217,12 @@ def test_tech_mode_is_a_known_mode_and_not_live():
 def test_tech_alignment_weights_sum_to_one():
     total = sum(float(CONFIG[k]) for k in ("TECH_ALIGN_W_DAILY", "TECH_ALIGN_W_30M", "TECH_ALIGN_W_5M", "TECH_ALIGN_W_1M"))
     assert abs(total - 1.0) < 1e-6, f"TECH_ALIGN_W_* must sum to 1.0, got {total}"
+
+
+def test_tech_loss_caps_are_ordered():
+    """Weekly cap below the daily cap would make the week halt before a day can."""
+    risk, daily, weekly = (float(CONFIG[k]) for k in ("TECH_RISK_PER_TRADE_PCT", "TECH_DAILY_LOSS_CAP_PCT", "TECH_WEEKLY_LOSS_CAP_PCT"))
+    assert risk <= daily <= weekly
 
 
 def test_tech_session_times_are_ordered():
