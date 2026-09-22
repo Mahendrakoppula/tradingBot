@@ -52,10 +52,17 @@ def validate_candle(c: Candle) -> str | None:
 
 def assess(store_1m: CandleStore, feed: FeedHealth, now: dt.datetime, *,
            stale_tick_seconds: float = 15.0, clock_drift_seconds: float = 5.0,
-           max_gap_bars: int = 0) -> DataQuality:
+           max_gap_bars: int = 0, benign_gap_after: dt.time | None = None) -> DataQuality:
     """Priority: DISCONNECTED > INVALID > STALE > GAP > OK. Clock drift is
     reported as a reason but does not by itself downgrade (§86 flags it;
-    the loop logs it)."""
+    the loop logs it).
+
+    `benign_gap_after`: missing 1m bars that all start at or after this time
+    (the entry cut-off) are reported but do not make the status GAP - no
+    entry can happen after it, so tripping the global breaker for them only
+    raises a CRITICAL alert and blocks the other underlyings' management.
+    SENSEX (BSE) has dropped bars around 15:16 on both paper days and REST
+    did not have them either."""
     reasons: list[str] = []
     now = now.astimezone(IST)
     open_now = in_session(now.time())
@@ -78,7 +85,10 @@ def assess(store_1m: CandleStore, feed: FeedHealth, now: dt.datetime, *,
 
     gaps = store_1m.gaps(now.date())
     if len(gaps) > max_gap_bars:
-        return DataQuality("GAP", (f"missing_{len(gaps)}_1m_bars", gaps[0].strftime("%H:%M")))
+        if benign_gap_after is not None and all(g.astimezone(IST).time() >= benign_gap_after for g in gaps):
+            reasons.append(f"gap_after_cutoff_{len(gaps)}_bars_{gaps[0].strftime('%H:%M')}")
+        else:
+            return DataQuality("GAP", (f"missing_{len(gaps)}_1m_bars", gaps[0].strftime("%H:%M")))
 
     if feed.clock_drift_seconds is not None and abs(feed.clock_drift_seconds) > clock_drift_seconds:
         reasons.append(f"clock_drift_{feed.clock_drift_seconds:.1f}s")

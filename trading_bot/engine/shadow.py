@@ -222,7 +222,7 @@ class ShadowLoop:
                               error=repr(exc))
                 return q
         q2 = assess(store_1m, self.source.health(), now, stale_tick_seconds=self.cfg.stale_tick_seconds,
-                    clock_drift_seconds=self.cfg.clock_drift_seconds)
+                    clock_drift_seconds=self.cfg.clock_drift_seconds, benign_gap_after=self.cfg.eod_cutoff)
         jsonlog.event("warmup", "gap_healed" if q2.status != "GAP" else "gap_persists", severity="INFO",
                       underlying=inst.underlying, token=inst.token, gaps_before=before,
                       gaps_after=len(store_1m.gaps(now.date())), quality=q2.status)
@@ -233,7 +233,7 @@ class ShadowLoop:
         close_at = bar.ts + dt.timedelta(minutes=TF_MINUTES[TRIGGER_TF])
         store_1m = self.stores.setdefault((inst.token, "1m"), CandleStore("1m"))
         q = assess(store_1m, self.source.health(), self.clock(), stale_tick_seconds=self.cfg.stale_tick_seconds,
-                   clock_drift_seconds=self.cfg.clock_drift_seconds)
+                   clock_drift_seconds=self.cfg.clock_drift_seconds, benign_gap_after=self.cfg.eod_cutoff)
         if q.status == "GAP" and self.heal_gap is not None and self.source.health().connected:
             q = self._try_heal(inst, store_1m, q)
         self.stats.quality[q.status] = self.stats.quality.get(q.status, 0) + 1

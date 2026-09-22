@@ -277,6 +277,7 @@ class PaperLoop(ShadowLoop):
             "trend_scores": {tf: ctx.trend(tf).get("score") for tf in ("1d", "30m", "5m", "1m")},
             "vwap": {"distance_atr": ctx.indicators.get("vwap_distance_atr"), "slope_atr": ctx.indicators.get("vwap_slope_atr")},
             "sweep": ctx.price_action.get("sweep"),  # R1 tracker: was a liquidity sweep on the trigger bar
+            "regime": ctx.regime.get("primary"),  # R6 tracker: which regime label gated the trend families
             "score_components": dict(d.score.components) if d.score else None,
             "penalties": dict(d.score.penalties) if d.score else None,
             "ranked": d.ranked, "target_ref": d.target_ref,

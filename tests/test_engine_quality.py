@@ -69,3 +69,24 @@ def test_invalid_candle_detected():
 def test_clock_drift_is_a_reason_not_a_downgrade():
     q = assess(_store(15, 16), _feed(clock_drift_seconds=7.5), now=_t(9, 20, 10))
     assert q.status == "OK" and q.reasons == ("clock_drift_7.5s",)
+
+
+def test_gap_after_the_entry_cutoff_is_reported_but_not_fatal():
+    """SENSEX dropped four 1m bars around 15:16 on both paper days; after the 15:20
+    cut-off no entry can happen, so the breaker must not trip on it."""
+    import datetime as dt
+    from trading_bot.engine.candles import Candle, CandleStore
+    from trading_bot.engine.quality import FeedHealth, assess
+    from trading_bot.timeutil import IST
+    day = dt.date(2026, 9, 22)
+    st = CandleStore("1m")
+    for m in list(range(0, 60)) + list(range(64, 70)):  # 15:16-15:19 missing, if 14:16 is minute 0
+        ts = dt.datetime.combine(day, dt.time(14, 16), tzinfo=IST) + dt.timedelta(minutes=m)
+        st.upsert(Candle(ts=ts, open=100.0, high=101.0, low=99.0, close=100.0, volume=0, tick_count=5, complete=True))
+    now = dt.datetime.combine(day, dt.time(15, 26), tzinfo=IST)
+    feed = FeedHealth(connected=True, last_tick_at=now, reconnects=0)
+    assert assess(st, feed, now).status == "GAP"
+    q = assess(st, feed, now, benign_gap_after=dt.time(15, 15))
+    assert q.status == "OK" and q.reasons[0].startswith("gap_after_cutoff_4_bars_15:16")
+    # a gap that starts before the cut-off is still a GAP
+    assert assess(st, feed, now, benign_gap_after=dt.time(15, 18)).status == "GAP"
