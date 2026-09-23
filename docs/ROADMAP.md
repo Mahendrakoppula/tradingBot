@@ -76,8 +76,9 @@ it) all stopped first - one day, not a conclusion. Shipped the same day, all on
 
 **Open questions the paper phase must answer before M4b:**
 1. ~~At Rs.50k x 0.5% one NIFTY lot fits ~3.3 pts of all-in option risk~~
-   **Decided 2026-09-22 (operator):** `TECH_RISK_PER_TRADE_PCT=0.015`
-   (Rs.750/trade, ~10 pts of all-in option move per NIFTY lot) and both loss
+   **Decided 2026-09-22, raised again 2026-09-23 (operator):**
+   `TECH_RISK_PER_TRADE_PCT=0.03` (Rs.1,500/trade, ~20 pts of all-in option
+   move per NIFTY lot; was 0.015 / Rs.750 for one day) and both loss
    caps to 30% (non-binding; `TECH_MAX_TRADES_PER_DAY` x Rs.750 = Rs.4,500 is
    the real worst day). Outside spec §25's 0.25-1.0% - a reviewed human change
    with the CI bounds widened alongside; applies to the index and crude
@@ -269,6 +270,7 @@ proves it on every CI run.
 | 2026-09-22 | `feature/r1-tracker-sweep-bos` | R1 tracker also counts LIQUIDITY_SWEEP_BOS declines after a sweep; sweep journaled with rejected signals |
 | 2026-09-22 | `feature/level-rejection-shadow` | `sweep_reclaim` pre-signal confirmation + `LEVEL_REJECTION v0.1` family, shadow-only; R5 tracks it |
 | 2026-09-22 | `fix/eod-gap-drift-r6` | a 1m gap starting after the entry cut-off no longer trips the breaker (SENSEX 15:16 both days); clock-drift alert 5 s -> 20 s; R6 tracker |
+| 2026-09-23 | `config/risk-1500` | per-trade risk 1.5% -> 3.0% (Rs.1,500); CI bound widened; worst day now Rs.9,000 of the 30% cap |
 | 2026-09-23 | `fix/gap-window` | the benign-gap window is the cut-off minus one trigger bar (15:15, not 15:20) - SENSEX's 15:16 hole still tripped the breaker on 2026-09-23 |
 
 ## Where things live
