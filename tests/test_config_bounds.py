@@ -62,11 +62,11 @@ NUMERIC_BOUNDS = {
     "OPTION_CHAIN_LOG_STRIKE_BAND_PCT": (0.02, 0.50),
     "CANDLE_LOG_STRIKES_EACH_SIDE": (1, 10),
     # --- second bot (TECH_*). Spec §25: per-trade risk 0.25%-1.0% ALL-IN.
-    # Widened 2026-09-22 by a reviewed human commit (operator decision: Rs.750
-    # per trade and 30% loss caps at Rs.50k, so one lot can size); the tuner
-    # still cannot exceed these. ---
+    # Widened 2026-09-22 (Rs.750, 30% caps) and 2026-09-23 (Rs.1,500) by
+    # reviewed human commits, so one lot can size; the tuner still cannot
+    # exceed these. ---
     "TECH_CAPITAL": (10_000, 10_000_000),
-    "TECH_RISK_PER_TRADE_PCT": (0.0025, 0.02),
+    "TECH_RISK_PER_TRADE_PCT": (0.0025, 0.03),
     "TECH_DAILY_LOSS_CAP_PCT": (0.005, 0.30),
     "TECH_WEEKLY_LOSS_CAP_PCT": (0.01, 0.30),
     "TECH_WARMUP_DAYS_1M": (3, 28),
@@ -220,9 +220,12 @@ def test_tech_alignment_weights_sum_to_one():
 
 
 def test_tech_loss_caps_are_ordered():
-    """Weekly cap below the daily cap would make the week halt before a day can."""
+    """Weekly cap below the daily cap would make the week halt before a day can,
+    and a day's worst case (max trades x per-trade risk) must not exceed the
+    daily cap - otherwise the cap is decorative."""
     risk, daily, weekly = (float(CONFIG[k]) for k in ("TECH_RISK_PER_TRADE_PCT", "TECH_DAILY_LOSS_CAP_PCT", "TECH_WEEKLY_LOSS_CAP_PCT"))
     assert risk <= daily <= weekly
+    assert risk * int(CONFIG["TECH_MAX_TRADES_PER_DAY"]) <= daily
 
 
 def test_tech_session_times_are_ordered():
