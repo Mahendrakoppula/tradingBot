@@ -58,11 +58,12 @@ def assess(store_1m: CandleStore, feed: FeedHealth, now: dt.datetime, *,
     the loop logs it).
 
     `benign_gap_after`: missing 1m bars that all start at or after this time
-    (the entry cut-off) are reported but do not make the status GAP - no
-    entry can happen after it, so tripping the global breaker for them only
-    raises a CRITICAL alert and blocks the other underlyings' management.
-    SENSEX (BSE) has dropped bars around 15:16 on both paper days and REST
-    did not have them either."""
+    are reported but do not make the status GAP - no entry can depend on
+    them, so tripping the global breaker for them only raises a CRITICAL
+    alert and blocks the other underlyings' management. Callers pass
+    `shadow.benign_gap_after(eod_cutoff)`, which is the cut-off minus one
+    trigger timeframe: SENSEX (BSE) drops 15:16-15:19 most days and those
+    minutes belong to the 15:15-15:20 bar, whose close IS the cut-off."""
     reasons: list[str] = []
     now = now.astimezone(IST)
     open_now = in_session(now.time())
