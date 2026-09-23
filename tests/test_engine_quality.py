@@ -86,7 +86,11 @@ def test_gap_after_the_entry_cutoff_is_reported_but_not_fatal():
     now = dt.datetime.combine(day, dt.time(15, 26), tzinfo=IST)
     feed = FeedHealth(connected=True, last_tick_at=now, reconnects=0)
     assert assess(st, feed, now).status == "GAP"
-    q = assess(st, feed, now, benign_gap_after=dt.time(15, 15))
+    # the loop passes cut-off minus one trigger bar: 15:20 -> 15:15, so the 15:16-15:19 hole is benign
+    from trading_bot.engine.shadow import benign_gap_after
+    assert benign_gap_after(dt.time(15, 20)) == dt.time(15, 15)
+    assert benign_gap_after(dt.time(23, 0)) == dt.time(22, 55)  # MCX session
+    q = assess(st, feed, now, benign_gap_after=benign_gap_after(dt.time(15, 20)))
     assert q.status == "OK" and q.reasons[0].startswith("gap_after_cutoff_4_bars_15:16")
-    # a gap that starts before the cut-off is still a GAP
+    # a gap inside a bar that could still have produced an entry is a real GAP
     assert assess(st, feed, now, benign_gap_after=dt.time(15, 18)).status == "GAP"

@@ -41,6 +41,16 @@ EOD_GRACE = dt.timedelta(seconds=5)
 GAP_HEAL_INTERVAL = dt.timedelta(minutes=3)  # re-try a failed backfill this often while quality is GAP
 
 
+def benign_gap_after(eod_cutoff: dt.time) -> dt.time:
+    """The first minute whose 1m bars can no longer affect an entry: the last
+    trigger bar that could produce one closes AT the cut-off, so it starts one
+    trigger timeframe earlier. SENSEX drops 15:16-15:19 most days with a 15:20
+    cut-off - those bars belong to a 5m bar (15:15-15:20) whose close is the
+    cut-off itself, so a gap in them cannot cost a trade."""
+    base = dt.datetime.combine(dt.date(2000, 1, 1), eod_cutoff)
+    return (base - dt.timedelta(minutes=TF_MINUTES[TRIGGER_TF])).time()
+
+
 
 class TickSource(Protocol):
     def start(self) -> None: ...
@@ -222,7 +232,7 @@ class ShadowLoop:
                               error=repr(exc))
                 return q
         q2 = assess(store_1m, self.source.health(), now, stale_tick_seconds=self.cfg.stale_tick_seconds,
-                    clock_drift_seconds=self.cfg.clock_drift_seconds, benign_gap_after=self.cfg.eod_cutoff)
+                    clock_drift_seconds=self.cfg.clock_drift_seconds, benign_gap_after=benign_gap_after(self.cfg.eod_cutoff))
         jsonlog.event("warmup", "gap_healed" if q2.status != "GAP" else "gap_persists", severity="INFO",
                       underlying=inst.underlying, token=inst.token, gaps_before=before,
                       gaps_after=len(store_1m.gaps(now.date())), quality=q2.status)
@@ -233,7 +243,7 @@ class ShadowLoop:
         close_at = bar.ts + dt.timedelta(minutes=TF_MINUTES[TRIGGER_TF])
         store_1m = self.stores.setdefault((inst.token, "1m"), CandleStore("1m"))
         q = assess(store_1m, self.source.health(), self.clock(), stale_tick_seconds=self.cfg.stale_tick_seconds,
-                   clock_drift_seconds=self.cfg.clock_drift_seconds, benign_gap_after=self.cfg.eod_cutoff)
+                   clock_drift_seconds=self.cfg.clock_drift_seconds, benign_gap_after=benign_gap_after(self.cfg.eod_cutoff))
         if q.status == "GAP" and self.heal_gap is not None and self.source.health().connected:
             q = self._try_heal(inst, store_1m, q)
         self.stats.quality[q.status] = self.stats.quality.get(q.status, 0) + 1
