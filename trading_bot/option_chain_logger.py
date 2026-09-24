@@ -17,12 +17,13 @@ LOG_DIR = Path(__file__).resolve().parent.parent / ".state" / "option_chain_log"
 # here is deliberate, not just polite - this call already runs inside
 # run_daily's loop, which also calls get_ltp/get_oi_buildup elsewhere.
 QUOTE_BATCH_SIZE = 50
-QUOTE_BATCH_SLEEP_SECONDS = 1.1
+# 2026-09-24: raised from 1.1 - two engine processes now share this account (see config.py)
+QUOTE_BATCH_SLEEP_SECONDS = 2.0
 
 # Option Greeks and PCR are both documented/observed around 1 req/sec (see
 # docs/smartapi-reference.md "Option Greeks" and the OIBuildup/gainersLosers
 # note in the same file) - same conservative pacing as the quote batches.
-GREEKS_SLEEP_SECONDS = 1.1
+GREEKS_SLEEP_SECONDS = 2.0  # 2026-09-24: raised from 1.1, same reason as QUOTE_BATCH_SLEEP_SECONDS
 
 
 def _log_path(underlying: str, today: dt.date) -> Path:

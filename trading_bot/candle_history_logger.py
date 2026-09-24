@@ -19,7 +19,7 @@ LOG_DIR = Path(__file__).resolve().parent.parent / ".state" / "candle_log"
 # documented - see research/README.md and option_chain_logger.py). Each
 # (contract, interval) pull is 2 calls (candle + OI); pacing at 0.5s/call
 # stays comfortably under 3/sec even with jitter.
-CANDLE_CALL_SLEEP_SECONDS = 0.5
+CANDLE_CALL_SLEEP_SECONDS = 1.2  # 2026-09-24: raised from 0.5 - the account is shared with two engines
 
 # Each interval pulls its OWN cadence, not every-N-minutes-for-everything -
 # getCandleData is a batch/range endpoint (one call returns the whole day's
@@ -27,12 +27,14 @@ CANDLE_CALL_SLEEP_SECONDS = 0.5
 # point-sample option_chain_logger does. Cadences are staggered so only ONE
 # interval is ever due per main-loop tick (see run_daily.py) - bounds how
 # long any single 30s tick can be extended by this logging.
+# 2026-09-24: every cadence doubled. Each pull is a RANGE call returning the whole day so
+# far, so a slower cadence loses no history at all - only how soon the last few bars land.
 INTERVAL_CONFIG = {
-    "ONE_MINUTE": {"cadence_minutes": 30, "lookback_days": None},   # None = "today so far"
-    "FIVE_MINUTE": {"cadence_minutes": 60, "lookback_days": None},
-    "TEN_MINUTE": {"cadence_minutes": 60, "lookback_days": None},
-    "THIRTY_MINUTE": {"cadence_minutes": 120, "lookback_days": None},
-    "ONE_DAY": {"cadence_minutes": 240, "lookback_days": 60},
+    "ONE_MINUTE": {"cadence_minutes": 60, "lookback_days": None},   # None = "today so far"
+    "FIVE_MINUTE": {"cadence_minutes": 120, "lookback_days": None},
+    "TEN_MINUTE": {"cadence_minutes": 120, "lookback_days": None},
+    "THIRTY_MINUTE": {"cadence_minutes": 240, "lookback_days": None},
+    "ONE_DAY": {"cadence_minutes": 480, "lookback_days": 60},
 }
 
 
