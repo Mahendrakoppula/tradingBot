@@ -323,6 +323,7 @@ def main() -> None:
 
     cfg = Config.from_env()
     ledger = state_mod.load_capital(cfg.capital)
+    state_mod.reconcile_capital(ledger)  # a drifting ledger should be visible at startup, not discovered later
     status_line = (
         f"{'DRY RUN' if cfg.dry_run else 'LIVE'}, trading {'ENABLED' if cfg.enable_trading else 'DISABLED (kill switch)'}, "
         f"watchlist={cfg.watchlist}, entry={cfg.entry_time} exit={cfg.exit_time}, capital=Rs.{ledger['current_capital']:.2f}"

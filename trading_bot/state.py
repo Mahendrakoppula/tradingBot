@@ -157,6 +157,50 @@ def count_scalp_trades_today(today_iso: str) -> dict[str, int]:
     return counts
 
 
+# Trade-log records carry a "strategy" tag: absent means this bot's main daily
+# strategy, and "technical_*" records belong to the SECOND bot that was
+# decommissioned on 2026-09-16 (it wrote into the same file while it ran, but
+# kept its own capital ledger, now archived under .state/archive/). Summing the
+# whole file against this ledger therefore produces nonsense - it mixes two
+# accounts - which is exactly the mistake reconcile_capital() exists to prevent.
+OWN_STRATEGY_TAGS = (None, "main")
+
+
+def own_realized_pnl() -> tuple[float, int]:
+    """(sum of realized P&L, trade count) for THIS bot's trades only."""
+    if not TRADE_LOG_PATH.exists():
+        return 0.0, 0
+    total, n = 0.0, 0
+    for line in TRADE_LOG_PATH.read_text(encoding="utf-8").splitlines():
+        try:
+            rec = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if rec.get("strategy") in OWN_STRATEGY_TAGS:
+            total += float(rec.get("realized_pnl") or 0.0)
+            n += 1
+    return round(total, 2), n
+
+
+def reconcile_capital(ledger: dict) -> float:
+    """current_capital should equal starting_capital + this bot's realized P&L.
+    Logs the delta at startup so a drifting ledger is a one-line fact in the
+    journal rather than something nobody notices for weeks. Returns the delta
+    (0.0 when the ledger reconciles); never changes the ledger."""
+    realized, n = own_realized_pnl()
+    expected = float(ledger.get("starting_capital", 0.0)) + realized
+    delta = round(float(ledger.get("current_capital", 0.0)) - expected, 2)
+    if abs(delta) < 1.0:
+        log.info("Capital ledger reconciles: Rs.%.2f = Rs.%.2f start %+.2f over %d trades",
+                 ledger.get("current_capital", 0.0), ledger.get("starting_capital", 0.0), realized, n)
+    else:
+        log.warning("Capital ledger does NOT reconcile: ledger Rs.%.2f vs Rs.%.2f expected "
+                    "(start %.2f %+.2f over %d trades) - delta %+.2f. Investigate before trusting P&L.",
+                    ledger.get("current_capital", 0.0), expected, ledger.get("starting_capital", 0.0),
+                    realized, n, delta)
+    return delta
+
+
 def log_trade(record: dict) -> None:
     """Appends one closed trade's outcome for later strategy review."""
     TRADE_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)

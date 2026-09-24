@@ -17,8 +17,14 @@ State files live in `/opt/trading-bot/.state/`:
   informative field in the whole system — they tell you which gate is
   actually blocking trades.
 - `trade_log.jsonl` — every closed trade: entry/exit reason, P&L, capital
-  after. Records tagged `"scalp"` belong to the decommissioned bot and are
-  history only — never tune on them.
+  after. **Records whose `strategy` tag starts with `technical_` belong to the
+  bot decommissioned on 2026-09-16** (`technical_scalp`,
+  `technical_intraday`, `technical_swing_equity`, `technical_swing_option`).
+  It wrote into this same file but kept its own capital ledger, archived
+  under `.state/archive/`. This bot's own trades have **no** `strategy` tag.
+  Summing the whole file against `capital.json` mixes two accounts and gives
+  a wrong answer — filter first. `state.own_realized_pnl()` does this
+  correctly, and `reconcile_capital()` logs the check at every startup.
 - `capital.json` — the running paper-capital ledger.
 - `option_chain_log.jsonl`, `candle_log.jsonl` — accumulated market data for
   future backtests. Not something you need to read daily.
