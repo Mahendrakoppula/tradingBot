@@ -213,3 +213,40 @@ def test_decay_filter_requires_gain_to_beat_all_costs():
     none = decay_filter(q, expected_underlying_move=0.0, cost_rates=rates)
     assert not none.ok and none.reason_code == "no_expected_gain"
     assert tiny.txn_cost_points > 0 and tiny.spread_cost > 0 and tiny.theta_cost > 0
+
+
+def test_otm_target_moves_the_pick_off_the_money_without_reaching_far_otm():
+    """MCX crude (2026-09-24, live chain at spot 9068): aiming 1.5% OTM moves the
+    pick from 9100 CE (+0.35%, Rs.4,740/lot) to 9200 CE (+1.46%, Rs.4,300/lot) -
+    cheaper per lot, still two strikes from the money, and the 4% hard cap keeps
+    the far-OTM lottery tickets out. With otm_target_pct unset the index keeps its
+    at-the-money preference exactly as before."""
+    from trading_bot.engine.option_select import SelectParams, _score
+
+    class _C:
+        def __init__(self, k):
+            self.strike, self.option_type, self.lotsize = k, "CE", 10
+            self.tradingsymbol, self.expiry = f"CRUDEOILM{int(k)}CE", dt.date(2026, 10, 15)
+
+    class _Q:
+        def __init__(self, k, d, ltp, spr):
+            self.contract, self.delta, self.ltp, self.mid = _C(k), d, ltp, ltp
+            self.volume, self.oi, self.spread_pct, self.spot = 20000, 30000, spr, 9068.0
+            self.theta_pct_of_premium = 0.025
+
+        @property
+        def moneyness(self):
+            return (self.contract.strike - self.spot) / self.spot
+
+    chain = [_Q(9050, 0.54, 497, 0.22), _Q(9100, 0.53, 474, 0.16), _Q(9200, 0.49, 430, 0.28),
+             _Q(9300, 0.46, 388, 0.31), _Q(9600, 0.40, 300, 0.40)]
+
+    def pick(p):
+        ok = [q for q in chain if q.moneyness <= p.max_otm_pct and p.delta_min <= abs(q.delta) <= p.delta_max]
+        return max(ok, key=lambda q: _score(q, 21, p)[0]).contract.strike
+
+    index_like = SelectParams(max_spread_pct=4.0, min_oi=500)
+    crude = SelectParams(max_spread_pct=4.0, min_oi=500, delta_target=0.38, max_otm_pct=0.04, otm_target_pct=0.015)
+    assert pick(index_like) == 9100  # unchanged: at-the-money preference
+    assert pick(crude) == 9200  # slightly OTM, cheaper lot
+    assert 9600 not in [q.contract.strike for q in chain if q.moneyness <= crude.max_otm_pct]  # 5.9% OTM is out

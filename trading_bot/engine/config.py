@@ -128,6 +128,13 @@ class EngineConfig:
     max_portfolio_heat_pct: float = 0.06
     option_delta_min: float = 0.30
     option_delta_max: float = 0.65
+    # which strike the selector aims at, and how far OTM it may go at all (§19/§92 #28 "no
+    # lottery-style far OTM"). 0.45 delta / 2% is an index ATM; MCX crude is a different animal -
+    # 21-DTE monthlies at ~59% IV whose delta barely moves across strikes, and whose daily range
+    # is 2-3%, so 2% OTM there is effectively at-the-money (deploy/mcx.env overrides both).
+    option_delta_target: float = 0.45
+    option_max_otm_pct: float = 0.02
+    option_otm_target_pct: float = -1.0  # < 0 means "unset": keep the index's at-the-money preference
     option_max_spread_pct: float = 2.0
     option_min_oi: int = 5000
     option_dte_max: int = 14
@@ -216,6 +223,9 @@ class EngineConfig:
             max_portfolio_heat_pct=_float("TECH_MAX_PORTFOLIO_HEAT_PCT", "0.06"),
             option_delta_min=_float("TECH_OPTION_DELTA_MIN", "0.30"),
             option_delta_max=_float("TECH_OPTION_DELTA_MAX", "0.65"),
+            option_delta_target=_float("TECH_OPTION_DELTA_TARGET", "0.45"),
+            option_max_otm_pct=_float("TECH_OPTION_MAX_OTM_PCT", "0.02"),
+            option_otm_target_pct=_float("TECH_OPTION_OTM_TARGET_PCT", "-1"),
             option_max_spread_pct=_float("TECH_OPTION_MAX_SPREAD_PCT", "2.0"),
             option_min_oi=_int("TECH_OPTION_MIN_OI", "5000"),
             option_dte_max=_int("TECH_OPTION_DTE_MAX", "14"),

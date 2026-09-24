@@ -51,6 +51,8 @@ class PipelineParams:
                                     counter_trend_veto_tfs=tuple(cfg.counter_trend_veto_tfs)),
             move=em.MoveParams(eod_cutoff=cfg.eod_cutoff),
             select=SelectParams(delta_min=cfg.option_delta_min, delta_max=cfg.option_delta_max,
+                                delta_target=cfg.option_delta_target, max_otm_pct=cfg.option_max_otm_pct,
+                                otm_target_pct=(cfg.option_otm_target_pct if cfg.option_otm_target_pct >= 0 else None),
                                 max_spread_pct=cfg.option_max_spread_pct, min_oi=cfg.option_min_oi,
                                 dte_max=cfg.option_dte_max, expiry_day_allowed=cfg.option_expiry_day_allowed),
             limits=RiskLimits(capital=cfg.capital, risk_per_trade_pct=cfg.risk_per_trade_pct,
