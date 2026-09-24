@@ -57,6 +57,7 @@ class PipelineParams:
                               daily_loss_cap_pct=cfg.daily_loss_cap_pct, weekly_loss_cap_pct=cfg.weekly_loss_cap_pct,
                               max_consecutive_losses=cfg.max_consecutive_losses, max_trades_per_day=cfg.max_trades_per_day,
                               max_open_positions=cfg.max_open_positions, max_spread_pct=cfg.option_max_spread_pct,
+                              max_portfolio_heat_pct=cfg.max_portfolio_heat_pct,
                               preferred_net_reward=cfg.preferred_net_reward, tier_b_enabled=cfg.tier_b_enabled,
                               tier_b_min_score=cfg.tier_b_min_score),
             rates=CostRates.for_profile(getattr(cfg, "cost_profile", "nfo")),

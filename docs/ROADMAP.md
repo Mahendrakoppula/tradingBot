@@ -270,6 +270,7 @@ proves it on every CI run.
 | 2026-09-22 | `feature/r1-tracker-sweep-bos` | R1 tracker also counts LIQUIDITY_SWEEP_BOS declines after a sweep; sweep journaled with rejected signals |
 | 2026-09-22 | `feature/level-rejection-shadow` | `sweep_reclaim` pre-signal confirmation + `LEVEL_REJECTION v0.1` family, shadow-only; R5 tracks it |
 | 2026-09-22 | `fix/eod-gap-drift-r6` | a 1m gap starting after the entry cut-off no longer trips the breaker (SENSEX 15:16 both days); clock-drift alert 5 s -> 20 s; R6 tracker |
+| 2026-09-24 | `fix/heat-cap-config` | portfolio heat wired to `TECH_MAX_PORTFOLIO_HEAT_PCT` (0.06) - hard-coded 1.5% had silently capped every trade at Rs.750 while risk said Rs.1,500; the risk check now names the binding cap |
 | 2026-09-24 | `fix/api-error-window` | chain API errors counted in a 10-min window, not since start (a 2.5-min broker 404 at the open latched the breaker for the whole day) |
 | 2026-09-23 | `config/min-score-30` | min score 40 -> 30: all 8 signals that passed routing on day 3 died at ranking, scores 19-33 |
 | 2026-09-23 | `config/risk-1500` | per-trade risk 1.5% -> 3.0% (Rs.1,500); CI bound widened; worst day now Rs.9,000 of the 30% cap |

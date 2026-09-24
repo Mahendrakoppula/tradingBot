@@ -30,7 +30,7 @@ class RiskLimits:
     max_consecutive_losses: int = 3
     max_trades_per_day: int = 6  # §2: 4-6 is a SOFT target; this is the hard ceiling
     max_open_positions: int = 2
-    max_portfolio_heat_pct: float = 0.015  # sum of open risk / equity
+    max_portfolio_heat_pct: float = 0.06  # §30 sum of OPEN risk / equity; also caps one trade (see checks.binding_cap)
     max_spread_pct: float = 2.0
     max_slippage_pct: float = 1.0
     preferred_net_reward: float = 800.0  # §29: a preference, never a reason to do anything else
@@ -144,10 +144,15 @@ def evaluate(plan: Plan, quote: OptionQuote, account: AccountState, limits: Risk
         return reject("correlated_exposure", "same direction already open in the index bucket", max_loss=max_loss)
     # the smaller of per-trade cap and what is left under the daily cap
     room_today = daily_cap + account.realized_today  # realized_today is negative when losing
-    max_loss = min(max_loss, max(0.0, room_today))
     heat_room = limits.capital * limits.max_portfolio_heat_pct - account.open_risk
-    max_loss = min(max_loss, max(0.0, heat_room))
+    caps = {"per_trade": max_loss, "daily_room": max(0.0, room_today), "portfolio_heat": max(0.0, heat_room)}
+    binding = min(caps, key=caps.get)
+    max_loss = caps[binding]
     checks["max_permitted_loss"] = round(max_loss, 2)
+    # which of the three caps actually bound: a silent portfolio-heat cap made the per-trade
+    # setting look like it was in force when it was not (2026-09-24)
+    checks["binding_cap"] = binding
+    checks["caps"] = {k: round(v, 2) for k, v in caps.items()}
     if max_loss <= 0:
         return reject("no_risk_budget_left", max_loss=max_loss)
 

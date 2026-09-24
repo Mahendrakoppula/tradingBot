@@ -97,6 +97,7 @@ NUMERIC_BOUNDS = {
     "TECH_MAX_TRADES_PER_DAY": (1, 10),  # §2: 4-6 is a soft target, never a floor
     "TECH_MAX_OPEN_POSITIONS": (1, 3),
     "TECH_MAX_CONSECUTIVE_LOSSES": (2, 6),
+    "TECH_MAX_PORTFOLIO_HEAT_PCT": (0.01, 0.10),
     "TECH_OPTION_DELTA_MIN": (0.20, 0.50),
     "TECH_OPTION_DELTA_MAX": (0.45, 0.80),
     "TECH_OPTION_MAX_SPREAD_PCT": (0.5, 5.0),
@@ -226,6 +227,17 @@ def test_tech_loss_caps_are_ordered():
     risk, daily, weekly = (float(CONFIG[k]) for k in ("TECH_RISK_PER_TRADE_PCT", "TECH_DAILY_LOSS_CAP_PCT", "TECH_WEEKLY_LOSS_CAP_PCT"))
     assert risk <= daily <= weekly
     assert risk * int(CONFIG["TECH_MAX_TRADES_PER_DAY"]) <= daily
+
+
+def test_portfolio_heat_does_not_silently_cap_per_trade_risk():
+    """Heat is a cap on TOTAL open risk, but it also caps each trade. Below
+    risk_per_trade x max_open_positions it quietly overrides the per-trade
+    setting - the 2026-09-24 defect, where a hard-coded 1.5% heat held every
+    trade to Rs.750 while TECH_RISK_PER_TRADE_PCT said Rs.1,500."""
+    risk = float(CONFIG["TECH_RISK_PER_TRADE_PCT"])
+    heat = float(CONFIG["TECH_MAX_PORTFOLIO_HEAT_PCT"])
+    positions = int(CONFIG["TECH_MAX_OPEN_POSITIONS"])
+    assert heat >= risk * positions, f"heat {heat} < risk {risk} x positions {positions}"
 
 
 def test_tech_session_times_are_ordered():
