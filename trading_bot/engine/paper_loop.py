@@ -40,6 +40,9 @@ from trading_bot.timeutil import IST
 log = logging.getLogger(__name__)
 
 
+API_ERROR_WINDOW = dt.timedelta(minutes=10)  # how far back a failed chain refresh counts as "recent" (§57)
+
+
 def session_elapsed(now: dt.datetime) -> float:
     start = now.replace(hour=session_open().hour, minute=session_open().minute, second=0, microsecond=0)
     end = now.replace(hour=session_close().hour, minute=session_close().minute, second=0, microsecond=0)
@@ -53,15 +56,29 @@ class ChainService:
     `rest`; replay passes none and gets no chains."""
 
     def __init__(self, rest, scrip_rows: list[dict], spot_exchange: dict[str, str], params: CacheParams,
-                 limiter=None):
+                 limiter=None, now=None):
         self.rest = rest
+        self._now = now or (lambda: dt.datetime.now(IST))
         self.params = params
         self.limiter = limiter
         self.caches: dict[str, ChainCache] = {}
         for u, exch in spot_exchange.items():
             chain = OptionChain(scrip_rows, u, OPTIONS_EXCHANGE.get(exch, "NFO"))
             self.caches[u] = ChainCache(u, chain, params)
-        self.errors = 0
+        self.error_times: list[dt.datetime] = []
+        self.total_errors = 0
+
+    @property
+    def errors(self) -> int:
+        """Failed refreshes inside API_ERROR_WINDOW, NOT since start (§57 calls
+        this `api_errors_recent`). A cumulative count latched the circuit
+        breaker for the whole session: 2026-09-24, the broker's batch-quote
+        endpoint 404'd for ~2.5 minutes at the open, 26 refreshes failed, the
+        API recovered by 09:18 and chains refreshed normally all morning - but
+        the breaker stayed on `repeated_api_errors` and blocked every entry."""
+        cutoff = self._now() - API_ERROR_WINDOW
+        self.error_times = [t for t in self.error_times if t >= cutoff]
+        return len(self.error_times)
 
     def due(self, u: str, now: dt.datetime) -> bool:
         c = self.caches.get(u)
@@ -76,8 +93,10 @@ class ChainService:
                 self.limiter.wait()
             c.refresh(self.rest, spot, now, session_elapsed=session_elapsed(now))
         except Exception as exc:  # noqa: BLE001 - a failed refresh leaves the cache stale, which the pipeline rejects on
-            self.errors += 1
-            jsonlog.event("options", "refresh_failed", severity="WARN", underlying=u, error=repr(exc))
+            self.error_times.append(now)
+            self.total_errors += 1
+            jsonlog.event("options", "refresh_failed", severity="WARN", underlying=u, error=repr(exc),
+                          recent=self.errors, total=self.total_errors)
         return c
 
 

@@ -235,3 +235,41 @@ def test_shadow_only_strategy_is_journaled_but_not_executed():
     assert loop.stats.__dict__["shadow_only"] == 1
     sig = loop.dal.signals[0]
     assert sig["status"] == "valid" and sig["reason_code"] == "shadow_only_strategy"
+
+
+def test_chain_api_errors_are_counted_in_a_window_not_since_start():
+    """2026-09-24: the broker's batch-quote endpoint 404'd for ~2.5 minutes at
+    the open. 26 refreshes failed, the API recovered by 09:18 and chains
+    refreshed all morning - but the cumulative counter kept the circuit
+    breaker on `repeated_api_errors` and blocked entries for the whole day."""
+    from trading_bot.engine.paper_loop import API_ERROR_WINDOW, ChainService
+    from trading_bot.engine.option_chain import CacheParams
+    from trading_bot.engine.positions import circuit_breaker_reason
+
+    t0 = dt.datetime.combine(DAY, dt.time(9, 15), tzinfo=IST)
+    clockbox = {"now": t0}
+    state = {"ok": False}
+    svc = ChainService(None, [], {"NIFTY": "NSE"}, CacheParams(), now=lambda: clockbox["now"])
+
+    def cache_refresh(*a, **k):  # stands in for the batched quote call
+        if not state["ok"]:
+            raise RuntimeError("HTTP_404: non-JSON response (404): not found")
+        return 0
+
+    svc.caches["NIFTY"].refresh = cache_refresh
+    args = dict(quality="OK", feed_connected=True, reconciled=True, clock_drift_seconds=0.0)
+    for i in range(26):  # the open burst
+        svc.refresh("NIFTY", SPOT, t0 + dt.timedelta(seconds=6 * i))
+    assert svc.errors == 26 and svc.total_errors == 26
+    assert circuit_breaker_reason(api_errors_recent=svc.errors, **args) == "repeated_api_errors"
+    # the API recovers; once the window has passed with no new failures the breaker reason clears
+    state["ok"] = True
+    clockbox["now"] = t0 + API_ERROR_WINDOW + dt.timedelta(minutes=5)  # past the window of the LAST failure
+    assert svc.errors == 0 and svc.total_errors == 26  # the cumulative count is kept for the journal
+    assert circuit_breaker_reason(api_errors_recent=svc.errors, **args) is None
+    # a fresh burst inside the window trips it again
+    state["ok"] = False
+    for i in range(5):
+        svc.refresh("NIFTY", SPOT, clockbox["now"] + dt.timedelta(seconds=i))
+    assert svc.errors == 5
+    assert circuit_breaker_reason(api_errors_recent=svc.errors, **args) == "repeated_api_errors"
