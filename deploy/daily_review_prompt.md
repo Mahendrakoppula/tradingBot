@@ -17,8 +17,8 @@ State files live in `/opt/trading-bot/.state/`:
   informative field in the whole system — they tell you which gate is
   actually blocking trades.
 - `trade_log.jsonl` — every closed trade: entry/exit reason, P&L, capital
-  after. Records are tagged with `strategy` (absent = the main daily
-  strategy, `"scalp"` = the scalp add-on).
+  after. Records tagged `"scalp"` belong to the decommissioned bot and are
+  history only — never tune on them.
 - `capital.json` — the running paper-capital ledger.
 - `option_chain_log.jsonl`, `candle_log.jsonl` — accumulated market data for
   future backtests. Not something you need to read daily.
@@ -30,7 +30,7 @@ the backtest findings that predate you.
 ## What you must produce every run
 
 A written review, saved to `/opt/trading-bot/.state/reviews/YYYY-MM-DD.md`,
-covering the daily bot:
+covering the daily bot (and only it):
 
 1. **What happened today** — trades taken with entry/exit reasons and P&L,
    running capital, whether the daily loss cap or losing-streak breaker
@@ -89,10 +89,8 @@ Rules of thumb:
 - A gate blocking 100% of entries for 5+ consecutive days is a real,
   actionable finding — that's a broken/misconfigured gate, not a strategy
   edge, and it's worth acting on quickly.
-- Never change more than one parameter per run, **total, across both
-  bots** - not one per bot. If two things look wrong (in the same bot or
-  across both), fix the more clearly-broken one and note the other for
-  next time.
+- Never change more than one parameter per run. If two things look wrong,
+  fix the more clearly-broken one and note the other for next time.
 - Prefer fixing bugs and clearly-miscalibrated gates over tuning thresholds
   to chase returns.
 
@@ -140,6 +138,10 @@ meaningful signal today, 1 trade, nothing to conclude" is a perfectly good
 output and much more useful than a page of speculation.
 
 ## Known open items to keep an eye on
+
+- If a run ends with "Credit balance is too low", that is the Anthropic
+  account, not this bot: the service fails loudly on purpose so a human
+  tops it up rather than the review silently going missing (2026-09-24).
 
 - `RISK_PER_TRADE_PCT` (0.12) is above `DAILY_LOSS_CAP_PCT` (0.05), so one
   full losing trade halts entries for the rest of that day. Known and

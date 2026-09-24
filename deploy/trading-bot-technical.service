@@ -1,5 +1,5 @@
 [Unit]
-Description=Index-options engine (second bot, SHADOW mode - analysis and journaling, zero orders)
+Description=Index-options engine (NIFTY/BANKNIFTY/SENSEX, PAPER mode - full pipeline, simulated fills, no real orders)
 After=network-online.target trading-bot-bootstrap.service postgresql.service trading-bot.service
 Wants=network-online.target postgresql.service
 Requires=trading-bot-bootstrap.service

@@ -15,7 +15,10 @@ Restart=on-failure
 RestartSec=60
 # systemd sends SIGTERM on stop (including when EventBridge stops the EC2
 # instance) - run_daily.py handles that the same as Ctrl+C (SIGINT).
-TimeoutStopSec=30
+# 2026-09-24: every deploy ended with "Failed with result 'timeout'" and status=9/KILL - the
+# runner's shutdown (closing the feed, persisting the capital ledger and open positions) takes
+# longer than 30 s. A SIGKILL mid-position could skip that save.
+TimeoutStopSec=120
 
 [Install]
 WantedBy=multi-user.target
