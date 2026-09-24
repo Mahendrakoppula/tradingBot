@@ -13,3 +13,7 @@ SINCE=$(TZ=Asia/Kolkata date -d "28 days ago" +%F)
 .venv/bin/python -m trading_bot.research_cli gates --from "$SINCE" --to "$TODAY" --telegram
 # candidate refinements over the trailing 28 days: counts + counterfactuals, never applied (sections 71/83)
 .venv/bin/python -m trading_bot.research_cli refinements --from "$SINCE" --to "$TODAY" --telegram
+# The DAILY bot's own numbers, deterministic and model-free. Its Claude review agent has been
+# down since 2026-09-14 (no API credit) and twenty trades went unreviewed before anyone noticed;
+# this posts the raw record every day whether or not that agent runs. It proposes nothing.
+.venv/bin/python -m trading_bot.daily_summary || echo "daily-bot summary failed - engine review above still valid"
