@@ -270,6 +270,7 @@ proves it on every CI run.
 | 2026-09-22 | `feature/r1-tracker-sweep-bos` | R1 tracker also counts LIQUIDITY_SWEEP_BOS declines after a sweep; sweep journaled with rejected signals |
 | 2026-09-22 | `feature/level-rejection-shadow` | `sweep_reclaim` pre-signal confirmation + `LEVEL_REJECTION v0.1` family, shadow-only; R5 tracks it |
 | 2026-09-22 | `fix/eod-gap-drift-r6` | a 1m gap starting after the entry cut-off no longer trips the breaker (SENSEX 15:16 both days); clock-drift alert 5 s -> 20 s; R6 tracker |
+| 2026-09-24 | `chore/box-cleanup` | daily bot stop timeout 30->120 s (it was SIGKILLed on every deploy), engine unit no longer calls itself SHADOW, nightly agent's prompt scoped to the daily bot only (the engines have their own review) |
 | 2026-09-24 | `config/mcx-otm-selection` | crude aims 1.5% OTM (`TECH_OPTION_OTM_TARGET_PCT`, delta target 0.38, far-OTM cap 2%->4%): 9200 CE at Rs.4,300/lot instead of 9100 CE at Rs.4,740; index unchanged |
 | 2026-09-24 | `config/daily-logger-cadence` | daily bot's data loggers slowed (chain 5->10 min, candle cadences doubled, ATM+-1, pacing 1.1->2.0s / 0.5->1.2s): 312 rate-limit 403s a day on an account now shared with two engines |
 | 2026-09-24 | `fix/heat-cap-config` | portfolio heat wired to `TECH_MAX_PORTFOLIO_HEAT_PCT` (0.06) - hard-coded 1.5% had silently capped every trade at Rs.750 while risk said Rs.1,500; the risk check now names the binding cap |
