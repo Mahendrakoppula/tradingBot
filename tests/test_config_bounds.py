@@ -100,6 +100,8 @@ NUMERIC_BOUNDS = {
     "TECH_MAX_PORTFOLIO_HEAT_PCT": (0.01, 0.10),
     "TECH_OPTION_DELTA_MIN": (0.20, 0.50),
     "TECH_OPTION_DELTA_MAX": (0.45, 0.80),
+    "TECH_OPTION_DELTA_TARGET": (0.20, 0.70),
+    "TECH_OPTION_MAX_OTM_PCT": (0.01, 0.06),
     "TECH_OPTION_MAX_SPREAD_PCT": (0.5, 5.0),
     "TECH_OPTION_MIN_OI": (500, 100_000),
     "TECH_OPTION_DTE_MAX": (1, 45),
@@ -270,8 +272,27 @@ def test_tech_paper_profile_is_known_and_not_ideal():
     assert CONFIG["TECH_PAPER_PROFILE"] in ("realistic", "conservative")
 
 
+def test_mcx_option_selection_leans_otm_but_stays_bounded():
+    """deploy/mcx.env may aim OTM, but never past the section 19 "no lottery-style far
+    OTM" bound, and the delta target must sit inside the band it is measured against."""
+    import re as _re
+    mcx = {}
+    for line in (CONFIG_ENV_PATH.parent / "mcx.env").read_text(encoding="utf-8").splitlines():
+        m = _re.match(r"^([A-Z_][A-Z0-9_]*)=(.*)$", line.strip())
+        if m:
+            mcx[m.group(1)] = m.group(2).strip()
+    target = float(mcx.get("TECH_OPTION_DELTA_TARGET", CONFIG["TECH_OPTION_DELTA_TARGET"]))
+    otm = float(mcx.get("TECH_OPTION_MAX_OTM_PCT", CONFIG["TECH_OPTION_MAX_OTM_PCT"]))
+    lo = float(mcx.get("TECH_OPTION_DELTA_MIN", CONFIG["TECH_OPTION_DELTA_MIN"]))
+    hi = float(mcx.get("TECH_OPTION_DELTA_MAX", CONFIG["TECH_OPTION_DELTA_MAX"]))
+    aim = float(mcx.get("TECH_OPTION_OTM_TARGET_PCT", "0"))
+    assert lo <= target <= hi, (lo, target, hi)
+    assert 0.01 <= otm <= 0.06 and 0.0 <= aim <= otm, (aim, otm)
+
+
 def test_tech_option_delta_band_is_ordered():
     assert float(CONFIG["TECH_OPTION_DELTA_MIN"]) < float(CONFIG["TECH_OPTION_DELTA_MAX"])
+    assert float(CONFIG["TECH_OPTION_DELTA_MIN"]) <= float(CONFIG["TECH_OPTION_DELTA_TARGET"]) <= float(CONFIG["TECH_OPTION_DELTA_MAX"])
 
 
 def test_tech_counter_trend_veto_tfs_are_known_timeframes():

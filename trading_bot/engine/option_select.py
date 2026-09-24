@@ -32,6 +32,11 @@ class SelectParams:
     dte_max: int = 14
     expiry_day_allowed: bool = False  # §24: expiry-day rules must be validated separately - off by default
     max_otm_pct: float = 0.02  # "no lottery-style far OTM" (§19/§92 #28)
+    # Where on the moneyness axis the selector AIMS. None = the index default: at-the-money is
+    # ideal and anything in-the-money scores a flat 0.8. A value (e.g. 0.015 = 1.5% OTM) makes the
+    # score peak there instead and fall away on both sides - "slightly OTM", which on MCX crude
+    # buys a cheaper lot without reaching for a lottery ticket. max_otm_pct still hard-caps it.
+    otm_target_pct: float | None = None
     min_premium: float = 5.0
     max_premium_pct_of_capital: float = 0.35  # one lot must not eat the account
     hold_fraction_of_day: float = 0.25
@@ -102,7 +107,10 @@ def _score(q: OptionQuote, dte: int, p: SelectParams) -> tuple[float, dict]:
     # time: neither expiring today nor so far that gamma is dead; peak around 3-7 DTE
     time_fit = 1.0 - min(1.0, abs(dte - 5) / 9.0)
     m = q.moneyness or 0.0
-    money_fit = 1.0 - min(1.0, abs(m) / p.max_otm_pct) if m > 0 else 0.8  # slightly ITM is fine, far OTM is not
+    if p.otm_target_pct is None:
+        money_fit = 1.0 - min(1.0, abs(m) / p.max_otm_pct) if m > 0 else 0.8  # slightly ITM is fine, far OTM is not
+    else:
+        money_fit = 1.0 - min(1.0, abs(m - p.otm_target_pct) / max(p.max_otm_pct, 1e-6))
     parts = {"delta": 0.30 * delta_fit, "spread": 0.20 * spread_fit, "liquidity": 0.15 * liq, "theta": 0.15 * theta_fit,
              "time": 0.10 * time_fit, "moneyness": 0.10 * money_fit}
     return round(sum(parts.values()), 4), {k: round(v, 4) for k, v in parts.items()}
