@@ -122,6 +122,10 @@ class EngineConfig:
     max_trades_per_day: int = 6
     max_open_positions: int = 2
     max_consecutive_losses: int = 3
+    # §30 portfolio heat: sum of OPEN risk / equity. It also caps a single trade, so it must be at
+    # least risk_per_trade x max_open_positions or the per-trade setting is silently halved
+    # (2026-09-24: heat was hard-coded at 1.5% and not wired here, so raising risk to 3% did nothing).
+    max_portfolio_heat_pct: float = 0.06
     option_delta_min: float = 0.30
     option_delta_max: float = 0.65
     option_max_spread_pct: float = 2.0
@@ -209,6 +213,7 @@ class EngineConfig:
             max_trades_per_day=_int("TECH_MAX_TRADES_PER_DAY", "6"),
             max_open_positions=_int("TECH_MAX_OPEN_POSITIONS", "2"),
             max_consecutive_losses=_int("TECH_MAX_CONSECUTIVE_LOSSES", "3"),
+            max_portfolio_heat_pct=_float("TECH_MAX_PORTFOLIO_HEAT_PCT", "0.06"),
             option_delta_min=_float("TECH_OPTION_DELTA_MIN", "0.30"),
             option_delta_max=_float("TECH_OPTION_DELTA_MAX", "0.65"),
             option_max_spread_pct=_float("TECH_OPTION_MAX_SPREAD_PCT", "2.0"),

@@ -1,3 +1,4 @@
+import dataclasses
 import datetime as dt
 
 from trading_bot.costs import CostRates
@@ -57,15 +58,17 @@ def test_hard_account_locks_come_first():
     assert evaluate(_plan(), _quote(), _acct(trades_today=6), L, RATES, score=99).reason_code == "max_trades_per_day"
     assert evaluate(_plan(), _quote(), _acct(open_positions=2), L, RATES, score=99).reason_code == "max_open_positions"
     assert evaluate(_plan(), _quote(), _acct(open_directions={"BANKNIFTY": "up"}), L, RATES, score=99).reason_code == "correlated_exposure"
-    assert evaluate(_plan(), _quote(), _acct(open_risk=750.0), L, RATES, score=99).reason_code == "no_risk_budget_left"
+    # heat exhausted: open risk == capital x max_portfolio_heat_pct (50,000 x 6%)
+    assert evaluate(_plan(), _quote(), _acct(open_risk=3000.0), L, RATES, score=99).reason_code == "no_risk_budget_left"
 
 
 def test_daily_room_and_heat_reduce_size():
     # 1000 daily cap, already down 800 -> only 200 of room -> REDUCE_SIZE with a smaller budget
     d = evaluate(_plan(stop=149.5), _quote(), _acct(realized_today=-800.0), RiskLimits(), RATES, score=80)
     assert d.decision == "REDUCE_SIZE" and d.max_permitted_loss == 200.0 and d.approved
-    heat = evaluate(_plan(stop=149.5), _quote(), _acct(open_risk=550.0), RiskLimits(), RATES, score=80)
-    assert heat.decision == "REDUCE_SIZE" and heat.max_permitted_loss == 200.0
+    # heat: 6% of 50,000 = 3,000 of total open risk, 2,800 already committed -> 200 left
+    heat = evaluate(_plan(stop=149.5), _quote(), _acct(open_risk=2800.0), RiskLimits(), RATES, score=80)
+    assert heat.decision == "REDUCE_SIZE" and heat.max_permitted_loss == 200.0 and heat.checks["binding_cap"] == "portfolio_heat"
     # with 1% risk the same setup gets three lots of room (Rs.500 / ~Rs.115 per lot + brokerage)
     two = evaluate(_plan(stop=149.5), _quote(), _acct(), RiskLimits(risk_per_trade_pct=0.01), RATES, score=80)
     assert two.decision == "APPROVED" and two.lots == 3 and two.planned_loss <= 500.0
@@ -105,3 +108,18 @@ def test_record_result_updates_tallies():
     assert a.consecutive_losses == 2 and a.trades_today == 2 and a.realized_today == -200.0 and a.equity == 49800.0
     record_result(a, 300.0)
     assert a.consecutive_losses == 0 and a.realized_week == 100.0
+
+
+def test_the_binding_cap_is_named_in_the_checks():
+    """2026-09-24: a hard-coded 1.5% portfolio heat held every trade to Rs.750
+    while TECH_RISK_PER_TRADE_PCT said Rs.1,500, and the rejection only showed
+    "permitted 750" - nothing said which of the three caps bound."""
+    limits = dataclasses.replace(RiskLimits(), capital=50_000.0, risk_per_trade_pct=0.03, daily_loss_cap_pct=0.30,
+                                 max_portfolio_heat_pct=0.06)
+    d = evaluate(_plan(), _quote(), _acct(), limits, RATES, score=99)
+    assert d.checks["binding_cap"] == "per_trade" and d.checks["caps"]["per_trade"] == 1500.0
+    assert d.checks["max_permitted_loss"] == 1500.0
+    # heat below risk x positions is what silently overrode the per-trade setting
+    squeezed = dataclasses.replace(limits, max_portfolio_heat_pct=0.015)
+    d2 = evaluate(_plan(), _quote(), _acct(), squeezed, RATES, score=99)
+    assert d2.checks["binding_cap"] == "portfolio_heat" and d2.checks["max_permitted_loss"] == 750.0
