@@ -270,6 +270,7 @@ proves it on every CI run.
 | 2026-09-22 | `feature/r1-tracker-sweep-bos` | R1 tracker also counts LIQUIDITY_SWEEP_BOS declines after a sweep; sweep journaled with rejected signals |
 | 2026-09-22 | `feature/level-rejection-shadow` | `sweep_reclaim` pre-signal confirmation + `LEVEL_REJECTION v0.1` family, shadow-only; R5 tracks it |
 | 2026-09-22 | `fix/eod-gap-drift-r6` | a 1m gap starting after the entry cut-off no longer trips the breaker (SENSEX 15:16 both days); clock-drift alert 5 s -> 20 s; R6 tracker |
+| 2026-09-29 | `feature/history-backfill-replay` | `backfill_history` + `replay_range`: pull a year of 1m/5m/30m and replay it through the pipeline into a SEPARATE database, to turn 121 live signals into a testable sample |
 | 2026-09-24 | `feature/daily-bot-summary` | daily bot's trades summarised deterministically in the 15:45 post (its Claude review agent has been out of API credit since 2026-09-14, so 20 trades went unreviewed) |
 | 2026-09-24 | `fix/capital-ledger-reconcile` | startup reconciliation of the daily bot's capital ledger; trade_log's `technical_*` records belong to the decommissioned bot and must be filtered before any P&L sum |
 | 2026-09-24 | `chore/box-cleanup` | daily bot stop timeout 30->120 s (it was SIGKILLed on every deploy), engine unit no longer calls itself SHADOW, nightly agent's prompt scoped to the daily bot only (the engines have their own review) |
