@@ -49,7 +49,8 @@ class PipelineParams:
         return cls(
             strategy=StrategyParams(level_proximity_atr=cfg.level_proximity_atr,
                                     counter_trend_veto_tfs=tuple(cfg.counter_trend_veto_tfs)),
-            move=em.MoveParams(eod_cutoff=cfg.eod_cutoff),
+            move=em.MoveParams(eod_cutoff=cfg.eod_cutoff, min_remaining_atr=cfg.min_remaining_atr,
+                               max_consumed_atr=cfg.max_consumed_atr),
             select=SelectParams(delta_min=cfg.option_delta_min, delta_max=cfg.option_delta_max,
                                 delta_target=cfg.option_delta_target, max_otm_pct=cfg.option_max_otm_pct,
                                 otm_target_pct=(cfg.option_otm_target_pct if cfg.option_otm_target_pct >= 0 else None),

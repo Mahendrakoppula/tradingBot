@@ -89,3 +89,18 @@ def test_time_and_list_parsing(monkeypatch):
     assert "2026-07-01" in cfg.holidays and "2026-11-14" in cfg.holidays
     assert "2026-10-02" in cfg.holidays  # from the built-in NSE calendar
     assert cfg.holidays == tuple(sorted(cfg.holidays))
+
+
+def test_no_chase_thresholds_are_configurable(monkeypatch):
+    """They were hardcoded in MoveParams until 2026-10-06, which made the single
+    largest blocker of high-scoring signals untunable without a release."""
+    from trading_bot.engine.pipeline import PipelineParams
+    cfg = EngineConfig.from_env()
+    assert cfg.min_remaining_atr == 0.75 and cfg.max_consumed_atr == 2.0  # defaults preserved
+    monkeypatch.setenv("TECH_MIN_REMAINING_ATR", "0.35")
+    monkeypatch.setenv("TECH_MAX_CONSUMED_ATR", "2.5")
+    cfg = EngineConfig.from_env()
+    assert cfg.min_remaining_atr == 0.35 and cfg.max_consumed_atr == 2.5
+    # and they must actually reach the no-chase check, not just sit in the config
+    p = PipelineParams.from_config(cfg)
+    assert p.move.min_remaining_atr == 0.35 and p.move.max_consumed_atr == 2.5

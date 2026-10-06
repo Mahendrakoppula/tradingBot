@@ -153,6 +153,11 @@ class EngineConfig:
     session: str = "NSE"  # clock.SESSION_PROFILES key
     cost_profile: str = "nfo"  # costs.CostRates.for_profile
     future_roll_days: int = 2  # commodities: price reference rolls to the next future this many days before expiry
+    # §22 no-chase thresholds. Hardcoded in MoveParams until 2026-10-06, which made the
+    # single largest blocker of high-scoring signals untunable without a release. Defaults
+    # are the previous hardcoded values, so an unset env var changes nothing.
+    min_remaining_atr: float = 0.75
+    max_consumed_atr: float = 2.0
 
     @property
     def can_place_live_orders(self) -> bool:
@@ -211,6 +216,8 @@ class EngineConfig:
             presignal_decay=_float("TECH_PRESIGNAL_DECAY", "0.85"),
             presignal_min_conf=_float("TECH_PRESIGNAL_MIN_CONF", "0.35"),
             level_proximity_atr=_float("TECH_LEVEL_PROXIMITY_ATR", "0.5"),
+            min_remaining_atr=_float("TECH_MIN_REMAINING_ATR", "0.75"),
+            max_consumed_atr=_float("TECH_MAX_CONSUMED_ATR", "2.0"),
             telegram_max_alerts_per_hour=_int("TECH_TELEGRAM_MAX_ALERTS_PER_HOUR", "12"),
             # Full-day closures for THIS process's exchange, from the published
             # calendar in trading_bot/holidays.py. TECH_HOLIDAYS is ADDITIVE on
