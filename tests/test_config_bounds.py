@@ -89,6 +89,11 @@ NUMERIC_BOUNDS = {
     "TECH_PRESIGNAL_DECAY": (0.5, 1.0),
     "TECH_PRESIGNAL_MIN_CONF": (0.1, 0.9),
     "TECH_LEVEL_PROXIMITY_ATR": (0.1, 2.0),
+    # §22 no-chase. The floor is 0.2 ATR deliberately: below that the engine would be
+    # entering with essentially no room to the next level, which is what the gate exists
+    # to prevent. 0.35 (the 2026-10-06 force-fills experiment) sits just above it.
+    "TECH_MIN_REMAINING_ATR": (0.2, 2.0),
+    "TECH_MAX_CONSUMED_ATR": (1.0, 4.0),
     "TECH_TELEGRAM_MAX_ALERTS_PER_HOUR": (1, 60),
     # --- M2 pipeline / paper ---
     "TECH_MIN_SCORE": (20, 90),
