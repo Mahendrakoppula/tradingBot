@@ -37,6 +37,8 @@ from trading_bot.engine.option_chain import CacheParams
 from trading_bot.engine.paper_loop import ChainService, PaperLoop
 from trading_bot.engine.pipeline import PipelineParams
 from trading_bot.engine.warmup import WarmupPlan, backfill_today_1m, warm_up
+from trading_bot.holidays import (EVENING_ONLY, MCX_EVENING_OPEN, MORNING_ONLY, UnknownYear,
+                                  status as holiday_status)
 from trading_bot.instruments import InstrumentLookup
 from trading_bot.options import OPTION_TYPES
 from trading_bot.rest_client import RestClient
@@ -244,6 +246,26 @@ def main() -> int:
     # one process = one exchange session (NSE 09:15-15:30 or MCX 09:00-23:30); every bar boundary,
     # phase label and "in session" check below reads this
     prof = configure_session(cfg.session, cfg.session_end)
+    # Exchange half-days (trading_bot/holidays.py): MCX shuts its morning on
+    # eleven 2026 holidays and trades the evening only. Narrowing the profile
+    # here - before warmup, the feed or any bar boundary is computed - is what
+    # keeps the engine from treating a session that never opened as missing
+    # data and from hunting setups across the gap.
+    try:
+        day_status = holiday_status(today_ist(), cfg.session)
+    except UnknownYear as exc:
+        # Loud and clean rather than a crash loop: no calendar means we cannot
+        # tell a holiday from a session, and guessing is what cost Rs.3,958.
+        log.critical("%s - refusing to trade an unknown calendar year", exc)
+        return 2
+    if day_status == EVENING_ONLY:
+        prof = configure_session(cfg.session, cfg.session_end, open_=MCX_EVENING_OPEN)
+        log.warning("%s is an evening-only %s half-day - session narrowed to %s-%s",
+                    today_ist(), prof.name, prof.open.strftime("%H:%M"), prof.close.strftime("%H:%M"))
+    elif day_status == MORNING_ONLY:
+        prof = configure_session(cfg.session, MCX_EVENING_OPEN)
+        log.warning("%s is a morning-only %s half-day - session narrowed to %s-%s",
+                    today_ist(), prof.name, prof.open.strftime("%H:%M"), prof.close.strftime("%H:%M"))
     log.info("session profile %s %s-%s", prof.name, prof.open.strftime("%H:%M"), prof.close.strftime("%H:%M"))
     for line in banner(cfg).splitlines():
         log.info(line)

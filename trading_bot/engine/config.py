@@ -25,6 +25,7 @@ from dataclasses import dataclass
 from typing import Literal
 
 from trading_bot.config import Config
+from trading_bot.holidays import closed_dates
 
 Mode = Literal["BACKTEST", "RESEARCH", "PAPER", "SHADOW", "LIVE"]
 MODES: tuple[str, ...] = ("BACKTEST", "RESEARCH", "PAPER", "SHADOW", "LIVE")
@@ -211,7 +212,16 @@ class EngineConfig:
             presignal_min_conf=_float("TECH_PRESIGNAL_MIN_CONF", "0.35"),
             level_proximity_atr=_float("TECH_LEVEL_PROXIMITY_ATR", "0.5"),
             telegram_max_alerts_per_hour=_int("TECH_TELEGRAM_MAX_ALERTS_PER_HOUR", "12"),
-            holidays=tuple(s.strip() for s in os.environ.get("TECH_HOLIDAYS", "").split(",") if s.strip()),
+            # Full-day closures for THIS process's exchange, from the published
+            # calendar in trading_bot/holidays.py. TECH_HOLIDAYS is ADDITIVE on
+            # top of it, not a replacement: an operator adding one unscheduled
+            # closure must not have to retype sixteen dates, and an empty (or
+            # fat-fingered) env var must not silently disarm the guard - that
+            # is exactly how 2026-10-02 was traded. Partial days are absent on
+            # purpose; they are trading days with a narrowed session, handled
+            # by run_technical via holidays.status().
+            holidays=closed_dates(session, tuple(
+                s.strip() for s in os.environ.get("TECH_HOLIDAYS", "").split(",") if s.strip())),
             paper_profile=os.environ.get("TECH_PAPER_PROFILE", "realistic").strip().lower(),
             min_score=_int("TECH_MIN_SCORE", "40"),
             preferred_net_reward=_float("TECH_PREFERRED_NET_REWARD", "800"),
