@@ -80,8 +80,12 @@ def test_alignment_weights_must_sum_to_one(monkeypatch):
 def test_time_and_list_parsing(monkeypatch):
     monkeypatch.setenv("TECH_EOD_CUTOFF", "15:10")
     monkeypatch.setenv("TECH_UNDERLYINGS", " nifty , sensex ")
-    monkeypatch.setenv("TECH_HOLIDAYS", "2026-10-02, 2026-11-14")
+    monkeypatch.setenv("TECH_HOLIDAYS", "2026-07-01, 2026-11-14")
     cfg = EngineConfig.from_env()
     assert cfg.eod_cutoff.hour == 15 and cfg.eod_cutoff.minute == 10
     assert cfg.underlyings == ("NIFTY", "SENSEX")
-    assert cfg.holidays == ("2026-10-02", "2026-11-14")
+    # TECH_HOLIDAYS ADDS to the published calendar rather than replacing it -
+    # an empty or partial env var must not be able to disarm the guard.
+    assert "2026-07-01" in cfg.holidays and "2026-11-14" in cfg.holidays
+    assert "2026-10-02" in cfg.holidays  # from the built-in NSE calendar
+    assert cfg.holidays == tuple(sorted(cfg.holidays))

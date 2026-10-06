@@ -58,6 +58,21 @@ class SessionProfile:
     close: dt.time
     phases: tuple[tuple[dt.time, dt.time, str], ...]
 
+    def with_open(self, open_: dt.time) -> "SessionProfile":
+        """The same session STARTING at `open_`, for an exchange half-day: MCX
+        closes its morning on eleven 2026 holidays and trades the evening only
+        (holidays.EVENING_ONLY), so the engine must not warm up or look for
+        setups against a morning that never happened. Phases wholly before
+        the new open are dropped; the one straddling it is clipped."""
+        if open_ >= self.close:
+            raise ValueError(f"session open {open_} must be before close {self.close}")
+        phases = tuple(p for p in self.phases if p[1] > open_)
+        if phases:
+            s, e, label = phases[0]
+            if s < open_:
+                phases = ((open_, e, f"{open_:%H:%M}-{e:%H:%M}"),) + phases[1:]
+        return replace(self, open=open_, phases=phases)
+
     def with_close(self, close: dt.time) -> "SessionProfile":
         """The same session ending at `close` (MCX 23:55 in US winter time):
         the last phase stretches or shrinks to the new close."""
@@ -81,8 +96,14 @@ SESSION_CLOSE = NSE_SESSION.close
 _active: SessionProfile = NSE_SESSION
 
 
-def configure_session(name: str, close: dt.time | None = None) -> SessionProfile:
-    """Select the process-wide session profile (once, at startup)."""
+def configure_session(name: str, close: dt.time | None = None,
+                      open_: dt.time | None = None) -> SessionProfile:
+    """Select the process-wide session profile (once, at startup).
+
+    `open_` narrows the session start for an exchange half-day - MCX's
+    evening-only holidays (see trading_bot.holidays). Applied after `close`
+    so a shortened evening session composes correctly.
+    """
     global _active
     try:
         prof = SESSION_PROFILES[name.upper()]
@@ -90,6 +111,8 @@ def configure_session(name: str, close: dt.time | None = None) -> SessionProfile
         raise ValueError(f"unknown session profile {name!r}; known: {sorted(SESSION_PROFILES)}") from None
     if close is not None and close != prof.close:
         prof = prof.with_close(close)
+    if open_ is not None and open_ != prof.open:
+        prof = prof.with_open(open_)
     _active = prof
     return prof
 

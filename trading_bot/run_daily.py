@@ -25,6 +25,7 @@ from trading_bot.scalp_strategy import MomentumSpikeDetector, OpeningRangeTracke
 from trading_bot.sector_tracker import allows_direction as sector_allows_direction
 from trading_bot.sector_tracker import format_sector_snapshot, get_sector_snapshot, resolve_sector_rows
 from trading_bot.sizing import size_long_option
+from trading_bot import holidays
 from trading_bot.timeutil import now_ist, today_ist
 
 log = logging.getLogger("trading_bot.daily")
@@ -312,6 +313,24 @@ def _maybe_scalp_enter(cfg: Config, rest: RestClient, instruments: InstrumentLoo
                            premium_per_lot * lots, reason, scalp=True), html=True)
 
 
+def _trading_today(day) -> tuple[bool, str | None]:
+    """(may we trade today, warning to shout). NSE only - this bot's watchlist
+    is NIFTY/BANKNIFTY.
+
+    Never raises. The calendar in trading_bot/holidays.py covers published
+    years only, and an un-updated calendar must neither crash-loop this runner
+    nor read as an ordinary trading day: it blocks entries and hands back the
+    reason so the caller can say so out loud. Blocking is the safe default
+    because the failure being fixed here was the opposite - on 2026-10-02
+    (Gandhi Jayanti) this bot entered against the previous session's stale
+    quote, held over the holiday and the weekend, and lost Rs.3,958.50.
+    """
+    try:
+        return holidays.is_trading_day(day, "NSE"), None
+    except holidays.UnknownYear as exc:
+        return False, str(exc)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="Daily intraday long-option runner: buys NIFTY/BANKNIFTY/stock options based on an "
@@ -377,9 +396,17 @@ def main() -> None:
 
     positions = state_mod.load_long()
     today = today_ist()
+    trading_today, calendar_warning = _trading_today(today)
     entry_time, exit_time = _parse_hhmm(cfg.entry_time), _parse_hhmm(cfg.exit_time)
 
     notify(f"\U0001F7E2 <b>DAILY RUNNER STARTED</b>\n{esc(status_line)}", html=True)
+    if calendar_warning:
+        log.critical("holiday calendar: %s", calendar_warning)
+        notify(f"\u26A0\uFE0F <b>HOLIDAY CALENDAR OUT OF DATE</b> - entries blocked\n{esc(calendar_warning)}", html=True)
+        notify_error(f"Holiday calendar out of date - entries blocked - {calendar_warning}")
+    elif not trading_today:
+        log.info("%s is not an NSE trading day - no entries, no data logging", today)
+        notify(f"\U0001F6D1 {today} is an NSE holiday - no entries today (open positions are still managed and closed normally)")
     try:
         notify(build_morning_briefing(rest, instruments.instruments))
     except Exception as e:
@@ -430,6 +457,12 @@ def main() -> None:
         now = now_ist()
         if now.date() != today:
             today = now.date()
+            trading_today, calendar_warning = _trading_today(today)
+            if calendar_warning:
+                log.critical("holiday calendar: %s", calendar_warning)
+                notify_error(f"Holiday calendar out of date - entries blocked - {calendar_warning}")
+            elif not trading_today:
+                log.info("%s is not an NSE trading day - no entries, no data logging", today)
             risk.reset_day()
             scalp_risk.reset_day()
             scalp_trade_counts.clear()
@@ -450,6 +483,7 @@ def main() -> None:
         # the open or after the close.
         if (
             cfg.option_chain_log_enabled
+            and trading_today
             and dt.time(9, 15) <= now_t <= dt.time(15, 30)
             and (last_snapshot_at is None or time.monotonic() - last_snapshot_at >= cfg.option_chain_log_interval_seconds)
         ):
@@ -461,7 +495,7 @@ def main() -> None:
         # own staggered per-interval cadence (see candle_history_logger's
         # INTERVAL_CONFIG), also market-hours gated, also pure data
         # collection that never affects trading decisions.
-        if cfg.candle_log_enabled and dt.time(9, 15) <= now_t <= dt.time(15, 30):
+        if cfg.candle_log_enabled and trading_today and dt.time(9, 15) <= now_t <= dt.time(15, 30):
             maybe_log_candles(rest, instruments, cfg.watchlist, cfg.dte_min, cfg.dte_max, today,
                                cfg.candle_log_strikes_each_side, candle_tracked_contracts_cache, candle_last_pull_at)
 
@@ -472,7 +506,7 @@ def main() -> None:
         # cadences are independent (config.py's sector_refresh_seconds vs.
         # sector_notify_interval_seconds) - the gate always uses the latest
         # refreshed snapshot even between Telegram broadcasts.
-        if cfg.sector_tracking_enabled and sector_rows and dt.time(9, 15) <= now_t <= dt.time(15, 30):
+        if cfg.sector_tracking_enabled and sector_rows and trading_today and dt.time(9, 15) <= now_t <= dt.time(15, 30):
             if sector_last_refresh_at is None or time.monotonic() - sector_last_refresh_at >= cfg.sector_refresh_seconds:
                 try:
                     sector_snapshot = get_sector_snapshot(rest, sector_rows, cfg.sector_move_threshold_pct)
@@ -515,7 +549,10 @@ def main() -> None:
                         notify_error(f"Failed to close {underlying} on stop-loss - MANUAL INTERVENTION NEEDED - {e}")
             state_mod.save_long(positions)
 
-        if cfg.enable_trading and entry_time <= now_t < exit_time:
+        # trading_today (trading_bot/holidays.py): no NEW positions on an
+        # exchange holiday. Exits above are deliberately NOT gated - a position
+        # carried into a holiday must still be managed and closed normally.
+        if cfg.enable_trading and trading_today and entry_time <= now_t < exit_time:
             if risk.can_enter_new_trade():
                 candidates = [u for u in cfg.watchlist if u not in positions]
                 if candidates:
@@ -585,7 +622,10 @@ def main() -> None:
             # deliberately, not a separate/weaker gate. Runs up to exit_time
             # only (no new scalp entries after that, mirroring the daily
             # strategy's own entry_time <= now_t < exit_time window).
-            if cfg.enable_trading and now_t < exit_time:
+            # trading_today for the same reason as the daily entry: this is a
+            # SECOND entry path and a holiday guard that covered only the first
+            # would be a guard in name only (caught by tests/test_holidays.py).
+            if cfg.enable_trading and trading_today and now_t < exit_time:
                 if scalp_risk.can_enter_new_trade():
                     for underlying in cfg.watchlist:
                         try:
