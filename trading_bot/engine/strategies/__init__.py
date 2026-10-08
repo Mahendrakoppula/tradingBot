@@ -41,6 +41,23 @@ class RoutingResult:
         return min(tiers) if tiers else None
 
 
+def routable_families(ctx, families: tuple = None) -> tuple[int, int]:
+    """(families whose compatible_regimes admit ctx's regime, total families).
+
+    Why this is journaled: on 2026-10-09 `regime_incompatible` was the dominant
+    rejection in the engine's whole history - 358 family-rejections across 76 of
+    81 routing failures - and nothing in the journal said WHY without reading
+    families.py by hand. COMPRESSION is admitted by exactly one family of eleven
+    (COMPRESSION_BREAKOUT) and LOW_VOLATILITY by four, so a setup firing in
+    compression collects ten regime_incompatible verdicts at once. That is a
+    strategy-coverage fact, not a bug, and it should be visible in the nightly
+    review instead of needing archaeology.
+    """
+    fams = FAMILIES if families is None else families
+    regime = ctx.regime.get("primary")
+    return sum(1 for f in fams if regime in f.spec.compatible_regimes), len(fams)
+
+
 def compatible(spec: StrategySpec, ctx: ContextSnapshot, direction: str, counter_trend_cleared: bool,
                family_hint: str | None, counter_trend: bool | None = None) -> str | None:
     """None when the family may run; otherwise the reason it may not."""

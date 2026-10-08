@@ -20,6 +20,26 @@ CAPS = {
     "momentum": 10, "volatility": 5, "liquidity_execution": 5, "option_quality": 5,
 }
 
+# Two components describe the CHOSEN OPTION, so they cannot be known until after
+# option selection. The pipeline deliberately scores twice: a provisional score to
+# RANK candidates (§15/§35), then a final score once the strike is picked (§16).
+# The provisional score can therefore only ever earn PRE_SELECTION_MAX of 100, and
+# comparing it against a 0-100 min_score made the ranking gate ~11% stricter than
+# it reads - measured 2026-10-09: 45 of 47 scored signals had both components at 0,
+# and the only two that reached the risk engine scored them 4.0/5 and 0/5 correctly.
+POST_SELECTION_COMPONENTS: tuple[str, ...] = ("liquidity_execution", "option_quality")
+PRE_SELECTION_MAX: int = sum(v for k, v in CAPS.items() if k not in POST_SELECTION_COMPONENTS)
+
+
+def pre_selection_min(min_score: int) -> int:
+    """`min_score` expressed on the provisional (pre-option) scale, so the ranking
+    gate and the post-selection gate mean the same thing. Never returns 0 for a
+    positive min_score - a threshold that rounds away would admit everything."""
+    if min_score <= 0:
+        return 0
+    return max(1, round(min_score * PRE_SELECTION_MAX / sum(CAPS.values())))
+
+
 PENALTIES = {
     "conflicting_timeframes": 10, "counter_trend": 15, "weak_structure": 5, "weak_volume": 5, "poor_location": 8,
     "nearby_opposing_level": 10, "excessive_spread": 10, "poor_liquidity": 10, "insufficient_expected_movement": 15,
