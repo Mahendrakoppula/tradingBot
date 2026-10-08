@@ -97,7 +97,12 @@ def build_explanation(ctx: ContextSnapshot, event: StageEvent) -> dict:
     reg = ctx.regime
     out = {
         "Direction": f"{direction} ({'CE' if direction == 'up' else 'PE'} bias)",
-        "Strategy": f"family_hint={event.details.get('family_hint') or ctx.structure.get('family_hint') or 'unclassified'} (strategy engines are M2)",
+        # This line used to carry a hardcoded suffix claiming the strategy engines were
+        # still an unbuilt milestone, long after they shipped - false on every rejection
+        # explanation the engine ever wrote, and it cost a 2026-10-09 investigation a
+        # detour. Decision.explanation() now appends the regime-coverage and selection
+        # detail that actually explains a routing rejection.
+        "Strategy": f"family_hint={event.details.get('family_hint') or ctx.structure.get('family_hint') or 'unclassified'}",
         "Trend": _trend_line(ctx),
         "Regime": f"{reg.get('primary', 'n/a')}" + (f" (transition {reg['transition']})" if reg.get("transition") else ""),
         "Location": _location_line(ctx, direction),

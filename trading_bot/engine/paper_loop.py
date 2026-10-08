@@ -31,6 +31,7 @@ from trading_bot.engine.positions import KillSwitches, Position, PositionBook, c
 from trading_bot.engine.presignal import StageEvent
 from trading_bot.engine.recovery import recover
 from trading_bot.engine.rejections import Rejection, summarize
+from trading_bot.engine.strategies import routable_families
 from trading_bot.engine.risk_engine import AccountState, record_result
 from trading_bot.engine.shadow import TRIGGER_TF, ShadowLoop
 from trading_bot.engine.stops import ExitSignal, ThesisMonitor
@@ -297,6 +298,11 @@ class PaperLoop(ShadowLoop):
             "vwap": {"distance_atr": ctx.indicators.get("vwap_distance_atr"), "slope_atr": ctx.indicators.get("vwap_slope_atr")},
             "sweep": ctx.price_action.get("sweep"),  # R1 tracker: was a liquidity sweep on the trigger bar
             "regime": ctx.regime.get("primary"),  # R6 tracker: which regime label gated the trend families
+            # how many of the 11 families could route AT ALL in this regime. regime_incompatible
+            # is the engine's dominant rejection (358 across 76 of 81 routing failures as of
+            # 2026-10-09) and this is the number that explains it: COMPRESSION admits 1 family,
+            # LOW_VOLATILITY 4. Without it the ledger says "no_strategy_match" and stops there.
+            "routable_families": routable_families(ctx)[0],
             "score_components": dict(d.score.components) if d.score else None,
             "penalties": dict(d.score.penalties) if d.score else None,
             "ranked": d.ranked, "target_ref": d.target_ref,

@@ -25,9 +25,9 @@ from trading_bot.engine.option_select import SelectParams, decay_filter, select
 from trading_bot.engine.presignal import StageEvent
 from trading_bot.engine.rejections import Rejection
 from trading_bot.engine.risk_engine import AccountState, RiskDecision, RiskLimits, evaluate
-from trading_bot.engine.scoring import ExternalInputs, Score, rank, score
+from trading_bot.engine.scoring import ExternalInputs, Score, pre_selection_min, rank, score
 from trading_bot.engine.stops import Plan, PlanRejected, StopParams, build_plan
-from trading_bot.engine.strategies import Candidate, StrategyParams, route
+from trading_bot.engine.strategies import Candidate, StrategyParams, routable_families, route
 
 
 @dataclass(frozen=True)
@@ -128,6 +128,16 @@ class Decision:
             ex["Expected Value"] = f"Rs.{r.expected_value:.0f} at p={r.win_probability:.2f}, R:R {r.risk_reward:.2f}"
         elif p:
             ex["Risk"] = f"SL {p.option_stop:.2f} (underlying {p.stop_ref:.2f})"
+        # The real reason most setups die is regime coverage, so say it here rather than
+        # leaving the reader to infer it: how many families could route at all, and which
+        # was selected. This replaces a hardcoded label that wrongly described the strategy
+        # engines as an unbuilt milestone (see explain.py) - tests/test_engine_scoring_scale
+        # .py keeps that phrasing from coming back.
+        if self.routing_rejections or self.candidate:
+            routable, total = routable_families(ctx)
+            picked = self.candidate.strategy if self.candidate else "none"
+            ex["Strategy"] = (f"{ex['Strategy']}; {routable}/{total} families accept regime "
+                              f"{ctx.regime.get('primary', 'n/a')}; selected={picked}")
         if self.approved:
             ex["Decision"] = f"{r.decision} - {r.tier} - {r.quantity} x {o.contract.tradingsymbol}"
         else:
@@ -170,7 +180,11 @@ def decide(ctx: ContextSnapshot, event: StageEvent, *, setup_evidence: int, fami
     scored = [(c, score(ctx, c)) for c in rr.candidates]
     shadow = set(p.shadow_strategies)
     live = [cs for cs in scored if cs[0].strategy not in shadow]
-    ranked = rank(live, open_directions=account.open_directions, max_selected=1, min_score=p.min_score) if live else []
+    # min_score on the provisional scale: liquidity_execution and option_quality cannot
+    # be earned before a strike exists, so a 0-100 threshold silently cost 10 points here.
+    # The full p.min_score is re-applied after option selection below.
+    ranking_min = pre_selection_min(p.min_score)
+    ranked = rank(live, open_directions=account.open_directions, max_selected=1, min_score=ranking_min) if live else []
     chosen = next((r for r in ranked if r.selected), None)
     if chosen is None and len(live) < len(scored):
         # no executable family made it: let a shadow family through so its evidence is journaled (never executed)
