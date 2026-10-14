@@ -118,10 +118,13 @@ def test_rejections_carry_stage_and_reason():
                   account=AccountState(equity=50000.0, daily_lock=True), params=_params())
     assert lock.stage_reached == "RISK_ENGINE" and lock.reason_code == "daily_loss_lock" and lock.status == "risk_rejected"
     assert lock.plan is not None and lock.option is not None  # everything up to risk was evaluated and kept
-    # late in the day: no chase
-    late = decide(_ctx(ts=dt.datetime(2026, 9, 16, 15, 12, tzinfo=IST), session_phase="15:00-15:30"), _event(),
+    # Late in the day: no chase. 15:12 until 2026-10-14, when base_move_atr was
+    # corrected from a guessed 1.5 to a measured 4.0 and that minute's estimate rose
+    # to 0.798 ATR - just over the 0.75 bar, so it legitimately passes now. 15:18
+    # leaves 0.399 ATR and is still refused, which is the behaviour this pins.
+    late = decide(_ctx(ts=dt.datetime(2026, 9, 16, 15, 18, tzinfo=IST), session_phase="15:00-15:30"), _event(),
                   setup_evidence=5, family_hint=None, chain=_chain(), account=acct, params=_params())
-    assert late.stage_reached == "NO_CHASE"
+    assert late.stage_reached == "NO_CHASE" and late.reason_code == "insufficient_remaining_move"
 
 
 def test_counter_trend_needs_the_evidence_bar():
