@@ -94,6 +94,11 @@ NUMERIC_BOUNDS = {
     # to prevent. 0.35 (the 2026-10-06 force-fills experiment) sits just above it.
     "TECH_MIN_REMAINING_ATR": (0.2, 2.0),
     "TECH_MAX_CONSUMED_ATR": (1.0, 4.0),
+    # §21 expected-move scale, measured 2026-10-14: one-way travel medians were
+    # 4.33/6.80/8.83 ATR and full-day ranges 9.45/12.13/12.24, so anything far
+    # outside these bands is a typo, not a judgement.
+    "TECH_BASE_MOVE_ATR": (1.0, 8.0),
+    "TECH_DAILY_RANGE_ATR_CAP": (4.0, 20.0),
     "TECH_TELEGRAM_MAX_ALERTS_PER_HOUR": (1, 60),
     # --- M2 pipeline / paper ---
     "TECH_MIN_SCORE": (20, 90),

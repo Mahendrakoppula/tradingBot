@@ -21,9 +21,34 @@ from trading_bot.engine.strategies.base import Candidate, sign
 
 @dataclass(frozen=True)
 class MoveParams:
-    base_move_atr: float = 1.5  # expected remaining range over a full session, in ATR(5m)
-    daily_range_atr_cap: float = 6.0  # typical full-day range in 5m ATRs; consumed share shrinks the estimate
-    min_time_fraction: float = 0.15  # never expect less than this share of the base move
+    # MEASURED 2026-10-14 over 17 sessions of stored 5m candles, NIFTY/BANKNIFTY/SENSEX.
+    # Both of these were guesses and both were low, in the same direction, so they
+    # compounded: a too-small daily_range_atr_cap inflates the "range already used"
+    # share, which shrinks range_scale, which shrinks the estimate again.
+    #
+    #                              was   measured median (BN / NIFTY / SENSEX)
+    #   full-day range             6.0    9.45 / 12.13 / 12.24
+    #   one-day directional travel 1.5    4.33 /  6.80 /  8.83
+    #
+    # base_move_atr is a DIRECTIONAL expectation, so it is set from the travel row,
+    # not the range row, and to the lowest of the three medians rather than the
+    # average - this gate exists to refuse entries with no room left and it should
+    # keep refusing them.
+    #
+    # What the old 1.5 did NOT do is make the no-chase gate unreachable. The journaled
+    # rejections run 0.01-0.69 ATR against a 0.75 bar, which invites that reading, but
+    # that set is by definition everything BELOW the bar, so its maximum always sits
+    # just under it; signals above it passed and went deeper. The real cost is that a
+    # whole session with neutral conditions was expected to travel about one ATR when
+    # the measured median is 4.33-8.83, and that understatement flows into every
+    # target, decay-filter and expected-value calculation in the pipeline.
+    base_move_atr: float = 4.0  # expected one-way move over a full session, in ATR(5m)
+    daily_range_atr_cap: float = 10.0  # typical full-day RANGE in 5m ATRs; consumed share shrinks the estimate
+    # Scaled with base_move_atr on 2026-10-14 to hold the ABSOLUTE floor constant:
+    # it was 0.15 x 1.5 = 0.225 ATR, and leaving it at 0.15 against a base of 4.0
+    # would have raised the floor to 0.6 ATR - enough that the no-chase gate could
+    # barely refuse a dead late session on time alone, which is its main job.
+    min_time_fraction: float = 0.056  # 0.056 x 4.0 = 0.225 ATR, as before
     eod_cutoff: dt.time = dt.time(15, 20)  # no move counted after the flatten time
     regime_mult: dict | None = None  # overrides for REGIME_MULT
     min_remaining_atr: float = 0.75  # §22 reject below this

@@ -158,6 +158,10 @@ class EngineConfig:
     # are the previous hardcoded values, so an unset env var changes nothing.
     min_remaining_atr: float = 0.75
     max_consumed_atr: float = 2.0
+    # §21 expected-move scale. Measured from stored candles, not guessed - see
+    # expected_move.MoveParams for the measurement and why both were wrong low.
+    base_move_atr: float = 4.0
+    daily_range_atr_cap: float = 10.0
 
     @property
     def can_place_live_orders(self) -> bool:
@@ -218,6 +222,8 @@ class EngineConfig:
             level_proximity_atr=_float("TECH_LEVEL_PROXIMITY_ATR", "0.5"),
             min_remaining_atr=_float("TECH_MIN_REMAINING_ATR", "0.75"),
             max_consumed_atr=_float("TECH_MAX_CONSUMED_ATR", "2.0"),
+            base_move_atr=_float("TECH_BASE_MOVE_ATR", "4.0"),
+            daily_range_atr_cap=_float("TECH_DAILY_RANGE_ATR_CAP", "10.0"),
             telegram_max_alerts_per_hour=_int("TECH_TELEGRAM_MAX_ALERTS_PER_HOUR", "12"),
             # Full-day closures for THIS process's exchange, from the published
             # calendar in trading_bot/holidays.py. TECH_HOLIDAYS is ADDITIVE on

@@ -91,9 +91,17 @@ def test_distance_check_blocks_or_downgrades_target():
     em = estimate(ctx, _cand(target=SPOT + 30))
     ok = distance_check(ctx, _cand(target=SPOT + 30), em)
     assert ok.ok and ok.blocked_by is None and ok.target_ref == SPOT + 30
-    # a target far beyond the realistic move is pulled back to the expected-move boundary
-    far = distance_check(ctx, _cand(target=SPOT + 60), estimate(ctx, _cand(target=SPOT + 60)))
-    assert far.ok and far.blocked_by == "expected_move_boundary" and far.target_ref < SPOT + 60
+    # A target far beyond the realistic move is pulled back to the expected-move
+    # boundary. The numbers moved on 2026-10-14 when base_move_atr was corrected from
+    # a guessed 1.5 to a measured 4.0: SPOT+60 used to sit beyond the boundary and now
+    # sits inside it, which is the correction working rather than the gate breaking.
+    # The level is pushed out of the way so this exercises the BOUNDARY and not the
+    # nearest-level block, which pdh would otherwise win.
+    open_road = _ctx(levels={**ctx.levels,
+                             "nearest_above": {"name": "pwh", "price": SPOT + 200, "distance": 200,
+                                               "distance_atr": 10.0, "touches": 1}})
+    far = distance_check(open_road, _cand(target=SPOT + 160), estimate(open_road, _cand(target=SPOT + 160)))
+    assert far.ok and far.blocked_by == "expected_move_boundary" and far.target_ref < SPOT + 160
     blocked = _ctx(levels={**ctx.levels, "nearest_above": {"name": "swing_high", "price": SPOT + 5, "distance_atr": 0.25}})
     b = distance_check(blocked, _cand(), estimate(blocked, _cand()))
     assert not b.ok and b.reason_code == "target_blocked_by_level" and b.blocked_by == "swing_high"
