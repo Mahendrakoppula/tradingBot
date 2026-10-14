@@ -162,6 +162,10 @@ class EngineConfig:
     # expected_move.MoveParams for the measurement and why both were wrong low.
     base_move_atr: float = 4.0
     daily_range_atr_cap: float = 10.0
+    # §23: let a target reach the next structural level instead of being truncated at
+    # the expected-move boundary. False restores the pre-2026-10-14 behaviour.
+    allow_structural_target: bool = True
+    ev_win_prob_from_rr: bool = True
 
     @property
     def can_place_live_orders(self) -> bool:
@@ -224,6 +228,8 @@ class EngineConfig:
             max_consumed_atr=_float("TECH_MAX_CONSUMED_ATR", "2.0"),
             base_move_atr=_float("TECH_BASE_MOVE_ATR", "4.0"),
             daily_range_atr_cap=_float("TECH_DAILY_RANGE_ATR_CAP", "10.0"),
+            allow_structural_target=_bool("TECH_ALLOW_STRUCTURAL_TARGET", "true"),
+            ev_win_prob_from_rr=_bool("TECH_EV_WIN_PROB_FROM_RR", "true"),
             telegram_max_alerts_per_hour=_int("TECH_TELEGRAM_MAX_ALERTS_PER_HOUR", "12"),
             # Full-day closures for THIS process's exchange, from the published
             # calendar in trading_bot/holidays.py. TECH_HOLIDAYS is ADDITIVE on
