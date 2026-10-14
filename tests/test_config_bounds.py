@@ -252,6 +252,48 @@ def test_portfolio_heat_does_not_silently_cap_per_trade_risk():
     assert heat >= risk * positions, f"heat {heat} < risk {risk} x positions {positions}"
 
 
+def test_capital_permits_a_stop_as_wide_as_the_stop_plan_allows():
+    """The two gates must be satisfiable together. Measured live on 2026-10-14
+    against the 19-Oct chain at spot 22,641: one NIFTY lot (65) near ATM costs
+    Rs.7,137-12,327, and at Rs.50,000 capital a 3% risk budget (Rs.1,500) let the
+    option fall only ~1.7 ATR of underlying - while stops.max_stop_atr accepts up
+    to 2.5 ATR. Anything between passed stop_too_wide and then failed
+    one_lot_exceeds_max_risk, so no setup in that band could ever be sized.
+
+    This pins the invariant rather than the number: whatever capital and risk
+    percentage are set, the per-trade budget must cover a stop at the full width
+    the stop planner is willing to approve.
+    """
+    from trading_bot.engine.stops import StopParams
+
+    capital = float(CONFIG["TECH_CAPITAL"])
+    risk_pct = float(CONFIG["TECH_RISK_PER_TRADE_PCT"])
+    # a representative near-ATM NIFTY option, from the live chain on 2026-10-14
+    lot_size, premium, delta, atr = 65, 133.75, 0.512, 26.06
+    max_stop_atr = StopParams().max_stop_atr
+
+    permitted = capital * risk_pct
+    # a stop max_stop_atr wide moves the option by delta x that distance
+    loss_at_widest = max_stop_atr * atr * delta * lot_size
+    assert permitted >= loss_at_widest, (
+        f"Rs.{permitted:,.0f} permitted per trade cannot cover a {max_stop_atr} ATR stop on one "
+        f"lot (Rs.{loss_at_widest:,.0f}). Raise TECH_CAPITAL, raise TECH_RISK_PER_TRADE_PCT, or "
+        f"lower stops.max_stop_atr - otherwise stop_too_wide and one_lot_exceeds_max_risk "
+        f"disagree and setups between the two are unsizeable.")
+
+
+def test_one_lot_is_not_an_outsized_share_of_the_account():
+    """The other side of the same coin: capital high enough to size a lot, but not
+    so low that a single lot is most of the account. 35% is option_select's own
+    hard filter (max_premium_pct_of_capital)."""
+    from trading_bot.engine.option_select import SelectParams
+
+    capital = float(CONFIG["TECH_CAPITAL"])
+    dearest_lot = 12327.0  # 22550 CE on the 2026-10-14 chain, the priciest near-ATM lot
+    assert dearest_lot <= SelectParams().max_premium_pct_of_capital * capital
+    assert dearest_lot / capital < 0.10, "a near-ATM lot should be a position, not the account"
+
+
 def test_tech_session_times_are_ordered():
     assert CONFIG["TECH_EOD_CUTOFF"] < CONFIG["TECH_SESSION_END"] <= CONFIG["TECH_EOD_SUMMARY_TIME"]
 
