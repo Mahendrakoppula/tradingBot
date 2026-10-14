@@ -100,7 +100,13 @@ def test_distance_check_blocks_or_downgrades_target():
     open_road = _ctx(levels={**ctx.levels,
                              "nearest_above": {"name": "pwh", "price": SPOT + 200, "distance": 200,
                                                "distance_atr": 10.0, "touches": 1}})
-    far = distance_check(open_road, _cand(target=SPOT + 160), estimate(open_road, _cand(target=SPOT + 160)))
+    # The boundary truncation is OFF by default from 2026-10-14 (MoveParams
+    # .allow_structural_target) because it capped reward by a time-decaying estimate
+    # while risk stayed structural. This still pins the old path, which remains
+    # reachable; tests/test_engine_structural_targets.py covers the new default.
+    legacy = MoveParams(allow_structural_target=False)
+    far = distance_check(open_road, _cand(target=SPOT + 160),
+                         estimate(open_road, _cand(target=SPOT + 160), legacy), legacy)
     assert far.ok and far.blocked_by == "expected_move_boundary" and far.target_ref < SPOT + 160
     blocked = _ctx(levels={**ctx.levels, "nearest_above": {"name": "swing_high", "price": SPOT + 5, "distance_atr": 0.25}})
     b = distance_check(blocked, _cand(), estimate(blocked, _cand()))

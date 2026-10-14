@@ -55,6 +55,20 @@ class MoveParams:
     max_consumed_atr: float = 2.0  # §22 "extension": how far past the origin level the move has run
     max_vwap_distance_atr: float = 2.5
     blocked_level_atr: float = 0.5  # §23 target blocked if an opposing level sits within this
+    # MEASURED 2026-10-14 over 214 journaled signals (symmetric barrier race on the
+    # underlying, stop fixed at 1 ATR, 60 bars of 5m). Target-first rate against the
+    # rate EV needs, p > 1/(1+RR):
+    #
+    #   R:R   n    target_first   p needed   edge
+    #   1.0  214      50.5%        50.0%     +0.5%
+    #   2.0  214      36.4%        33.3%     +3.1%
+    #   3.0  210      31.0%        25.0%     +6.0%
+    #   4.0  207      26.6%        20.0%     +6.6%   <- clears 1.96 SE
+    #
+    # The win rate decays MORE SLOWLY than the ratio demands, monotonically, so
+    # truncating the target at the expected-move boundary was discarding the only
+    # measured edge in the system. False keeps the old truncation for comparison.
+    allow_structural_target: bool = True
 
 
 REGIME_MULT = {
@@ -185,7 +199,11 @@ def distance_check(ctx: ContextSnapshot, cand: Candidate, em: ExpectedMove, para
             return LevelCheck(False, "target_blocked_by_level", cand.target_ref, d_target, ahead["name"])
         if d_level < d_target and ahead["price"] != cand.target_ref:
             return LevelCheck(True, None, float(ahead["price"]), d_level, ahead["name"])
-    if em.remaining_atr < d_target * 0.5:
+    if not p.allow_structural_target and em.remaining_atr < d_target * 0.5:
+        # Pre-2026-10-14 behaviour. It capped REWARD by a time-decaying estimate while
+        # RISK stayed structural, so late in the session R:R collapsed and EV was
+        # negative by construction however good the setup was. no_chase above is the
+        # time guard; applying the same estimate again here charged for it twice.
         return LevelCheck(True, None, em.boundary, em.remaining_atr, "expected_move_boundary")
     return LevelCheck(True, None, cand.target_ref, d_target, None)
 

@@ -3,6 +3,8 @@ import datetime as dt
 
 from trading_bot.costs import CostRates
 from trading_bot.engine.option_chain import OptionQuote
+import pytest
+
 from trading_bot.engine.risk_engine import AccountState, RiskLimits, evaluate, record_result
 from trading_bot.engine.stops import Plan
 from trading_bot.options import OptionContract
@@ -38,7 +40,17 @@ def test_approved_trade_sizes_after_all_in_costs_and_reports_everything():
     assert c.brokerage == 40.0 and c.stt > 0 and c.exchange > 0 and c.sebi > 0 and c.gst > 0 and c.stamp > 0
     assert c.spread == 0.5 * d.quantity and c.slippage == 0.25 * d.quantity
     assert d.net_expected_profit < d.gross_expected_profit and d.expected_value > 0 and d.risk_reward > 1
-    assert d.tier in ("A", "B") and d.win_probability == 0.45
+    # win_probability is no longer a flat 0.45: from 2026-10-14 it falls with R:R on
+    # the measured curve (RiskLimits.ev_win_prob_from_rr), because a longer target is
+    # genuinely less likely and a fixed p would manufacture EV. EV stays positive here
+    # precisely because the ratio is high enough to earn it.
+    lim = RiskLimits()
+    expected_p = lim.ev_p_at_rr1 * d.risk_reward ** -lim.ev_p_rr_decay
+    assert d.tier in ("A", "B")
+    # tolerance, not precision: risk_reward is rounded to 2dp on the decision while p
+    # is computed from the unrounded ratio, so these agree to ~1e-4, not exactly.
+    assert d.win_probability == pytest.approx(expected_p, abs=1e-3)
+    assert d.win_probability < 0.45, "a target beyond 1 R:R must be scored as less likely"
 
 
 def test_one_lot_over_budget_is_rejected_not_resized_upward():

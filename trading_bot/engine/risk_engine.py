@@ -38,6 +38,22 @@ class RiskLimits:
     tier_b_min_score: int = 70
     min_rr: float = 1.0  # a floor, not a target (§28: R:R is only one factor)
     ev_win_prob_default: float = 0.45  # until fingerprint stats exist (§30 "historical expectancy")
+    # A flat win probability is wrong once the target is allowed to reach structure: a
+    # 4 ATR target is not as likely as a 1 ATR one, and holding p fixed would inflate EV
+    # with reward that is less likely to be collected. Fitted to the 2026-10-14
+    # measurement (see expected_move.MoveParams): p = p1 * rr ** -decay reproduces the
+    # measured rates to within 0.5pp at every ratio tested -
+    #   rr 1.5 -> 42.0% (measured 42.1%)   rr 2.0 -> 37.0% (36.4%)
+    #   rr 3.0 -> 31.1% (31.0%)            rr 4.0 -> 27.1% (26.6%)
+    # n=207-214 over one falling market, so it is a working model, not a law.
+    ev_win_prob_from_rr: bool = True
+    ev_p_at_rr1: float = 0.505   # measured target-first rate at R:R 1.0
+    ev_p_rr_decay: float = 0.45  # exponent
+    # The measurement covers R:R 1.0-4.0 ONLY. Below 1.0 the power law extrapolates to
+    # p=0.71 at rr=0.48 - a 71% win rate asserted from no data, which would wave through
+    # exactly the low-R:R trades this change exists to avoid. Outside the measured band
+    # fall back to the flat default rather than trusting the curve.
+    ev_p_rr_min: float = 1.0
     slippage_pct_of_spread: float = 0.5
 
 
@@ -200,9 +216,16 @@ def evaluate(plan: Plan, quote: OptionQuote, account: AccountState, limits: Risk
     gross_profit = plan.reward1_per_unit * qty
     net_profit = gross_profit - win_costs.total
     net_loss = planned_loss
-    p = limits.ev_win_prob_default if win_probability is None else max(0.0, min(1.0, win_probability))
-    ev = p * net_profit - (1.0 - p) * net_loss
     rr = net_profit / net_loss if net_loss > 0 else 0.0
+    if win_probability is not None:
+        p = max(0.0, min(1.0, win_probability))
+    elif limits.ev_win_prob_from_rr and rr >= limits.ev_p_rr_min:
+        # measured decay, not a constant - see RiskLimits.ev_win_prob_from_rr. Only
+        # inside the band the measurement actually covers.
+        p = max(0.05, min(0.95, limits.ev_p_at_rr1 * rr ** -limits.ev_p_rr_decay))
+    else:
+        p = limits.ev_win_prob_default
+    ev = p * net_profit - (1.0 - p) * net_loss
     checks.update({"net_profit": round(net_profit, 2), "net_loss": round(net_loss, 2), "ev": round(ev, 2), "rr": round(rr, 2), "p": p})
     if ev <= 0:
         return RiskDecision("REJECTED", "negative_expected_value", 0, 0, lot, round(rpu, 2), round(planned_loss, 2),
