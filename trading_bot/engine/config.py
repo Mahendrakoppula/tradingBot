@@ -166,6 +166,10 @@ class EngineConfig:
     # the expected-move boundary. False restores the pre-2026-10-14 behaviour.
     allow_structural_target: bool = True
     ev_win_prob_from_rr: bool = True
+    # §21/§22: whether an intraday session extreme blocks the move estimate as hard as a
+    # prior-day/week extreme does. It did until 2026-10-15, which refused 45% of no-chase
+    # rejections at the very level their setup existed to break. True restores that.
+    session_extremes_are_strong: bool = False
 
     @property
     def can_place_live_orders(self) -> bool:
@@ -230,6 +234,7 @@ class EngineConfig:
             daily_range_atr_cap=_float("TECH_DAILY_RANGE_ATR_CAP", "10.0"),
             allow_structural_target=_bool("TECH_ALLOW_STRUCTURAL_TARGET", "true"),
             ev_win_prob_from_rr=_bool("TECH_EV_WIN_PROB_FROM_RR", "true"),
+            session_extremes_are_strong=_bool("TECH_SESSION_EXTREMES_ARE_STRONG", "false"),
             telegram_max_alerts_per_hour=_int("TECH_TELEGRAM_MAX_ALERTS_PER_HOUR", "12"),
             # Full-day closures for THIS process's exchange, from the published
             # calendar in trading_bot/holidays.py. TECH_HOLIDAYS is ADDITIVE on

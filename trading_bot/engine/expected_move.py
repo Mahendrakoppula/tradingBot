@@ -69,6 +69,33 @@ class MoveParams:
     # truncating the target at the expected-move boundary was discarding the only
     # measured edge in the system. False keeps the old truncation for comparison.
     allow_structural_target: bool = True
+    # MEASURED 2026-10-15 over the 212 journaled rejections. The level-cap below gave
+    # ZERO credit for continuing through a "strong" level, and session_high/session_low
+    # were on that list beside pdh/pdl/pwh/pwl. They do not belong there:
+    #
+    #   14 of the 31 insufficient_remaining_move rejections (45%) were setups whose
+    #   nearest level ahead WAS the session extreme, truncated to exactly that distance
+    #   - 0.01 to 0.39 ATR - and then refused for having less than 0.75 ATR of room.
+    #   Ten of the fourteen had 71-94% of the SESSION still left.
+    #
+    # The failure is circular. A breakout or rejection setup fires AT the session
+    # extreme by construction, so the level it intends to break is always the level
+    # the estimate caps it at - and the gate that asks "is there room to move?" is
+    # answered with "no" by the very thing that makes the setup a setup. It hit
+    # LEVEL_REJECTION x7, COMPRESSION_BREAKOUT x2, ORB, MOMENTUM_EXPANSION,
+    # VWAP_RECLAIM and MTF_CONFLUENCE.
+    #
+    # A prior-day or prior-week extreme has a completed session of acceptance behind
+    # it. An intraday extreme twenty minutes old does not, and the day's range expands
+    # THROUGH it all session by definition. So session extremes move to the weak tier
+    # (40% credit beyond), not out of the cap entirely. True restores the old tiering.
+    session_extremes_are_strong: bool = False
+
+    @property
+    def strong_level_names(self) -> tuple[str, ...]:
+        """Levels that get no credit for a move continuing through them."""
+        base = ("pdh", "pdl", "pwh", "pwl")
+        return base + (("session_high", "session_low") if self.session_extremes_are_strong else ())
 
 
 REGIME_MULT = {
@@ -130,7 +157,7 @@ def estimate(ctx: ContextSnapshot, cand: Candidate, params: MoveParams | None = 
     ahead = ctx.nearest("above" if cand.direction == "up" else "below")
     if ahead and ahead.get("distance_atr") is not None and abs(ahead["distance_atr"]) < remaining_atr:
         # the first level caps it unless the move is a breakout THROUGH it: keep 60% credit beyond a weak level
-        strong = ahead["name"] in ("pdh", "pdl", "pwh", "pwl", "session_high", "session_low")
+        strong = ahead["name"] in p.strong_level_names
         remaining_atr = abs(ahead["distance_atr"]) + (0.0 if strong else 0.4 * (remaining_atr - abs(ahead["distance_atr"])))
         notes.append(f"capped by {ahead['name']}")
 
