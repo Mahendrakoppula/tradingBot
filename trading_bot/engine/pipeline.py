@@ -54,6 +54,7 @@ class PipelineParams:
                                daily_range_atr_cap=cfg.daily_range_atr_cap,
                                allow_structural_target=cfg.allow_structural_target,
                                session_extremes_are_strong=cfg.session_extremes_are_strong),
+            stops=StopParams(min_stop_atr=cfg.min_stop_atr, max_stop_atr=cfg.max_stop_atr),
             select=SelectParams(delta_min=cfg.option_delta_min, delta_max=cfg.option_delta_max,
                                 delta_target=cfg.option_delta_target, max_otm_pct=cfg.option_max_otm_pct,
                                 otm_target_pct=(cfg.option_otm_target_pct if cfg.option_otm_target_pct >= 0 else None),

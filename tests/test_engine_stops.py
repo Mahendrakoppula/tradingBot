@@ -48,8 +48,14 @@ def test_plan_translates_structural_stop_to_option_scale():
 def test_plan_widens_tiny_stops_and_rejects_huge_ones():
     tiny = build_plan(_ctx(), _cand(sl=SPOT - 2), option_entry=150.0, delta=0.5, gamma=0.002)
     assert isinstance(tiny, Plan) and tiny.stop_atr == 0.3 and "widened" in tiny.notes[0]
-    huge = build_plan(_ctx(), _cand(sl=SPOT - 80), option_entry=150.0, delta=0.5, gamma=0.002)
+    # Derived from the configured bound, not a magic number: this asserted 80 pts
+    # (4.0 ATR) while max_stop_atr was 2.5, and 4.0 ATR is a stop the risk budget
+    # can carry - see test_engine_stop_width.py for why the bound moved to 5.0.
+    over = (StopParams().max_stop_atr + 1.0) * ATR
+    huge = build_plan(_ctx(), _cand(sl=SPOT - over), option_entry=150.0, delta=0.5, gamma=0.002)
     assert isinstance(huge, PlanRejected) and huge.reason_code == "stop_too_wide"
+    inside = build_plan(_ctx(), _cand(sl=SPOT - 80), option_entry=150.0, delta=0.5, gamma=0.002)
+    assert isinstance(inside, Plan) and inside.stop_atr == 4.0
     bad_t = build_plan(_ctx(), _cand(target=SPOT - 5), option_entry=150.0, delta=0.5, gamma=0.002)
     assert isinstance(bad_t, PlanRejected) and bad_t.reason_code == "target_not_beyond_entry"
     assert build_plan(_ctx(indicators={"atr": None}), _cand(), option_entry=150.0, delta=0.5, gamma=0.002).reason_code == "no_atr"

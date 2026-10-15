@@ -170,6 +170,11 @@ class EngineConfig:
     # prior-day/week extreme does. It did until 2026-10-15, which refused 45% of no-chase
     # rejections at the very level their setup existed to break. True restores that.
     session_extremes_are_strong: bool = False
+    # §26 stop width. Hardcoded in StopParams until 2026-10-15, where 2.5 ATR rejected
+    # the two highest-scoring signals ever journaled before sizing or EV could price
+    # them. See stops.StopParams for the derivation of 5.0.
+    min_stop_atr: float = 0.3
+    max_stop_atr: float = 5.0
 
     @property
     def can_place_live_orders(self) -> bool:
@@ -235,6 +240,8 @@ class EngineConfig:
             allow_structural_target=_bool("TECH_ALLOW_STRUCTURAL_TARGET", "true"),
             ev_win_prob_from_rr=_bool("TECH_EV_WIN_PROB_FROM_RR", "true"),
             session_extremes_are_strong=_bool("TECH_SESSION_EXTREMES_ARE_STRONG", "false"),
+            min_stop_atr=_float("TECH_MIN_STOP_ATR", "0.3"),
+            max_stop_atr=_float("TECH_MAX_STOP_ATR", "5.0"),
             telegram_max_alerts_per_hour=_int("TECH_TELEGRAM_MAX_ALERTS_PER_HOUR", "12"),
             # Full-day closures for THIS process's exchange, from the published
             # calendar in trading_bot/holidays.py. TECH_HOLIDAYS is ADDITIVE on

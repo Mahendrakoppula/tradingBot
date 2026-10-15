@@ -29,7 +29,28 @@ EXIT_REASONS: tuple[str, ...] = (
 @dataclass(frozen=True)
 class StopParams:
     min_stop_atr: float = 0.3  # a stop tighter than this is noise, widen to it (still structural: it is the buffer)
-    max_stop_atr: float = 2.5  # wider than this and the setup is not worth pricing - reject, never shrink
+    # MEASURED 2026-10-15. This was 2.5 and hardcoded, and it killed the two
+    # HIGHEST-SCORING signals in the engine's history - NIFTY score 72 and SENSEX
+    # score 64, both PDH_PDL_TRAP, both 2026-10-08 09:35, at 3.43 and 4.23 ATR.
+    #
+    # A wide stop is not itself a risk. Sizing (spec 27) converts stop width into
+    # QUANTITY, and what actually binds is whether one lot fits the risk budget -
+    # which is instrument-specific, while an ATR cap is instrument-blind:
+    #
+    #   budget Rs.6,000 (capital 200k x 3%), delta ~0.45
+    #     NIFTY      lot 65, ATR 28.4 -> 205 pts = 7.22 ATR
+    #     BANKNIFTY  lot 35, ATR 85.0 -> 381 pts = 4.48 ATR
+    #     SENSEX     lot 20, ATR 95.0 -> 667 pts = 7.02 ATR
+    #
+    # So 2.5 was 2-3x tighter than the budget required, and it pre-empted the two
+    # gates that measure the thing exactly: one_lot_exceeds_max_risk (spec 27) and
+    # expected value (spec 25). A crude proxy firing before a precise test.
+    #
+    # What remains is a SANITY bound: an invalidation this far away is not a
+    # structural stop at all. It is set from measured data rather than taste - half
+    # the measured median full-day range (expected_move.daily_range_atr_cap = 10.0).
+    # Both historical rejections sit inside it; sizing and EV now judge them.
+    max_stop_atr: float = 5.0  # sanity bound only - never shrink a stop to fit, reject beyond it
     target2_extension: float = 1.6  # TP2 = entry + 1.6 x (TP1 - entry) unless a level caps it
     extended_target_atr: float = 3.0
     partial_at_target1_pct: float = 0.5  # share of quantity taken at TP1 (rest trails)
