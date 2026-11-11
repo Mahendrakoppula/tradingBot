@@ -203,6 +203,24 @@ class PaperLoop(ShadowLoop):
                 self.broker.set_quote(q.contract.token, q.bid, q.ask, q.ltp)
         return c
 
+    def _sync_fill_quotes(self, u: str, spot_now: float | None) -> None:
+        """Push spot-advanced quotes to the broker so a fill cannot be priced at
+        a spot the engine has already moved past.
+
+        Deliberately does NOT write back into `cache.quotes`: that dict is what
+        gets journaled to option_chain_snapshots, which must hold observed
+        quotes only. This is a fill-path correction, not market data.
+        """
+        if not self.cfg.fill_sync_to_spot or self.broker is None or self.chains is None or spot_now is None:
+            return
+        c = self.chains.caches.get(u)
+        if c is None:
+            return
+        for q in c.quotes.values():
+            adj = q.advanced_to(spot_now)
+            if adj is not q:
+                self.broker.set_quote(adj.contract.token, adj.bid, adj.ask, adj.ltp)
+
     def _on_bar(self, token: str, tf: str, bar: Candle, now: dt.datetime) -> None:
         inst = self.by_token[token]
         if inst.role == "spot":
@@ -443,8 +461,13 @@ class PaperLoop(ShadowLoop):
     # --- positions -----------------------------------------------------------------------------------
 
     def _manage(self, u: str, ctx: ContextSnapshot, now: dt.datetime) -> None:
+        # Exits are judged on ctx.spot - the 1m bar close in the _on_bar path -
+        # but the chain only refreshes every TECH_CHAIN_REFRESH_SECONDS, so the
+        # quote behind the limit price AND the broker's fill can predate the move
+        # that triggers the exit. Carry both to this spot first.
+        self._sync_fill_quotes(u, ctx.spot)
         for pos in self.book.by_underlying(u):
-            bid, spread_pct = self._option_bid(pos)
+            bid, spread_pct = self._option_bid(pos, ctx.spot)
             if bid is None:
                 continue
             eod = ctx.ts.time() >= self.cfg.eod_cutoff
@@ -453,11 +476,13 @@ class PaperLoop(ShadowLoop):
             if sig is not None:
                 self._exit(pos, sig, bid, now)
 
-    def _option_bid(self, pos: Position) -> tuple[float | None, float | None]:
+    def _option_bid(self, pos: Position, spot_now: float | None = None) -> tuple[float | None, float | None]:
         if self.chains is not None:
             c = self.chains.caches.get(pos.underlying)
             q = c.quotes.get(pos.token) if c else None
             if q is not None and q.bid > 0:
+                if self.cfg.fill_sync_to_spot:
+                    q = q.advanced_to(spot_now)
                 return q.bid, q.spread_pct
         if self.broker is not None:
             q = self.broker.quote(pos.token)
@@ -511,7 +536,11 @@ class PaperLoop(ShadowLoop):
             return
         bids = {}
         for pos in self.book.open.values():
-            b, _ = self._option_bid(pos)
+            # same correction as _manage: on_exit_filled books P&L against
+            # last_spot, so the bid must be priced at that spot too
+            spot_now = self.last_spot.get(pos.underlying)
+            self._sync_fill_quotes(pos.underlying, spot_now)
+            b, _ = self._option_bid(pos, spot_now)
             if b is not None:
                 bids[pos.token] = b
         for pos, req in self.book.eod_exit_requests(bids):
@@ -532,7 +561,7 @@ class PaperLoop(ShadowLoop):
             for _ in range(3):
                 self._poll_orders(now + dt.timedelta(seconds=5))
             for pos in list(self.book.open.values()):
-                bid, _ = self._option_bid(pos)
+                bid, _ = self._option_bid(pos, self.last_spot.get(pos.underlying))
                 if bid is None:
                     bid = pos.entry_price
                 if pos.pending_exit is not None:

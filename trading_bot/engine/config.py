@@ -141,6 +141,7 @@ class EngineConfig:
     option_dte_max: int = 14
     option_expiry_day_allowed: bool = False
     chain_refresh_seconds: int = 60
+    fill_sync_to_spot: bool = True  # re-price the fill quote to the spot that triggered the order (see OptionQuote.advanced_to)
     chain_strikes_each_side: int = 6
     # phase 24: strategies that run the full pipeline and are journaled as valid
     # signals but are never executed in PAPER (nor, later, LIVE)
@@ -272,6 +273,7 @@ class EngineConfig:
             option_dte_max=_int("TECH_OPTION_DTE_MAX", "14"),
             option_expiry_day_allowed=_bool("TECH_OPTION_EXPIRY_DAY_ALLOWED", "false"),
             chain_refresh_seconds=_int("TECH_CHAIN_REFRESH_SECONDS", "60"),
+            fill_sync_to_spot=_bool("TECH_FILL_SYNC_TO_SPOT", "true"),
             chain_strikes_each_side=_int("TECH_CHAIN_STRIKES_EACH_SIDE", "6"),
             shadow_strategies=_csv("TECH_SHADOW_STRATEGIES", ""),
             counter_trend_veto_tfs=tuple(t.strip().lower() for t in os.environ.get("TECH_COUNTER_TREND_VETO_TFS", "30m").split(",") if t.strip()),
