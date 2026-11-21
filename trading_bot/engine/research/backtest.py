@@ -195,6 +195,11 @@ def run_backtest(cfg, instruments: list[Instrument], source: CandleSource, start
         run_id = uuid.uuid5(uuid.NAMESPACE_URL, f"backtest/{day.isoformat()}/{profile}")
         loop = PaperLoop(cfg, dal, instruments, src, clock.now, None, stores, run_id=run_id, git_sha="backtest",
                          chains=chains, broker=broker, pipeline=pipeline, execute=True)
+        # Replay polls orders only when the next synthetic tick arrives (replay.TICK_OFFSETS_S: 0/15/30/59 s),
+        # so request->fill "latency" is the tick spacing, not broker latency. Left at the live 5 s threshold,
+        # the very first fill of every replayed day tripped the execution circuit breaker and blocked every
+        # later entry that day - a replay artifact the live loop (polled many times a second) never has.
+        loop.osm.latency_threshold_ms = 120_000
         # carry the account across days; reset the daily tallies (§34)
         iso_week = day.isocalendar()[:2]
         if week != iso_week:
@@ -203,6 +208,11 @@ def run_backtest(cfg, instruments: list[Instrument], source: CandleSource, start
             week = iso_week
         account.realized_today = 0.0
         account.trades_today = 0
+        # The live engine rebuilds the loss streak from TODAY's trade results at every start
+        # (recovery.recover), so the streak lock is a per-day rule there. Carried across days
+        # here, three losses in a row locked the backtest for the rest of the range: a lock
+        # that only a win can clear, with no way to take a trade that could win.
+        account.consecutive_losses = 0
         account.daily_lock = False
         account.open_positions = 0
         account.open_risk = 0.0

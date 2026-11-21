@@ -9,6 +9,7 @@ price and Greeks come from Black-Scholes (`engine/bs.py`), labelled
 The cache is a PRELIMINARY filter only (§20): the execution gate re-quotes
 the chosen contract immediately before any order.
 """
+import dataclasses
 import datetime as dt
 from dataclasses import dataclass, field
 
@@ -63,6 +64,38 @@ class OptionQuote:
             return None
         d = (self.contract.strike - self.spot) / self.spot
         return d if self.contract.option_type == "CE" else -d
+
+    def advanced_to(self, spot_now: float | None) -> "OptionQuote":
+        """This quote re-priced to `spot_now` via the delta/gamma expansion.
+
+        The chain refreshes on its own cadence (TECH_CHAIN_REFRESH_SECONDS,
+        60s) while exits TRIGGER on 1m index bars, so the quote the fill would
+        otherwise use can predate the move that triggered it. Measured on the
+        21 Oct BANKNIFTY stop: the move happened inside the 10:26 bar, the fill
+        took the ~10:26:0x quote at 347.02, and by the 10:30 chain the put was
+        332.15 - booking 6.33/unit of loss where delta implied 20.9.
+
+        dP = delta*ds + 0.5*gamma*ds^2, signed - the same expansion measured
+        against 311,636 real chain rows at a 0.90-0.98 median accuracy. The
+        spread is carried across unchanged: it is a liquidity property of the
+        strike, not a function of spot. Returns self when there is nothing to
+        go on, so a missing greek degrades to today's behaviour rather than
+        inventing a price.
+
+        NOTE this is a FILL-path correction. It must never be written back into
+        `quotes` or journaled to option_chain_snapshots, which record observed
+        quotes only.
+        """
+        if spot_now is None or self.spot is None or self.delta is None:
+            return self
+        ds = spot_now - self.spot
+        if ds == 0.0:
+            return self
+        dp = self.delta * ds + 0.5 * abs(self.gamma or 0.0) * ds * ds
+        def _shift(x: float) -> float:
+            return round(max(0.05, x + dp), 2) if x > 0 else x
+        return dataclasses.replace(self, bid=_shift(self.bid), ask=_shift(self.ask),
+                                   ltp=_shift(self.ltp), spot=spot_now)
 
     def as_dict(self) -> dict:
         c = self.contract

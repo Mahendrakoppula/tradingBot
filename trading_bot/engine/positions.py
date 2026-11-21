@@ -136,6 +136,7 @@ class Position:
     pending_reason: str | None = None
     last_option_price: float | None = None
     execution_id: str = ""
+    exit_attempts: int = 0  # every exit ORDER sent, filled or not - each gets its own client order id
 
     @property
     def closed(self) -> bool:
@@ -254,7 +255,13 @@ class PositionBook:
         qty = min(sig.quantity, pos.quantity)
         limit = round(bid * (1.0 - buffer_pct / 100.0), 2)
         purpose = "EXIT" if qty >= pos.quantity else "PARTIAL_EXIT"
-        n = len(pos.exits) + 1
+        # Numbered by ATTEMPT, not by fills. It was len(pos.exits) + 1, which only advances on a
+        # fill - so an exit that timed out or was rejected (the monitor retries it next bar, by
+        # design) reused the same client order id, hence the same execution id, and
+        # OrderStateMachine.new() raised DuplicateOrderError out of the loop: the session died
+        # holding an open position. First seen when the funnel replay let trades through at all.
+        pos.exit_attempts += 1
+        n = pos.exit_attempts
         req = OrderRequest(f"{pos.signal_id}:{purpose}:{n}", pos.signal_id, pos.setup_id, pos.token, pos.exchange,
                            pos.tradingsymbol, "SELL", qty, "LIMIT", limit, limit, purpose=purpose,
                            timeout_seconds=15 if sig.reason not in ("EOD_EXIT", "EMERGENCY_EXIT") else 8)

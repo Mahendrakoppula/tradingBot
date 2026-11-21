@@ -281,6 +281,57 @@ proves it on every CI run.
 | 2026-09-23 | `config/min-score-30` | min score 40 -> 30: all 8 signals that passed routing on day 3 died at ranking, scores 19-33 |
 | 2026-09-23 | `config/risk-1500` | per-trade risk 1.5% -> 3.0% (Rs.1,500); CI bound widened; worst day now Rs.9,000 of the 30% cap |
 | 2026-09-23 | `fix/gap-window` | the benign-gap window is the cut-off minus one trigger bar (15:15, not 15:20) - SENSEX's 15:16 hole still tripped the breaker on 2026-09-23 |
+| 2026-11-22 | `fix/funnel-throughput` | year-long NIFTY replay (below); paper broker fills marketable limits; exit retries no longer crash the loop; backtest streak/latency parity; `PRESIGNAL_CONFIRMED` routing fallback; `TECH_BLOCKED_LEVEL_ATR`, `TECH_MAX_PREMIUM_PCT`; min score 20 -> 10, min remaining 0.75 -> 0.35 |
+| 2026-11-22 | `fix/stale-fill-quote` (merged with the above) | paper exits priced at the spot that triggered them, not a quote up to 60 s old |
+| 2026-11-22 | `fix/funnel-throughput` | BANKNIFTY removed from `TECH_UNDERLYINGS` (operator): monthly-only expiries, so 2-5 week options intraday and no contract at all for half of each month under the 14-day window |
+
+## Year-long replay (2026-11-22, `research/funnel_diagnostic.py`)
+
+The live journal holds a few hundred signals and two closed trades in two months, too few to say
+which gate binds or whether any gate helps. So a public dataset of real NIFTY 1m bars
+(2023-04-03 .. 2024-03-27, 242 sessions) was replayed through the production pipeline and
+`deploy/config.env`, with a synthetic futures-volume proxy (bar range) and the backtest's
+Black-Scholes model chain. For every decision with a candidate, the UNDERLYING's next move was
+measured in R against that candidate's own stop and target (`underlying_outcome`).
+
+**Funnel, production config as of 2026-10-15:** 1,374 TRADE_READY -> 5 approvals -> 0 trades.
+57% died at STRATEGY_ROUTING (`no_strategy_match`), 17% RANKING, 16% NO_CHASE, 5% DISTANCE_TO_LEVEL.
+Of the 5 approvals, 3 were shadow-only (LEVEL_REJECTION) and both executable ones timed out in the
+paper broker.
+
+**Three bugs, found only because the replay got trades through:**
+1. `PaperBroker._fill_price` priced a realistic BUY at ask + 0.25 x spread while the gate's limit is
+   ask + 0.25%, so any option with a spread over ~1% (the gate allows 2%) never filled. Marketable
+   limits now fill, capped at the limit.
+2. An exit that did not fill was retried next bar with the SAME client order id (numbered by fills,
+   not attempts): `OrderStateMachine.new` raised `DuplicateOrderError` out of the loop. Also, a
+   filled exit blocked selling the remainder (`duplicate_signal_or_setup`).
+3. Backtest only: the loss streak carried across days (one 3-loss run locked the whole range) and
+   the 15-60 s replay poll cadence tripped the 5 s latency breaker after each day's first fill.
+
+**The measurement that matters more than the funnel:** across 1,369 decisions the underlying
+averaged **+0.003R (+-0.064)**. No gate separated winners from losers - rejected at RANKING +0.03R,
+NO_CHASE -0.01R, DISTANCE -0.003R, RISK (EV) +0.02R, DECAY -0.06R - and the score had no
+predictive value in either half-year. The gates were cutting COUNT, not losers. One slice held in
+both halves (structural stop 2-3 ATR: +0.32R / +0.23R, n=59/43) - a lead for review, not a change.
+
+**Shipped config vs the old settings, same replay, both with the bug fixes, 0.3% model spread
+(near real NIFTY ATM):**
+
+| | approvals | trades | per day | net | win | avg/trade |
+|---|---|---|---|---|---|---|
+| old settings | 20 | 14 | 0.06 | -Rs.15.1k | 21% | -Rs.1,077 |
+| shipped | 79 | 71 | 0.29 | -Rs.17.9k | 37% | -Rs.252 |
+
+At the backtest's default 1.0% spread the decay filter binds and the shipped config approves 23.
+About -0.04R per trade on Rs.2L: what no edge plus option costs looks like.
+
+BANKNIFTY, same config and spread (2023-04 .. 2024-03-22): 86 approvals, 73 trades (0.30/day),
+net +Rs.34.6k, win 52%. Its decisions' underlying averaged -0.042R (+-0.061), so one index up and
+one down over the same year reads as variance, not skill - and the model priced it on weekly expiries it
+does not have. BANKNIFTY was then removed from the engine (operator, 2026-11-22). With NIFTY + SENSEX,
+expect roughly 0.5-0.6 paper trades a day. This is a PAPER throughput change so the execution path finally runs end to end on real data;
+it is not evidence of edge, and no refinement may be promoted on it (sections 71, 74).
 
 ## Where things live
 

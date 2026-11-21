@@ -141,6 +141,7 @@ class EngineConfig:
     option_dte_max: int = 14
     option_expiry_day_allowed: bool = False
     chain_refresh_seconds: int = 60
+    fill_sync_to_spot: bool = True  # re-price the fill quote to the spot that triggered the order (see OptionQuote.advanced_to)
     chain_strikes_each_side: int = 6
     # phase 24: strategies that run the full pipeline and are journaled as valid
     # signals but are never executed in PAPER (nor, later, LIVE)
@@ -175,6 +176,15 @@ class EngineConfig:
     # them. See stops.StopParams for the derivation of 5.0.
     min_stop_atr: float = 0.3
     max_stop_atr: float = 5.0
+    # §15 routing fallback (strategies/fallback.py): when no family matches a TRADE_READY
+    # setup, trade the pre-signal tracker's own confirmation as PRESIGNAL_CONFIRMED. Off by
+    # default in code; deploy/config.env decides.
+    presignal_fallback: bool = False
+    # §23 distance-to-level: a target is "blocked" when an opposing level sits closer than this.
+    # Hardcoded in MoveParams until now, like every other gate that turned out to bind.
+    blocked_level_atr: float = 0.5
+    # §27 sizing: max premium outlay per trade as a share of capital (0 = off), see RiskLimits.
+    max_premium_pct: float = 0.0
 
     @property
     def can_place_live_orders(self) -> bool:
@@ -242,6 +252,9 @@ class EngineConfig:
             session_extremes_are_strong=_bool("TECH_SESSION_EXTREMES_ARE_STRONG", "false"),
             min_stop_atr=_float("TECH_MIN_STOP_ATR", "0.3"),
             max_stop_atr=_float("TECH_MAX_STOP_ATR", "5.0"),
+            presignal_fallback=_bool("TECH_PRESIGNAL_FALLBACK", "false"),
+            blocked_level_atr=_float("TECH_BLOCKED_LEVEL_ATR", "0.5"),
+            max_premium_pct=_float("TECH_MAX_PREMIUM_PCT", "0.0"),
             telegram_max_alerts_per_hour=_int("TECH_TELEGRAM_MAX_ALERTS_PER_HOUR", "12"),
             # Full-day closures for THIS process's exchange, from the published
             # calendar in trading_bot/holidays.py. TECH_HOLIDAYS is ADDITIVE on
@@ -272,6 +285,7 @@ class EngineConfig:
             option_dte_max=_int("TECH_OPTION_DTE_MAX", "14"),
             option_expiry_day_allowed=_bool("TECH_OPTION_EXPIRY_DAY_ALLOWED", "false"),
             chain_refresh_seconds=_int("TECH_CHAIN_REFRESH_SECONDS", "60"),
+            fill_sync_to_spot=_bool("TECH_FILL_SYNC_TO_SPOT", "true"),
             chain_strikes_each_side=_int("TECH_CHAIN_STRIKES_EACH_SIDE", "6"),
             shadow_strategies=_csv("TECH_SHADOW_STRATEGIES", ""),
             counter_trend_veto_tfs=tuple(t.strip().lower() for t in os.environ.get("TECH_COUNTER_TREND_VETO_TFS", "30m").split(",") if t.strip()),
