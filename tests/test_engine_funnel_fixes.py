@@ -251,3 +251,36 @@ def test_premium_cap_limits_lots_and_never_raises_them():
     off = evaluate(d.plan, d.option, AccountState(equity=200000.0), RiskLimits(capital=200000.0, risk_per_trade_pct=0.03),
                    CostRates(), score=d.score.total)
     assert off.lots == uncapped
+
+
+# --- 6. a monthly-only underlying must always have a contract in the cache ---------------------------
+
+def _chain_with(expiries: list, underlying: str = "BANKNIFTY"):
+    from trading_bot.options import OptionChain, OptionContract
+    ch = OptionChain([], underlying, "NFO")
+    ch.contracts = [OptionContract(f"{e:%m%d}{k}{ot}", f"{underlying}{e:%d%b%y}{k}{ot}".upper(), underlying, e, float(k), ot, 35, 900, "NFO")
+                    for e in expiries for k in range(54000, 56100, 100) for ot in ("CE", "PE")]
+    return ch
+
+
+def test_production_dte_window_keeps_banknifty_tradeable_all_month():
+    from trading_bot.engine.option_chain import CacheParams, ChainCache
+    vals = dict(line.split("=", 1) for line in (Path(__file__).resolve().parent.parent / "deploy" / "config.env")
+                .read_text().splitlines() if line and not line.startswith("#") and "=" in line)
+    dte_max = int(vals["TECH_OPTION_DTE_MAX"])
+    expiry_a, expiry_b = dt.date(2026, 10, 27), dt.date(2026, 11, 24)  # consecutive monthlies, 28 days apart
+    chain = _chain_with([expiry_a, expiry_b])
+    for today in (dt.date(2026, 10, 28), dt.date(2026, 11, 2), dt.date(2026, 11, 9)):  # 27, 22, 15 DTE
+        cache = ChainCache("BANKNIFTY", chain, CacheParams(dte_max=dte_max))
+        assert cache.candidates(55000.0, today), f"no BANKNIFTY contract on {today} with dte_max={dte_max}"
+        assert not ChainCache("BANKNIFTY", chain, CacheParams(dte_max=14)).candidates(55000.0, today)  # the old blind spot
+
+
+def test_wider_window_does_not_change_which_weekly_expiries_are_kept():
+    from trading_bot.engine.option_chain import CacheParams, ChainCache
+    weeklies = [dt.date(2026, 11, 24) + dt.timedelta(days=7 * k) for k in range(5)]
+    chain = _chain_with(weeklies, "NIFTY")
+    today = dt.date(2026, 11, 23)
+    narrow = {c.expiry for c in ChainCache("NIFTY", chain, CacheParams(dte_max=14)).candidates(55000.0, today)}
+    wide = {c.expiry for c in ChainCache("NIFTY", chain, CacheParams(dte_max=35)).candidates(55000.0, today)}
+    assert narrow == wide == set(weeklies[:2])
