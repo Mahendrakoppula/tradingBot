@@ -282,6 +282,8 @@ proves it on every CI run.
 | 2026-09-23 | `config/risk-1500` | per-trade risk 1.5% -> 3.0% (Rs.1,500); CI bound widened; worst day now Rs.9,000 of the 30% cap |
 | 2026-09-23 | `fix/gap-window` | the benign-gap window is the cut-off minus one trigger bar (15:15, not 15:20) - SENSEX's 15:16 hole still tripped the breaker on 2026-09-23 |
 | 2026-11-22 | `fix/funnel-throughput` | year-long NIFTY replay (below); paper broker fills marketable limits; exit retries no longer crash the loop; backtest streak/latency parity; `PRESIGNAL_CONFIRMED` routing fallback; `TECH_BLOCKED_LEVEL_ATR`, `TECH_MAX_PREMIUM_PCT`; min score 20 -> 10, min remaining 0.75 -> 0.35 |
+| 2026-11-22 | `fix/stale-fill-quote` (merged with the above) | paper exits priced at the spot that triggered them, not a quote up to 60 s old |
+| 2026-11-22 | `fix/funnel-throughput` | BANKNIFTY removed from `TECH_UNDERLYINGS` (operator): monthly-only expiries, so 2-5 week options intraday and no contract at all for half of each month under the 14-day window |
 
 ## Year-long replay (2026-11-22, `research/funnel_diagnostic.py`)
 
@@ -326,8 +328,9 @@ About -0.04R per trade on Rs.2L: what no edge plus option costs looks like.
 
 BANKNIFTY, same config and spread (2023-04 .. 2024-03-22): 86 approvals, 73 trades (0.30/day),
 net +Rs.34.6k, win 52%. Its decisions' underlying averaged -0.042R (+-0.061), so one index up and
-one down over the same year reads as variance, not skill. Expect roughly 0.6-0.9 paper trades a
-day across the three indices. This is a PAPER throughput change so the execution path finally runs end to end on real data;
+one down over the same year reads as variance, not skill - and the model priced it on weekly expiries it
+does not have. BANKNIFTY was then removed from the engine (operator, 2026-11-22). With NIFTY + SENSEX,
+expect roughly 0.5-0.6 paper trades a day. This is a PAPER throughput change so the execution path finally runs end to end on real data;
 it is not evidence of edge, and no refinement may be promoted on it (sections 71, 74).
 
 ## Where things live

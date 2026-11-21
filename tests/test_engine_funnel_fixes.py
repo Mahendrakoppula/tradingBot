@@ -263,17 +263,24 @@ def _chain_with(expiries: list, underlying: str = "BANKNIFTY"):
     return ch
 
 
-def test_production_dte_window_keeps_banknifty_tradeable_all_month():
+def test_a_14_day_window_leaves_a_monthly_only_index_without_contracts():
+    """Why BANKNIFTY went dark for half of every month (and why it was removed from TECH_UNDERLYINGS
+    on 2026-11-22 rather than given a wider window). Pinned so re-adding it is an informed choice."""
     from trading_bot.engine.option_chain import CacheParams, ChainCache
-    vals = dict(line.split("=", 1) for line in (Path(__file__).resolve().parent.parent / "deploy" / "config.env")
-                .read_text().splitlines() if line and not line.startswith("#") and "=" in line)
-    dte_max = int(vals["TECH_OPTION_DTE_MAX"])
     expiry_a, expiry_b = dt.date(2026, 10, 27), dt.date(2026, 11, 24)  # consecutive monthlies, 28 days apart
     chain = _chain_with([expiry_a, expiry_b])
     for today in (dt.date(2026, 10, 28), dt.date(2026, 11, 2), dt.date(2026, 11, 9)):  # 27, 22, 15 DTE
-        cache = ChainCache("BANKNIFTY", chain, CacheParams(dte_max=dte_max))
-        assert cache.candidates(55000.0, today), f"no BANKNIFTY contract on {today} with dte_max={dte_max}"
-        assert not ChainCache("BANKNIFTY", chain, CacheParams(dte_max=14)).candidates(55000.0, today)  # the old blind spot
+        assert not ChainCache("BANKNIFTY", chain, CacheParams(dte_max=14)).candidates(55000.0, today)
+        assert ChainCache("BANKNIFTY", chain, CacheParams(dte_max=35)).candidates(55000.0, today)
+    assert ChainCache("BANKNIFTY", chain, CacheParams(dte_max=14)).candidates(55000.0, dt.date(2026, 11, 10))
+
+
+def test_production_engine_trades_weekly_indices_only():
+    vals = dict(line.split("=", 1) for line in (Path(__file__).resolve().parent.parent / "deploy" / "config.env")
+                .read_text().splitlines() if line and not line.startswith("#") and "=" in line)
+    names = {u.strip() for u in vals["TECH_UNDERLYINGS"].split(",") if u.strip()}
+    assert "BANKNIFTY" not in names or int(vals["TECH_OPTION_DTE_MAX"]) >= 28, \
+        "BANKNIFTY is monthly-only: with this DTE window it has no contract for half of each month"
 
 
 def test_wider_window_does_not_change_which_weekly_expiries_are_kept():
