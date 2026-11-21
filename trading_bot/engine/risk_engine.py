@@ -55,6 +55,11 @@ class RiskLimits:
     # fall back to the flat default rather than trusting the curve.
     ev_p_rr_min: float = 1.0
     slippage_pct_of_spread: float = 0.5
+    # Max PREMIUM outlay per trade as a share of capital (0 = off). Stop-based sizing alone let a
+    # tight option stop buy 15 NIFTY lots - Rs.1.18 lakh of premium on a Rs.2 lakh account - because
+    # the planned loss assumed the stop fills. For a long option the true worst case is the premium
+    # itself (gap, halt, IV crush through the stop), so this caps the lots, it never raises them.
+    max_premium_pct: float = 0.0
 
 
 @dataclass
@@ -194,6 +199,14 @@ def evaluate(plan: Plan, quote: OptionQuote, account: AccountState, limits: Risk
     lots = int(max(0.0, max_loss - fixed) // (rpu * lot))
     if lots < 1:
         return reject("one_lot_exceeds_max_risk", f"one lot risks {rpu * lot:.0f} > permitted {max_loss:.0f}", rpu=rpu, max_loss=max_loss)
+    if limits.max_premium_pct > 0:
+        premium_cap = limits.capital * limits.max_premium_pct
+        cap_lots = int(premium_cap // (plan.option_entry * lot)) if plan.option_entry > 0 else 0
+        checks["premium_cap_lots"] = cap_lots
+        if cap_lots < 1:
+            return reject("one_lot_exceeds_premium_cap", f"one lot costs {plan.option_entry * lot:.0f} > cap {premium_cap:.0f}",
+                          rpu=rpu, max_loss=max_loss)
+        lots = min(lots, cap_lots)
     qty = lots * lot
     # brokerage is per order, not per unit - recompute costs at the real quantity
     costs_at_qty = _cost_components(rates, plan.option_entry, max(0.05, plan.option_stop), qty, quote.spread, slippage)

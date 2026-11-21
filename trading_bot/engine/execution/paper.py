@@ -107,10 +107,20 @@ class PaperBroker:
             px = bid - self.p.slippage_pct_of_spread * spread * 0.5 - self.p.extra_slippage_pct / 100.0 * bid
         px = round(max(0.05, px), 2)
         if req.order_type == "LIMIT" and req.limit_price is not None:
-            if req.side == "BUY" and px > req.limit_price:
-                return None  # would not fill at this price
-            if req.side == "SELL" and px < req.limit_price:
-                return None
+            # A MARKETABLE limit (buy at/above the ask, sell at/below the bid) fills immediately on an
+            # exchange, and never worse than its limit: slippage is capped BY the limit, that is what a
+            # limit order is for. Before this, the slippage model priced realistic BUY fills at
+            # ask + 0.25 x spread while the gate's limit sits at ask + 0.25% - so any option with a
+            # spread above ~1% (the gate allows 2%) rested until the 20 s timeout and never filled.
+            # A full year of NIFTY replay produced exactly two executable approvals; both died this way.
+            if req.side == "BUY":
+                if ask > req.limit_price:
+                    return None  # genuinely not marketable: rests, the state machine times it out
+                px = min(px, req.limit_price)
+            if req.side == "SELL":
+                if bid < req.limit_price:
+                    return None
+                px = max(px, req.limit_price)
         if req.max_price is not None:
             if req.side == "BUY" and px > req.max_price:
                 return None

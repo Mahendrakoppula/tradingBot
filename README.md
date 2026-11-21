@@ -296,6 +296,20 @@ the same identity: `deploy/trading-bot-technical.service` (installed but
 parameters. Its research foundation is `research/framework/` (regime,
 market structure, MTF alignment, risk, walk-forward, Monte Carlo).
 
+## Measuring the engine's funnel on a year of data
+
+`research/funnel_diagnostic.py` replays 1m history (the public `Nifty50-Minute-Data` /
+`BankNifty-Minute-Data` CSVs, or this repo's own `research/fetch_historical.py` pulls) through the
+engine's exact PaperLoop and `deploy/config.env`, and reports where every TRADE_READY setup stopped,
+what each rejected setup's underlying did next (in R), and the paper trades that resulted. Try a
+setting on a year of data before shipping it:
+
+    python research/funnel_diagnostic.py --csv nifty50_candlestick_data.csv \
+        --from 2023-10-01 --to 2024-03-27 --set TECH_MIN_SCORE=20 --spread-pct 0.3 --json out.json
+    python research/funnel_merge.py out.json --families
+
+Findings from the first run (2026-11-22) are in `docs/ROADMAP.md` under "Year-long replay".
+
 ## Not built yet
 
 - Backtesting the direction signal / momentum / pre-market bias thresholds

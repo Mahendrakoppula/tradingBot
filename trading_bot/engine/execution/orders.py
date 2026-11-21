@@ -126,7 +126,12 @@ class OrderStateMachine:
             same_signal = r.signal_id == signal_id
             same_setup = setup_id is not None and r.setup_id == setup_id
             same_token_live = r.request.token == token and not r.terminal
-            if (same_signal or same_setup) and (not r.terminal or r.state == "POSITION_ACTIVE"):
+            # An ENTRY that filled (POSITION_ACTIVE) must never be repeated. An EXIT that filled is
+            # different: it closed part of the position, and the remainder still has to be sold -
+            # blocking it left the rest unsellable until the EOD force-close. Exits are only
+            # duplicates while another exit for the same signal is still in flight.
+            blocking = (not r.terminal or r.state == "POSITION_ACTIVE") if purpose == "ENTRY" else not r.terminal
+            if (same_signal or same_setup) and blocking:
                 return "duplicate_signal_or_setup"
             if purpose == "ENTRY" and same_token_live:
                 return "order_already_open_for_token"

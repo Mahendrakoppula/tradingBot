@@ -74,6 +74,7 @@ class SetupState:
     last_progress_bar: int = 0
     trigger_level: float | None = None
     trigger_bar: int | None = None
+    trigger_kind: str | None = None  # structure_break | sweep_reclaim | displacement_break | rejection_at_level
     family_hint: str | None = None  # which §14 family this most resembles (M2 routes on it)
 
 
@@ -161,7 +162,7 @@ class PreSignalTracker:
         if s.stage == "PRE_SIGNAL":
             trigger = self._trigger(ctx, s.direction)
             if trigger is not None:
-                s.trigger_level, s.trigger_bar = trigger["level"], ctx.bar_index
+                s.trigger_level, s.trigger_bar, s.trigger_kind = trigger["level"], ctx.bar_index, trigger["kind"]
                 s.last_progress_bar = ctx.bar_index
                 if trigger["kind"] == "sweep_reclaim" and "sweep_reclaim" not in s.evidence:
                     # the failed break IS evidence (trapped breakout traders), so a counter-trend
@@ -185,7 +186,7 @@ class PreSignalTracker:
                 return events
             s.last_progress_bar = ctx.bar_index
             events.append(self._move(s, "TRADE_READY", "confirmation_closed", ctx, {
-                "trigger_level": s.trigger_level, "extension_atr": extension_atr,
+                "trigger_level": s.trigger_level, "trigger_kind": s.trigger_kind, "extension_atr": extension_atr,
                 "counter_trend": counter, "evidence": sorted(s.evidence),
             }))
             return events

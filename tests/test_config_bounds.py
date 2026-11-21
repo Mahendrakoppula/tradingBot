@@ -101,7 +101,14 @@ NUMERIC_BOUNDS = {
     "TECH_DAILY_RANGE_ATR_CAP": (4.0, 20.0),
     "TECH_TELEGRAM_MAX_ALERTS_PER_HOUR": (1, 60),
     # --- M2 pipeline / paper ---
-    "TECH_MIN_SCORE": (20, 90),
+    # Floor widened 20 -> 0 on 2026-11-22 (human-reviewed): a year of NIFTY replay measured the
+    # score as non-predictive (research/funnel_diagnostic.py), so a high floor only cuts count.
+    "TECH_MIN_SCORE": (0, 90),
+    # §23 blocked-level distance (new 2026-11-22). 0 disables the block, never the downgrade.
+    "TECH_BLOCKED_LEVEL_ATR": (0.0, 1.0),
+    # §27 premium cap per trade as a share of capital (new 2026-11-22). Above 0.5 it would no
+    # longer stop a single option eating the account.
+    "TECH_MAX_PREMIUM_PCT": (0.05, 0.5),
     "TECH_PREFERRED_NET_REWARD": (100, 5000),
     "TECH_TIER_B_MIN_SCORE": (40, 95),
     "TECH_MAX_TRADES_PER_DAY": (1, 10),  # §2: 4-6 is a soft target, never a floor

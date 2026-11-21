@@ -28,6 +28,8 @@ from trading_bot.engine.risk_engine import AccountState, RiskDecision, RiskLimit
 from trading_bot.engine.scoring import ExternalInputs, Score, pre_selection_min, rank, score
 from trading_bot.engine.stops import Plan, PlanRejected, StopParams, build_plan
 from trading_bot.engine.strategies import Candidate, StrategyParams, routable_families, route
+from trading_bot.engine.strategies.base import is_counter_trend
+from trading_bot.engine.strategies.fallback import presignal_candidate
 
 
 @dataclass(frozen=True)
@@ -43,6 +45,8 @@ class PipelineParams:
     # phase 24: families journaled but never executed. They must never take the one selection slot away
     # from an executable family, so ranking considers them only when no executable candidate is selectable.
     shadow_strategies: tuple[str, ...] = ()
+    # routing fallback (strategies/fallback.py): no family matched -> trade the pre-signal confirmation
+    presignal_fallback: bool = False
 
     @classmethod
     def from_config(cls, cfg) -> "PipelineParams":
@@ -53,7 +57,8 @@ class PipelineParams:
                                max_consumed_atr=cfg.max_consumed_atr, base_move_atr=cfg.base_move_atr,
                                daily_range_atr_cap=cfg.daily_range_atr_cap,
                                allow_structural_target=cfg.allow_structural_target,
-                               session_extremes_are_strong=cfg.session_extremes_are_strong),
+                               session_extremes_are_strong=cfg.session_extremes_are_strong,
+                               blocked_level_atr=getattr(cfg, "blocked_level_atr", 0.5)),
             stops=StopParams(min_stop_atr=cfg.min_stop_atr, max_stop_atr=cfg.max_stop_atr),
             select=SelectParams(delta_min=cfg.option_delta_min, delta_max=cfg.option_delta_max,
                                 delta_target=cfg.option_delta_target, max_otm_pct=cfg.option_max_otm_pct,
@@ -67,11 +72,13 @@ class PipelineParams:
                               max_portfolio_heat_pct=cfg.max_portfolio_heat_pct,
                               ev_win_prob_from_rr=cfg.ev_win_prob_from_rr,
                               preferred_net_reward=cfg.preferred_net_reward, tier_b_enabled=cfg.tier_b_enabled,
-                              tier_b_min_score=cfg.tier_b_min_score),
+                              tier_b_min_score=cfg.tier_b_min_score,
+                              max_premium_pct=getattr(cfg, "max_premium_pct", 0.0)),
             rates=CostRates.for_profile(getattr(cfg, "cost_profile", "nfo")),
             min_score=cfg.min_score,
             counter_trend_min_evidence=cfg.counter_trend_min_evidence,
             shadow_strategies=tuple(getattr(cfg, "shadow_strategies", ()) or ()),
+            presignal_fallback=bool(getattr(cfg, "presignal_fallback", False)),
         )
 
 
@@ -177,6 +184,16 @@ def decide(ctx: ContextSnapshot, event: StageEvent, *, setup_evidence: int, fami
     d.routing_rejections = rr.rejections
     if rr.gate:
         return _reject(d, "STRATEGY_ROUTING", rr.gate)
+    if not rr.candidates and p.presignal_fallback:
+        # No family matched: the tracker's own confirmation becomes the setup (see strategies/fallback.py
+        # for the year-long replay that motivated this). Every family's verdict is still journaled.
+        details = event.details or {}
+        fb = presignal_candidate(ctx, event.direction, trigger_level=details.get("trigger_level"),
+                                 trigger_kind=details.get("trigger_kind"),
+                                 counter_trend=is_counter_trend(ctx, event.direction, p.strategy.counter_trend_veto_tfs),
+                                 counter_trend_cleared=setup_evidence >= p.counter_trend_min_evidence, params=p.strategy)
+        if fb is not None:
+            rr.candidates.append(fb)
     if not rr.candidates:
         top = sorted({n.reason_code for n in rr.rejections})
         return _reject(d, "STRATEGY_ROUTING", "no_strategy_match", ", ".join(top[:5]))
