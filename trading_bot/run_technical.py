@@ -102,7 +102,8 @@ def run_live(cfg: EngineConfig) -> int:
                    and str(r.get("name", "")).upper() in cfg.underlyings]
     chains = ChainService(rest, option_rows, {i.underlying: i.exchange for i in instruments if i.role == "spot"},
                           CacheParams(strikes_each_side=cfg.chain_strikes_each_side, refresh_seconds=cfg.chain_refresh_seconds,
-                                      dte_max=cfg.option_dte_max), limiter, now=now_ist)
+                                      dte_max=cfg.option_dte_max, fallback_dte_max=cfg.option_dte_fallback_max),
+                          limiter, now=now_ist)
     del option_rows
     lookup.instruments = []  # drop the scrip master; only the resolved tokens are needed
     lookup._by_symbol = {}

@@ -153,8 +153,28 @@ class CacheParams:
     expiries: int = 2  # nearest N expiries kept
     dte_min: int = 0
     dte_max: int = 14
+    # Monthly-only underlyings (BANKNIFTY): when nothing tradeable (DTE >= 1) sits inside
+    # [dte_min, dte_max], also load the nearest expiry up to this many days out. 0 = off.
+    fallback_dte_max: int = 0
     refresh_seconds: int = 60
     max_quote_age_seconds: int = 120  # older than this, the cache is not a valid prefilter
+
+
+def expiries_to_quote(expiries: list[dt.date], today: dt.date, dte_min: int, dte_max: int, fallback_dte_max: int,
+                      keep: int) -> list[dt.date]:
+    """The nearest `keep` expiries inside [dte_min, dte_max] - plus, when none of those is
+    tradeable beyond today (DTE >= 1), the nearest expiry within `fallback_dte_max`.
+
+    Why: BANKNIFTY lists MONTHLY expiries only. With a 14-day window the cache held NO BANKNIFTY
+    contract from each monthly expiry until ~14 days before the next (28 Oct - 9 Nov 2026 before
+    the 24 Nov expiry), and on the expiry day itself only the expiring contract, which selection
+    refuses. NIFTY and SENSEX expire weekly, so their window always holds a DTE 1-7 expiry and
+    this never changes what they quote."""
+    window = sorted(e for e in expiries if dte_min <= (e - today).days <= dte_max)
+    if fallback_dte_max > 0 and not any((e - today).days >= 1 for e in window):
+        beyond = sorted(e for e in expiries if max(1, dte_min) <= (e - today).days <= fallback_dte_max and e not in window)
+        window = sorted(window + beyond[:1])
+    return window[:keep]
 
 
 @dataclass
@@ -169,7 +189,8 @@ class ChainCache:
     def candidates(self, spot: float, today: dt.date) -> list[OptionContract]:
         """The contracts worth quoting: nearest `expiries` within the DTE
         window, `strikes_each_side` around spot, both CE and PE."""
-        exps = [e for e in self.chain.expiries() if self.params.dte_min <= (e - today).days <= self.params.dte_max][: self.params.expiries]
+        exps = expiries_to_quote(self.chain.expiries(), today, self.params.dte_min, self.params.dte_max,
+                                 self.params.fallback_dte_max, self.params.expiries)
         out: list[OptionContract] = []
         for exp in exps:
             for ot in ("CE", "PE"):

@@ -284,6 +284,7 @@ proves it on every CI run.
 | 2026-11-22 | `fix/funnel-throughput` | year-long NIFTY replay (below); paper broker fills marketable limits; exit retries no longer crash the loop; backtest streak/latency parity; `PRESIGNAL_CONFIRMED` routing fallback; `TECH_BLOCKED_LEVEL_ATR`, `TECH_MAX_PREMIUM_PCT`; min score 20 -> 10, min remaining 0.75 -> 0.35 |
 | 2026-11-22 | `fix/stale-fill-quote` (merged with the above) | paper exits priced at the spot that triggered them, not a quote up to 60 s old |
 | 2026-11-22 | `fix/funnel-throughput` | BANKNIFTY removed from `TECH_UNDERLYINGS` (operator): monthly-only expiries, so 2-5 week options intraday and no contract at all for half of each month under the 14-day window |
+| 2026-11-22 | `fix/banknifty-monthly-expiry` | BANKNIFTY restored: when no tradeable expiry (DTE >= 1) is inside the 14-day window, cache and selector take the nearest expiry up to `TECH_OPTION_DTE_FALLBACK_MAX`=35. Replay with real monthly expiries: OPTION_SELECTION rejections 258 -> 17, trades 28 -> 60/yr, avg/trade about the same (-Rs.190 vs -Rs.219); the weekly-proxy +Rs.34.6k was the model, not BANKNIFTY |
 
 ## Year-long replay (2026-11-22, `research/funnel_diagnostic.py`)
 
@@ -329,8 +330,8 @@ About -0.04R per trade on Rs.2L: what no edge plus option costs looks like.
 BANKNIFTY, same config and spread (2023-04 .. 2024-03-22): 86 approvals, 73 trades (0.30/day),
 net +Rs.34.6k, win 52%. Its decisions' underlying averaged -0.042R (+-0.061), so one index up and
 one down over the same year reads as variance, not skill - and the model priced it on weekly expiries it
-does not have. BANKNIFTY was then removed from the engine (operator, 2026-11-22). With NIFTY + SENSEX,
-expect roughly 0.5-0.6 paper trades a day. This is a PAPER throughput change so the execution path finally runs end to end on real data;
+does not have. Re-run with its real MONTHLY expiries and the fallback below: 60 trades, -Rs.13.1k, win 33%. Expect
+roughly 0.8 paper trades a day across the three indices. This is a PAPER throughput change so the execution path finally runs end to end on real data;
 it is not evidence of edge, and no refinement may be promoted on it (sections 71, 74).
 
 ## Where things live
