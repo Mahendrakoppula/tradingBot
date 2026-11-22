@@ -12,6 +12,7 @@ The decay filter is the gate the spec spells out (§24): expected option
 gain must exceed theta + spread + slippage + transaction costs over the
 expected hold, else NO TRADE.
 """
+import dataclasses
 from dataclasses import dataclass, field
 
 from trading_bot.costs import CostRates
@@ -30,6 +31,7 @@ class SelectParams:
     max_theta_pct: float = 0.10  # |theta|/premium per day - weekly index ATM runs 5-8%
     dte_min: int = 0
     dte_max: int = 14
+    fallback_dte_max: int = 0  # see option_chain.expiries_to_quote: monthly-only underlyings (BANKNIFTY)
     expiry_day_allowed: bool = False  # §24: expiry-day rules must be validated separately - off by default
     max_otm_pct: float = 0.02  # "no lottery-style far OTM" (§19/§92 #28)
     # Where on the moneyness axis the selector AIMS. None = the index default: at-the-money is
@@ -119,6 +121,15 @@ def _score(q: OptionQuote, dte: int, p: SelectParams) -> tuple[float, dict]:
 def select(quotes: list[OptionQuote], option_type: str, today, capital: float,
            params: SelectParams | None = None) -> Selection:
     p = params or SelectParams()
+    if p.fallback_dte_max > 0:
+        # nothing tradeable inside the normal window (a monthly-only index between its expiries):
+        # widen to the nearest expiry, exactly as the chain cache did when it loaded the quotes
+        dtes = {(q.contract.expiry - today).days for q in quotes if q.contract.option_type == option_type}
+        tradeable = {d for d in dtes if p.dte_min <= d <= p.dte_max and (d >= 1 or p.expiry_day_allowed)}
+        if not tradeable:
+            beyond = sorted(d for d in dtes if p.dte_max < d <= p.fallback_dte_max)
+            if beyond:
+                p = dataclasses.replace(p, dte_max=beyond[0])
     rejections: list[OptionRejection] = []
     scored: list[tuple[float, OptionQuote, dict]] = []
     for q in quotes:

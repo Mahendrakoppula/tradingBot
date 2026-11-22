@@ -139,6 +139,7 @@ class EngineConfig:
     option_max_spread_pct: float = 2.0
     option_min_oi: int = 5000
     option_dte_max: int = 14
+    option_dte_fallback_max: int = 0  # monthly-only underlyings: nearest expiry up to this far (option_chain.expiries_to_quote)
     option_expiry_day_allowed: bool = False
     chain_refresh_seconds: int = 60
     fill_sync_to_spot: bool = True  # re-price the fill quote to the spot that triggered the order (see OptionQuote.advanced_to)
@@ -283,6 +284,7 @@ class EngineConfig:
             option_max_spread_pct=_float("TECH_OPTION_MAX_SPREAD_PCT", "2.0"),
             option_min_oi=_int("TECH_OPTION_MIN_OI", "5000"),
             option_dte_max=_int("TECH_OPTION_DTE_MAX", "14"),
+            option_dte_fallback_max=_int("TECH_OPTION_DTE_FALLBACK_MAX", "0"),
             option_expiry_day_allowed=_bool("TECH_OPTION_EXPIRY_DAY_ALLOWED", "false"),
             chain_refresh_seconds=_int("TECH_CHAIN_REFRESH_SECONDS", "60"),
             fill_sync_to_spot=_bool("TECH_FILL_SYNC_TO_SPOT", "true"),

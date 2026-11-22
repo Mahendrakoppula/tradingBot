@@ -167,6 +167,8 @@ def main(argv=None) -> int:
     ap.add_argument("--env", default=str(REPO / "deploy" / "config.env"), help="config file to load (production by default)")
     ap.add_argument("--set", action="append", default=[], help="KEY=VALUE override on top of --env (repeatable)")
     ap.add_argument("--no-volume", action="store_true", help="no synthetic futures-volume proxy")
+    ap.add_argument("--monthly-expiry", action="store_true",
+                    help="model the underlying with MONTHLY expiries only (last Tuesday) - BANKNIFTY's real schedule")
     ap.add_argument("--spread-pct", type=float, default=1.0,
                     help="model option spread, %% of mid (1.0 = backtest default, conservative; real NIFTY ATM is ~0.1-0.3)")
     ap.add_argument("--json", help="write the full report as JSON here")
@@ -202,6 +204,8 @@ def main(argv=None) -> int:
     if not args.no_volume:
         insts.append(Instrument(u, "BFO" if u == "SENSEX" else "NFO", PROXY_TOKEN, "volume_proxy"))
     specs = {u: dict(DEFAULT_SPECS[u], lot=LOTS[u])}
+    if args.monthly_expiry:
+        specs[u].update(monthly=True, expiry_weekday=1)
     dal = MemoryDAL()
 
     # capture every pipeline decision (rejected or not) so its underlying outcome can be measured
@@ -269,7 +273,7 @@ def main(argv=None) -> int:
     net = [float(t["net_pnl"]) for t in trades]
     out = {
         "underlying": args.underlying, "range": [str(start), str(end)], "sessions": len(rep.days), "seconds": round(took, 1),
-        "volume_proxy": not args.no_volume, "overrides": args.set, "model_spread_pct": args.spread_pct,
+        "volume_proxy": not args.no_volume, "overrides": args.set, "model_spread_pct": args.spread_pct, "monthly_expiry": args.monthly_expiry,
         "presignal_transitions": dict(to_stage.most_common()),
         "presignal_terminal_reasons": dict(term.most_common()),
         "presignal_terminal_from": dict(from_stage_term.most_common()),

@@ -263,31 +263,60 @@ def _chain_with(expiries: list, underlying: str = "BANKNIFTY"):
     return ch
 
 
-def test_a_14_day_window_leaves_a_monthly_only_index_without_contracts():
-    """Why BANKNIFTY went dark for half of every month (and why it was removed from TECH_UNDERLYINGS
-    on 2026-11-22 rather than given a wider window). Pinned so re-adding it is an informed choice."""
+def _prod_config() -> dict:
+    return dict(line.split("=", 1) for line in (Path(__file__).resolve().parent.parent / "deploy" / "config.env")
+                .read_text().splitlines() if line and not line.startswith("#") and "=" in line)
+
+
+MONTHLY_A, MONTHLY_B = dt.date(2026, 10, 27), dt.date(2026, 11, 24)  # consecutive BANKNIFTY monthlies
+
+
+def test_a_14_day_window_alone_leaves_a_monthly_only_index_without_contracts():
     from trading_bot.engine.option_chain import CacheParams, ChainCache
-    expiry_a, expiry_b = dt.date(2026, 10, 27), dt.date(2026, 11, 24)  # consecutive monthlies, 28 days apart
-    chain = _chain_with([expiry_a, expiry_b])
+    chain = _chain_with([MONTHLY_A, MONTHLY_B])
     for today in (dt.date(2026, 10, 28), dt.date(2026, 11, 2), dt.date(2026, 11, 9)):  # 27, 22, 15 DTE
         assert not ChainCache("BANKNIFTY", chain, CacheParams(dte_max=14)).candidates(55000.0, today)
-        assert ChainCache("BANKNIFTY", chain, CacheParams(dte_max=35)).candidates(55000.0, today)
-    assert ChainCache("BANKNIFTY", chain, CacheParams(dte_max=14)).candidates(55000.0, dt.date(2026, 11, 10))
 
 
-def test_production_engine_trades_weekly_indices_only():
-    vals = dict(line.split("=", 1) for line in (Path(__file__).resolve().parent.parent / "deploy" / "config.env")
-                .read_text().splitlines() if line and not line.startswith("#") and "=" in line)
+def test_fallback_loads_the_nearest_monthly_whenever_the_window_has_nothing_tradeable():
+    from trading_bot.engine.option_chain import CacheParams, ChainCache
+    chain = _chain_with([MONTHLY_A, MONTHLY_B])
+    cp = CacheParams(dte_max=14, fallback_dte_max=35)
+    for today in (dt.date(2026, 10, 28), dt.date(2026, 11, 2), dt.date(2026, 11, 9), dt.date(2026, 11, 20)):
+        assert {c.expiry for c in ChainCache("BANKNIFTY", chain, cp).candidates(55000.0, today)} == {MONTHLY_B}
+    # expiry day: the expiring contract alone is not tradeable, so the next monthly is loaded beside it
+    exps = {c.expiry for c in ChainCache("BANKNIFTY", chain, cp).candidates(55000.0, MONTHLY_A)}
+    assert exps == {MONTHLY_A, MONTHLY_B}
+
+
+def test_selection_accepts_the_fallback_expiry_but_never_beyond_it():
+    from trading_bot.engine.option_chain import OptionQuote
+    from trading_bot.engine.option_select import SelectParams, select
+
+    def quote(c):
+        return OptionQuote(c, NOW, 900.0, 899.0, 901.0, 500, 500, 50000, 200000, 0.15, 0.5 if c.option_type == "CE" else -0.5,
+                           0.0004, -12.0, 40.0, "broker", 55000.0)
+    today = dt.date(2026, 11, 2)
+    qs = [quote(c) for c in _chain_with([MONTHLY_B]).contracts if c.option_type == "CE"]
+    assert not select(qs, "CE", today, 200000.0, SelectParams(dte_max=14, max_otm_pct=0.05)).ok
+    sel = select(qs, "CE", today, 200000.0, SelectParams(dte_max=14, fallback_dte_max=35, max_otm_pct=0.05))
+    assert sel.ok and sel.chosen.contract.expiry == MONTHLY_B
+    assert not select(qs, "CE", today, 200000.0, SelectParams(dte_max=14, fallback_dte_max=20, max_otm_pct=0.05)).ok
+
+
+def test_production_config_keeps_banknifty_tradeable_all_month():
+    vals = _prod_config()
     names = {u.strip() for u in vals["TECH_UNDERLYINGS"].split(",") if u.strip()}
-    assert "BANKNIFTY" not in names or int(vals["TECH_OPTION_DTE_MAX"]) >= 28, \
-        "BANKNIFTY is monthly-only: with this DTE window it has no contract for half of each month"
+    if "BANKNIFTY" in names:
+        reach = max(int(vals["TECH_OPTION_DTE_MAX"]), int(vals.get("TECH_OPTION_DTE_FALLBACK_MAX", "0")))
+        assert reach >= 35, "BANKNIFTY is monthly-only: it needs a window or fallback covering a full cycle"
 
 
-def test_wider_window_does_not_change_which_weekly_expiries_are_kept():
+def test_fallback_never_changes_what_a_weekly_index_quotes():
     from trading_bot.engine.option_chain import CacheParams, ChainCache
     weeklies = [dt.date(2026, 11, 24) + dt.timedelta(days=7 * k) for k in range(5)]
     chain = _chain_with(weeklies, "NIFTY")
-    today = dt.date(2026, 11, 23)
-    narrow = {c.expiry for c in ChainCache("NIFTY", chain, CacheParams(dte_max=14)).candidates(55000.0, today)}
-    wide = {c.expiry for c in ChainCache("NIFTY", chain, CacheParams(dte_max=35)).candidates(55000.0, today)}
-    assert narrow == wide == set(weeklies[:2])
+    for today in (dt.date(2026, 11, 23), weeklies[0], dt.date(2026, 11, 26)):  # day before, expiry day, mid-week
+        plain = {c.expiry for c in ChainCache("NIFTY", chain, CacheParams(dte_max=14)).candidates(55000.0, today)}
+        with_fb = {c.expiry for c in ChainCache("NIFTY", chain, CacheParams(dte_max=14, fallback_dte_max=35)).candidates(55000.0, today)}
+        assert plain == with_fb and len(plain) == 2

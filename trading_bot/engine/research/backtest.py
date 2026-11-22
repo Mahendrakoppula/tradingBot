@@ -70,11 +70,13 @@ class ModelChainService:
                                         CacheParams(strikes_each_side=self.p.strikes_each_side, expiries=self.p.expiries,
                                                     refresh_seconds=self.p.refresh_seconds))
 
-    def _expiries(self, weekday: int) -> list[dt.date]:
+    def _expiries(self, weekday: int, monthly: bool = False) -> list[dt.date]:
+        """Next expiries on `weekday`; with `monthly`, only the LAST such weekday of each month
+        (BANKNIFTY since NSE moved it to monthly-only - the weekly proxy hid a real live gap)."""
         d = self.today
         out = []
         while len(out) < self.p.expiries:
-            if d.weekday() == weekday:
+            if d.weekday() == weekday and (not monthly or (d + dt.timedelta(days=7)).month != d.month):
                 out.append(d)
             d += dt.timedelta(days=1)
         return out
@@ -92,7 +94,7 @@ class ModelChainService:
         atm = round(spot / step) * step
         elapsed = session_elapsed(now)
         quotes: dict[str, OptionQuote] = {}
-        for exp in self._expiries(spec["expiry_weekday"]):
+        for exp in self._expiries(spec["expiry_weekday"], bool(spec.get("monthly"))):
             dte = (exp - now.date()).days
             t = bs.years_to_expiry(dte, elapsed)
             for k in range(-self.p.strikes_each_side, self.p.strikes_each_side + 1):
