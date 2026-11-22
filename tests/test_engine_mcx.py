@@ -127,7 +127,7 @@ def test_mcx_cost_profile_swaps_ctt_and_exchange_charge_only():
     assert nfo == CostRates() and mcx.stt_sell_pct == 0.05 and mcx.exchange_txn_pct == 0.0418
     assert (mcx.brokerage_per_order, mcx.sebi_fee_pct, mcx.stamp_duty_pct, mcx.gst_pct) == \
         (nfo.brokerage_per_order, nfo.sebi_fee_pct, nfo.stamp_duty_pct, nfo.gst_pct)
-    assert mcx.option_cost(100.0, 110.0, 10) < nfo.option_cost(100.0, 110.0, 10)  # 0.05% CTT vs 0.1% STT on the sell leg
+    assert mcx.option_cost(100.0, 110.0, 10) < nfo.option_cost(100.0, 110.0, 10)  # 0.05% CTT vs 0.15% STT on the sell leg
     with pytest.raises(ValueError):
         CostRates.for_profile("cds")
 
