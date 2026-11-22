@@ -46,6 +46,8 @@ cp /opt/trading-bot/deploy/trading-bot-pgdump.service /etc/systemd/system/tradin
 cp /opt/trading-bot/deploy/trading-bot-pgdump.timer /etc/systemd/system/trading-bot-pgdump.timer
 cp /opt/trading-bot/deploy/trading-bot-engine-review.service /etc/systemd/system/trading-bot-engine-review.service
 cp /opt/trading-bot/deploy/trading-bot-engine-review.timer /etc/systemd/system/trading-bot-engine-review.timer
+cp /opt/trading-bot/deploy/trading-bot-momentum.service /etc/systemd/system/trading-bot-momentum.service
+cp /opt/trading-bot/deploy/trading-bot-momentum.timer /etc/systemd/system/trading-bot-momentum.timer
 systemctl daemon-reload
 # Requires=/Before= on trading-bot.service pulls the bootstrap service in
 # automatically on every start - no need to separately enable it.
@@ -64,4 +66,5 @@ if grep -q "^TECH_MCX_ENABLED=true" /opt/trading-bot/deploy/mcx.env; then
 fi
 systemctl enable --now trading-bot-pgdump.timer
 systemctl enable --now trading-bot-engine-review.timer
+systemctl enable --now trading-bot-momentum.timer
 systemctl enable --now trading-bot-s3-sync.timer

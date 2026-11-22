@@ -260,6 +260,11 @@ Fully built and unit-tested, just not capital-appropriate right now.
 - `indicators.py`, `chart_patterns.py`, `support_resistance.py`,
   `volume_analysis.py` — pure technical-analysis primitives (stdlib-only,
   index-aligned lists), used by `research/` and the framework
+- `momentum_paper.py` — PAPER-only NSE stock momentum book (momentum + low volatility, 30 of the 200 most-traded
+  stocks, re-formed monthly). Runs from `trading-bot-momentum.timer` at 09:10 IST on weekdays, caches NSE
+  bhavcopies under `.state/momentum_cache/`, keeps its ledger in `.state/momentum_paper.json` and posts to the
+  TECH Telegram channel. No broker session, no orders. Research: `research/stock_momentum.py` on the
+  `research/overnight-options` branch.
 - `costs.py` — real round-trip transaction cost estimates (brokerage, STT,
   exchange charges, SEBI fee, stamp duty, GST); `CostRates` bundles the rates
 - `technical_notifier.py` — Telegram channel reserved for the second bot
