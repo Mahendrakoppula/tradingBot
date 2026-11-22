@@ -38,6 +38,8 @@ COMMAND_ID=$(aws ssm send-command \
     'cp /opt/trading-bot/deploy/trading-bot-pgdump.timer /etc/systemd/system/trading-bot-pgdump.timer',
     'cp /opt/trading-bot/deploy/trading-bot-engine-review.service /etc/systemd/system/trading-bot-engine-review.service',
     'cp /opt/trading-bot/deploy/trading-bot-engine-review.timer /etc/systemd/system/trading-bot-engine-review.timer',
+    'cp /opt/trading-bot/deploy/trading-bot-momentum.service /etc/systemd/system/trading-bot-momentum.service',
+    'cp /opt/trading-bot/deploy/trading-bot-momentum.timer /etc/systemd/system/trading-bot-momentum.timer',
     'if [ -f /opt/trading-bot/deploy/trading-bot-review.service ]; then cp /opt/trading-bot/deploy/trading-bot-review.service /etc/systemd/system/trading-bot-review.service; fi',
     'if [ -f /opt/trading-bot/deploy/trading-bot-review.timer ]; then cp /opt/trading-bot/deploy/trading-bot-review.timer /etc/systemd/system/trading-bot-review.timer; fi',
     'systemctl daemon-reload',
@@ -46,6 +48,7 @@ COMMAND_ID=$(aws ssm send-command \
     'systemctl start trading-bot.service',
     'systemctl enable --now trading-bot-pgdump.timer',
     'systemctl enable --now trading-bot-engine-review.timer',
+    'systemctl enable --now trading-bot-momentum.timer',
     'systemctl enable --now trading-bot-technical.service',
     'if grep -q ^TECH_MCX_ENABLED=true /opt/trading-bot/deploy/mcx.env; then /opt/trading-bot/deploy/ensure_mcx_db.sh && systemctl enable --now trading-bot-mcx.service; else systemctl disable --now trading-bot-mcx.service || true; fi'
   ]" \

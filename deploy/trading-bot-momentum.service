@@ -1,0 +1,15 @@
+[Unit]
+Description=NSE stock momentum book (PAPER only - no broker session, no orders): daily sync, monthly picks, Telegram updates
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=tradingbot
+Group=tradingbot
+WorkingDirectory=/opt/trading-bot
+EnvironmentFile=/opt/trading-bot/.env
+ExecStart=/opt/trading-bot/.venv/bin/python -m trading_bot.momentum_paper run
+# first run backfills ~300 days of bhavcopies; later runs fetch one file
+TimeoutStartSec=45min
+MemoryMax=300M

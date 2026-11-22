@@ -1,0 +1,10 @@
+[Unit]
+Description=Run the paper momentum book at 09:10 IST each weekday (yesterday's NSE bhavcopy is out by then)
+
+[Timer]
+OnCalendar=Mon..Fri *-*-* 03:40:00 UTC
+Persistent=true
+AccuracySec=1min
+
+[Install]
+WantedBy=timers.target
