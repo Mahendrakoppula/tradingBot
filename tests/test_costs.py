@@ -10,7 +10,7 @@ def test_cost_rates_defaults_are_pinned():
     against a real contract note or a rate circular, never to make a
     backtest look better."""
     r = CostRates()
-    assert (r.brokerage_per_order, r.stt_sell_pct, r.exchange_txn_pct) == (20.0, 0.1, 0.035)
+    assert (r.brokerage_per_order, r.stt_sell_pct, r.exchange_txn_pct) == (20.0, 0.15, 0.035)  # options STT 0.15% from 1 Apr 2026
     assert (r.sebi_fee_pct, r.stamp_duty_pct, r.gst_pct) == (0.0001, 0.003, 18.0)
     assert (r.equity_brokerage_per_order, r.equity_stt_pct, r.equity_stamp_duty_pct) == (0.0, 0.1, 0.015)
 
@@ -18,7 +18,7 @@ def test_cost_rates_defaults_are_pinned():
 def test_cost_rates_methods_match_functions():
     r = CostRates()
     assert r.option_cost(20.0, 25.0, 65) == pytest.approx(
-        option_round_trip_cost(20.0, 25.0, 65, 20.0, 0.1, 0.035, 0.0001, 0.003, 18.0)
+        option_round_trip_cost(20.0, 25.0, 65, 20.0, 0.15, 0.035, 0.0001, 0.003, 18.0)
     )
     assert r.equity_cost(100.0, 110.0, 10) == pytest.approx(
         equity_round_trip_cost(100.0, 110.0, 10, 0.0, 0.1, 0.035, 0.0001, 0.015, 18.0)

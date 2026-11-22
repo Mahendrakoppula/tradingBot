@@ -24,7 +24,7 @@ class CostRates:
     are not tuning knobs - tests/test_costs.py pins these defaults."""
 
     brokerage_per_order: float = 20.0  # flat per executed F&O order - standard discount-broker rate
-    stt_sell_pct: float = 0.1  # options STT, SELL side only (we only ever buy, so this hits every exit)
+    stt_sell_pct: float = 0.15  # options STT, SELL side only: 0.15% of premium from 1 Apr 2026, was 0.10% (we only ever buy, so this hits every exit)
     exchange_txn_pct: float = 0.035  # NSE/BSE F&O transaction charges, both legs
     sebi_fee_pct: float = 0.0001  # SEBI turnover fee (~Rs.10/crore), both legs
     stamp_duty_pct: float = 0.003  # F&O stamp duty, BUY side only
