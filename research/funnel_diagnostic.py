@@ -213,9 +213,14 @@ def main(argv=None) -> int:
     captured: list = []
     real_decide = paper_loop.decide
 
+    import types
+
     def spy(ctx, event, **kw):
         d = real_decide(ctx, event, **kw)
-        captured.append((ctx, d))
+        # keep only what the outcome pass reads: holding every full ContextSnapshot for a year of
+        # decisions cost ~3 GB and got a 2-process run OOM-killed
+        lite = types.SimpleNamespace(ts=ctx.ts, atr=ctx.atr, spot=ctx.spot, regime={"primary": ctx.regime.get("primary")})
+        captured.append((lite, d))
         return d
     paper_loop.decide = spy
     t0 = time.time()
