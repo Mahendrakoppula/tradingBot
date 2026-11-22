@@ -97,6 +97,9 @@ class FakeSource:
     def actions(self, d):
         return []
 
+    def actions_range(self, a, b):
+        return []
+
     def nifty(self, d):
         return 25000.0
 
@@ -133,3 +136,36 @@ def test_position_applies_splits_after_purchase_only():
                         ("RELIANCE", dt.date(2025, 8, 14)): (1.0, 5.5)})
     qty, divs = M.position(h, "RELIANCE", dt.date(2025, 12, 31), acts)
     assert qty == 20.0 and divs == pytest.approx(20 * 5.5)  # the bonus on the buy day itself is already in the price
+
+
+def test_spans_cover_the_range_in_weeks():
+    sp = M.spans(dt.date(2026, 1, 1), dt.date(2026, 1, 20))
+    assert sp[0] == (dt.date(2026, 1, 1), dt.date(2026, 1, 7)) and sp[-1] == (dt.date(2026, 1, 15), dt.date(2026, 1, 20))
+    assert all((b - a).days <= 6 for a, b in sp) and len(sp) == 3
+
+
+class _Resp:
+    def __init__(self, status, content):
+        self.status_code, self.content = status, content
+
+
+class _Session:
+    def __init__(self, responses):
+        self.responses, self.calls = responses, []
+
+    def get(self, url, headers=None, timeout=None):
+        self.calls.append((url, headers))
+        return self.responses.get(url, _Resp(404, b""))
+
+
+def test_source_primes_nse_once_sends_referer_and_rejects_html(tmp_path, monkeypatch):
+    monkeypatch.setattr(M, "MIN_INTERVAL", 0.0)
+    html = b"  <html>Access Denied</html>"
+    sess = _Session({"https://nsearchives.nseindia.com/a.zip": _Resp(200, html), "https://nsearchives.nseindia.com/b.zip": _Resp(200, b"PK..")})
+    src = M.Source(cache=tmp_path, session=sess)
+    assert src._get("https://nsearchives.nseindia.com/a.zip") == (None, False)  # block page is not data
+    assert src._get("https://nsearchives.nseindia.com/b.zip") == (b"PK..", False)
+    assert src._get("https://nsearchives.nseindia.com/missing.zip") == (None, True)
+    urls = [u for u, _ in sess.calls]
+    assert urls.count(M.NSE_HOME) == 1 and urls[0] == M.NSE_HOME
+    assert all(h["Referer"] == "https://www.nseindia.com/" for _, h in sess.calls)

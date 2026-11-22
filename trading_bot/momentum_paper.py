@@ -9,9 +9,10 @@ is paper only: it never calls an order endpoint and has no broker session at all
 Pure Python (no pandas/numpy) so the oneshot stays small on the t3.micro.
 
 Runs once each weekday morning (trading-bot-momentum.timer) and is idempotent:
-  1. sync  - cache NSE's daily equity bhavcopy and corporate actions for the last ~300
-             trading days (NSE archives first, the public GitHub mirror inquilabee/powernse
-             second; a weekday neither has after 3 days is treated as a holiday).
+  1. sync  - cache NSE's daily equity bhavcopy for the last ~300 trading days and read
+             corporate actions from NSE's API (NSE first, the public GitHub mirror
+             inquilabee/powernse second; a weekday both report missing after 3 days is a
+             holiday).
   2. fill  - fill pending orders at the latest close after the formation day (normally
              the first trading day of the month).
   3. form  - after a month's last trading day, pick the new 30: names leaving are sold in
@@ -36,6 +37,7 @@ import math
 import re
 import statistics
 import sys
+import time
 import zipfile
 from collections import defaultdict
 from pathlib import Path
@@ -58,10 +60,18 @@ HISTORY_DAYS = 300
 BROKER_PCT, BROKER_CAP = 0.1, 20.0
 STT, STAMP_BUY, EXCH, SEBI, GST, SLIP, DP = 0.1, 0.015, 0.00297, 0.0001, 18.0, 0.1, 23.60
 
+# NSE endpoints and calling convention as used daily by the maintained powernse project
+# (UDiFF bhavcopy since 8 Jul 2024; corporate actions in 7-day spans; home page first
+# for cookies; a Referer; about 3 requests a second).
+NSE_HOME = "https://www.nseindia.com/"
 NSE_BHAV = "https://nsearchives.nseindia.com/content/cm/BhavCopy_NSE_CM_0_0_0_{d:%Y%m%d}_F_0000.csv.zip"
 NSE_INDEX = "https://nsearchives.nseindia.com/content/indices/ind_close_all_{d:%d%m%Y}.csv"
+NSE_ACTIONS = "https://www.nseindia.com/api/corporates-corporateActions?index=equities&from_date={a:%d-%m-%Y}&to_date={b:%d-%m-%Y}"
 MIRROR = "https://raw.githubusercontent.com/inquilabee/powernse/main/nse-data/raw"
-HEADERS = {"User-Agent": "Mozilla/5.0 (X11; Linux x86_64)", "Accept": "*/*"}
+HEADERS = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; rv:109.0) Gecko/20100101 Firefox/118.0",
+           "Referer": "https://www.nseindia.com/", "Accept": "*/*"}
+MIN_INTERVAL = 0.35
+ACTION_SPAN_DAYS = 7
 
 ETF_SYMBOL = re.compile(r"BEES|ETF|LIQUID|NIFTY|SENSEX|BANKEX|GILT|CASE$|^N100$|^NV20|^MON100$|^MAFANG$|^HNGSNG"
                         r"|GOLDSHARE|^QGOLD|^KOTAKGOLD$|^AXISGOLD$|^IDBIGOLD$|^RELGOLD$|^SBIGETS$|^GOLD1$")
@@ -145,15 +155,28 @@ class Source:
     def __init__(self, cache: Path = CACHE_DIR, session: requests.Session | None = None):
         self.cache = cache
         self.http = session or requests.Session()
+        self._primed = False
+        self._last = 0.0
 
-    def _get(self, url: str) -> tuple[bytes | None, bool]:
-        """(content, definitely_missing): only an HTTP 404 counts as definitely missing."""
+    def _get(self, url: str, accept: str = "*/*") -> tuple[bytes | None, bool]:
+        """(content, definitely_missing): only an HTTP 404 counts as definitely missing; an
+        HTML page where a file or JSON was expected (NSE's block page) counts as a failure."""
+        if "nseindia.com" in url and not self._primed:
+            self._primed = True
+            try:  # cookies, best effort
+                self.http.get(NSE_HOME, headers={**HEADERS, "Accept": "text/html"}, timeout=30)
+            except requests.RequestException as e:
+                log.info("NSE home page priming failed: %s", e)
+        wait = MIN_INTERVAL - (time.monotonic() - self._last)
+        if wait > 0:
+            time.sleep(wait)
+        self._last = time.monotonic()
         try:
-            r = self.http.get(url, headers=HEADERS, timeout=30)
+            r = self.http.get(url, headers={**HEADERS, "Accept": accept}, timeout=30)
         except requests.RequestException as e:
             log.info("fetch failed %s: %s", url, e)
             return None, False
-        if r.status_code == 200 and r.content:
+        if r.status_code == 200 and r.content and not r.content.lstrip()[:1] == b"<":
             return r.content, False
         return None, r.status_code == 404
 
@@ -194,6 +217,34 @@ class Source:
             f.write_text(json.dumps(recs))
         return recs
 
+    def actions_range(self, start: dt.date, end: dt.date) -> list:
+        """Corporate actions with ex-dates in [start, end]: NSE's API in 7-day spans (spans
+        more than 10 days old are cached), the mirror's per-day files for any span NSE refuses."""
+        recs = []
+        for a, b in spans(start, end):
+            f = self.cache / "actions_nse" / f"{a}_{b}.json"
+            if f.exists() and (now_ist().date() - b).days > 10:
+                recs.extend(json.loads(f.read_text()))
+                continue
+            raw, _ = self._get(NSE_ACTIONS.format(a=a, b=b), accept="application/json")
+            got = None
+            if raw:
+                try:
+                    got = json.loads(raw)
+                except ValueError:
+                    got = None
+            if isinstance(got, list):
+                f.parent.mkdir(parents=True, exist_ok=True)
+                f.write_text(json.dumps(got))
+                recs.extend(got)
+            else:
+                d = a
+                while d <= b:
+                    if d.weekday() < 5:
+                        recs.extend(self.actions(d))
+                    d += dt.timedelta(days=1)
+        return recs
+
     def nifty(self, d: dt.date) -> float | None:
         for url in (NSE_INDEX.format(d=d), f"{MIRROR}/index_closes/{d:%Y}/{d}.csv"):
             raw, _ = self._get(url)
@@ -206,6 +257,15 @@ class Source:
             except (ValueError, KeyError):
                 continue
         return None
+
+
+def spans(start: dt.date, end: dt.date, days: int = ACTION_SPAN_DAYS) -> list:
+    out, a = [], start
+    while a <= end:
+        b = min(end, a + dt.timedelta(days=days - 1))
+        out.append((a, b))
+        a = b + dt.timedelta(days=1)
+    return out
 
 
 def sync(src: Source, today: dt.date, days: int = HISTORY_DAYS) -> dict:
@@ -418,10 +478,7 @@ def run(src: Source, today: dt.date, send=technical_notifier.notify) -> dict:
     bhavs = sync(src, today)
     if len(bhavs) < 260:
         raise RuntimeError(f"only {len(bhavs)} trading days of bhavcopy available - need 260")
-    recs = []
-    for d in bhavs:
-        recs.extend(src.actions(d))
-    acts = parse_actions(recs)
+    acts = parse_actions(src.actions_range(min(bhavs), today))
     acts_by_sym = by_symbol(acts)
     latest = max(bhavs)
     if ledger["nifty_start"] is None:
