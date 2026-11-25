@@ -323,8 +323,12 @@ def test_tech_shadow_strategies_are_real_families():
     names = {f.spec.name for f in FAMILIES}
     listed = {v.strip().upper() for v in CONFIG.get("TECH_SHADOW_STRATEGIES", "").split(",") if v.strip()}
     assert listed <= names, listed - names
-    # LEVEL_REJECTION v0.1 stays shadow-only until R5 is READY and a section-83 record exists (docs/ROADMAP.md)
-    assert "LEVEL_REJECTION" in listed
+    # LEVEL_REJECTION v0.1 left shadow on 2026-11-25 at the operator's request; that decision must stay
+    # recorded in docs/ROADMAP.md (R5) for as long as it trades in PAPER.
+    if "LEVEL_REJECTION" not in listed:
+        from pathlib import Path
+        roadmap = (Path(__file__).resolve().parent.parent / "docs" / "ROADMAP.md").read_text()
+        assert "LEVEL_REJECTION" in roadmap and "PAPER from 2026-11-25 at the operator's request" in roadmap
 
 
 def test_tech_paper_profile_is_known_and_not_ideal():
