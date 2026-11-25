@@ -51,8 +51,8 @@ cp /opt/trading-bot/deploy/trading-bot-momentum.timer /etc/systemd/system/tradin
 systemctl daemon-reload
 # Requires= on trading-bot.service AND trading-bot-technical.service pulls the bootstrap
 # service in on every start - no need to separately enable it. The daily bot only runs
-# when deploy/config.env says DAILY_BOT_ENABLED=true (switched off 2026-11-25).
-if grep -q ^DAILY_BOT_ENABLED=true /opt/trading-bot/deploy/config.env; then systemctl enable --now trading-bot.service; else systemctl disable trading-bot.service || true; fi
+# when config.env (packaged at /opt/trading-bot/config.env) says DAILY_BOT_ENABLED=true (off since 2026-11-25).
+if grep -q ^DAILY_BOT_ENABLED=true /opt/trading-bot/config.env; then systemctl enable --now trading-bot.service; else systemctl disable trading-bot.service || true; fi
 # Second bot (index-options engine, SHADOW mode). Started AFTER the daily
 # bot (unit has After=trading-bot.service) to stagger the two logins on the
 # shared SmartAPI key. Needs PostgreSQL: on a FRESH instance run

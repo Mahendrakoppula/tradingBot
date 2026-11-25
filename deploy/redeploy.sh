@@ -44,7 +44,7 @@ COMMAND_ID=$(aws ssm send-command \
     'if [ -f /opt/trading-bot/deploy/trading-bot-review.timer ]; then cp /opt/trading-bot/deploy/trading-bot-review.timer /etc/systemd/system/trading-bot-review.timer; fi',
     'systemctl daemon-reload',
     'systemctl enable --now trading-bot-s3-sync.timer',
-    'if grep -q ^DAILY_BOT_ENABLED=true /opt/trading-bot/deploy/config.env; then systemctl enable --now trading-bot.service; if [ -f /etc/systemd/system/trading-bot-review.timer ]; then systemctl enable --now trading-bot-review.timer; fi; else systemctl disable --now trading-bot.service trading-bot-review.timer || true; fi',
+    'if grep -q ^DAILY_BOT_ENABLED=true /opt/trading-bot/config.env; then systemctl enable --now trading-bot.service; if [ -f /etc/systemd/system/trading-bot-review.timer ]; then systemctl enable --now trading-bot-review.timer; fi; else systemctl disable --now trading-bot.service trading-bot-review.timer || true; fi',
     'systemctl enable --now trading-bot-pgdump.timer',
     'systemctl enable --now trading-bot-engine-review.timer',
     'systemctl enable --now trading-bot-momentum.timer',
