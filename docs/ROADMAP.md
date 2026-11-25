@@ -270,6 +270,7 @@ proves it on every CI run.
 | 2026-09-22 | `feature/r1-tracker-sweep-bos` | R1 tracker also counts LIQUIDITY_SWEEP_BOS declines after a sweep; sweep journaled with rejected signals |
 | 2026-09-22 | `feature/level-rejection-shadow` | `sweep_reclaim` pre-signal confirmation + `LEVEL_REJECTION v0.1` family, shadow-only; R5 tracks it |
 | 2026-11-25 | `config/level-rejection-paper` | `LEVEL_REJECTION` moved from shadow to PAPER at the operator's request (did not meet the R5 bar; see R5) |
+| 2026-11-25 | `config/daily-bot-off` | daily long-option bot (`trading-bot.service`) and its nightly review agent (`trading-bot-review.timer`) switched off at the operator's request; `DAILY_BOT_ENABLED=true` in `deploy/config.env` turns both back on |
 | 2026-09-22 | `fix/eod-gap-drift-r6` | a 1m gap starting after the entry cut-off no longer trips the breaker (SENSEX 15:16 both days); clock-drift alert 5 s -> 20 s; R6 tracker |
 | 2026-09-29 | `feature/history-backfill-replay` | `backfill_history` + `replay_range`: pull a year of 1m/5m/30m and replay it through the pipeline into a SEPARATE database, to turn 121 live signals into a testable sample |
 | 2026-09-24 | `feature/daily-bot-summary` | daily bot's trades summarised deterministically in the 15:45 post (its Claude review agent has been out of API credit since 2026-09-14, so 20 trades went unreviewed) |
